@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>詳解產生器（本機）</title>
+<style>
+  :root{
+    --bg:#eef1f5; --surface:#fff; --surface-2:#f5f7fa; --ink:#1b2733; --muted:#5c6b7a;
+    --line:#dbe2ea; --accent:#0f6f66; --good:#1c8a4e; --good-soft:#dcf0e4;
+    --bad:#c5343a; --bad-soft:#f7dede; --warn:#a86a10; --warn-soft:#f6e8cf;
+    --r:12px; --shadow:0 1px 2px rgba(20,30,45,.06),0 6px 20px rgba(20,30,45,.06);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#10151b; --surface:#1a212b; --surface-2:#141a22; --ink:#e8eef4; --muted:#93a2b2;
+    --line:#2a333f; --accent:#3fb9ab; --good:#4cc07d; --good-soft:#123020;
+    --bad:#ec6a6d; --bad-soft:#3a1a1c; --warn:#e0a951; --warn-soft:#3a2c12;
+    color-scheme:dark;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.6;
+    font-family:system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:20px 16px 64px}
+  h1{font-size:21px;margin:0}
+  .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+  .lead{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+  .step{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8px}
+  textarea{width:100%;min-height:150px;resize:vertical;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;padding:11px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.55}
+  input[type=text]{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:14px}
+  textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500}
+  .rowb{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  button{font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border-radius:9px;padding:10px 16px;border:1px solid transparent}
+  .primary{background:var(--accent);color:#fff}.primary:hover{filter:brightness(1.06)}
+  .primary:disabled{opacity:.5;cursor:progress}
+  .ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line)}.ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .file{font-size:13px;color:var(--muted)}
+  .status{font-size:13px;margin-top:10px}
+  .status.err{color:var(--bad);font-weight:500}
+  .status.ok{color:var(--good)}
+  .saved{font-size:12.5px;color:var(--muted);margin-top:8px;word-break:break-all}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:4px 0 14px}
+  .stat{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .stat .k{font-size:11.5px;color:var(--muted)}
+  .stat .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat.hero .v{color:var(--accent)} .stat.bad .v{color:var(--bad)} .stat.warn .v{color:var(--warn)}
+  .q{border:1px solid var(--line);border-radius:10px;margin-bottom:9px;overflow:hidden;background:var(--surface)}
+  .q.miss{border-left:4px solid var(--bad)} .q.incons{border-left:4px solid var(--warn)} .q.ok{border-left:4px solid var(--good)}
+  .qh{display:flex;gap:12px;align-items:center;padding:10px 12px;cursor:pointer;flex-wrap:wrap}
+  .qno{font-weight:700;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;min-width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .cmp{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+  .letter{font-weight:700;border:1px solid var(--line);background:var(--surface-2);border-radius:6px;padding:1px 8px;color:var(--ink)}
+  .pill{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;margin-left:auto}
+  .pill.good{background:var(--good-soft);color:var(--good)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+  .pill.warn{background:var(--warn-soft);color:var(--warn);margin-left:6px} .pill.mut{background:var(--surface-2);color:var(--muted)}
+  .qb{display:none;padding:0 12px 13px;border-top:1px solid var(--line)}
+  .q.open .qb{display:block}
+  .detail{background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13.5px;margin:11px 0}
+  .opt{display:grid;grid-template-columns:auto 1fr;gap:9px;font-size:13px;padding:7px 9px;border-radius:7px;margin-bottom:5px}
+  .opt.correct{background:var(--good-soft)} .opt .ol{font-weight:700}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>詳解產生器（本機）</h1>
+    <span class="badge" id="engineBadge">引擎：讀取中…</span>
+  </div>
+  <p class="lead">丟考卷文字 → 產生詳解 → 產出 Word 並存到本機 <code>local-app/output/</code>。此頁在你自己的電腦上跑，可直接讀寫檔案。</p>
+
+  <div class="card">
+    <div class="step">Step 1 · 考卷輸入</div>
+    <label for="exam">貼上考卷文字（題幹＋選項；若有官方答案可一併貼上或填到 Step 2）</label>
+    <textarea id="exam" placeholder="1. （　）下列關於……&#10;(A)……(B)……(C)……(D)……"></textarea>
+    <div class="rowb">
+      <input class="file" type="file" id="examFile" accept=".txt,.md,.json">
+      <button class="primary" id="genBtn">產生詳解</button>
+    </div>
+    <div class="status" id="genStatus"></div>
+  </div>
+
+  <div class="card hidden" id="resultCard">
+    <div class="step">Step 2 · 檢核與產檔</div>
+    <label for="key">官方答案（依題號順序，只認 A–D，分隔可隨意；留空不計命中率）</label>
+    <input type="text" id="key" placeholder="例：B A D A B">
+    <div class="stats" id="stats"></div>
+    <div id="list"></div>
+    <div class="rowb">
+      <input type="text" id="fname" placeholder="輸出檔名（可留空，預設用簡答標題）" style="flex:1;min-width:200px">
+      <button class="primary" id="renderBtn">產出 Word 並存本機</button>
+    </div>
+    <div class="status" id="renderStatus"></div>
+    <div class="saved" id="savedPath"></div>
+    <div class="hint">產出後 Word 會同時下載到瀏覽器、並存一份到 output/。公式為單錢號 $...$，開檔後用 MathType Toggle TeX 轉換。</div>
+  </div>
+</div>
+
+<script>
+var $=function(s){return document.querySelector(s);};
+var currentData=null, keyArr=[];
+
+function esc(t){return String(t==null?"":t).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
+function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++){var c=s[i];if(c>="A"&&c<="D")o.push(c);}return o;}
+
+$("#examFile").addEventListener("change",function(e){
+  var f=e.target.files[0];if(!f)return;var r=new FileReader();
+  r.onload=function(){$("#exam").value=r.result;};r.readAsText(f);
+});
+
+$("#genBtn").addEventListener("click",async function(){
+  var exam=$("#exam").value.trim();var st=$("#genStatus");
+  if(!exam){st.className="status err";st.textContent="請先貼上考卷文字。";return;}
+  st.className="status";st.textContent="產生中…（引擎解題可能要一點時間）";
+  $("#genBtn").disabled=true;
+  try{
+    var res=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({examText:exam})});
+    var j=await res.json();
+    if(!j.ok)throw new Error(j.error||"產生失敗");
+    currentData=j.data;
+    st.className="status ok";st.textContent="已產生 "+(j.data.questions||[]).length+" 題。"+(j.mismatches&&j.mismatches.length?("　⚠ 內部不一致題號："+j.mismatches.join(", ")):"");
+    $("#resultCard").classList.remove("hidden");
+    render();
+    $("#resultCard").scrollIntoView({behavior:"smooth"});
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}
+  finally{$("#genBtn").disabled=false;}
+});
+
+$("#key").addEventListener("input",function(){keyArr=parseKey(this.value);render();});
+
+function analyze(){
+  var qs=(currentData&&currentData.questions?currentData.questions.slice():[]);
+  qs.sort(function(a,b){return(a.no||0)-(b.no||0);});
+  return qs.map(function(q,i){
+    var official=keyArr[i]||null;var mine=(q.answer||"").toUpperCase();
+    var hit=official?(mine===official):null;
+    var cor=(q.options||[]).find(function(o){return /^\s*正確/.test(o.text||"");});
+    var det=cor?(cor.label||"").toUpperCase():null;
+    return{q:q,no:q.no,mine:mine,official:official,hit:hit,consistent:det?det===mine:false};
+  });
+}
+function render(){
+  if(!currentData)return;var rows=analyze();
+  var off=rows.filter(function(r){return r.official;});
+  var hits=off.filter(function(r){return r.hit;}).length;
+  var rate=off.length?Math.round(hits/off.length*100):null;
+  var incons=rows.filter(function(r){return !r.consistent;}).length;
+  $("#stats").innerHTML=
+    '<div class="stat hero"><div class="k">命中率</div><div class="v">'+(rate==null?"—":rate+"%")+'</div></div>'+
+    '<div class="stat"><div class="k">答對/已對照</div><div class="v">'+hits+"/"+off.length+'</div></div>'+
+    '<div class="stat bad"><div class="k">未命中</div><div class="v">'+(off.length-hits)+'</div></div>'+
+    '<div class="stat warn"><div class="k">內部不一致</div><div class="v">'+incons+'</div></div>';
+  $("#list").innerHTML=rows.map(function(r){
+    var cls=r.official&&r.hit===false?"miss":(!r.consistent?"incons":(r.official&&r.hit?"ok":""));
+    var v=r.official?(r.hit?'<span class="pill good">✓ 命中</span>':'<span class="pill bad">✗ 未命中</span>'):'<span class="pill mut">未對照</span>';
+    if(!r.consistent)v+='<span class="pill warn">內部不一致</span>';
+    var opts=(r.q.options||[]).map(function(o){
+      var isC=/^\s*正確/.test(o.text||"");
+      return '<div class="opt'+(isC?" correct":"")+'"><span class="ol">('+esc((o.label||"").toUpperCase())+')</span><span>'+esc(o.text)+'</span></div>';
+    }).join("");
+    return '<div class="q '+cls+'"><div class="qh"><div class="qno">'+esc(r.no)+'</div>'+
+      '<div class="cmp">我判 <span class="letter">'+esc(r.mine||"?")+'</span> vs 官方 <span class="letter">'+esc(r.official||"—")+'</span></div>'+v+'</div>'+
+      '<div class="qb"><div class="detail">'+esc(r.q.detail||"（無共用說明）")+'</div>'+opts+'</div></div>';
+  }).join("");
+  Array.prototype.forEach.call(document.querySelectorAll(".qh"),function(h){h.onclick=function(){h.parentNode.classList.toggle("open");};});
+}
+
+$("#renderBtn").addEventListener("click",async function(){
+  if(!currentData){return;}var st=$("#renderStatus");
+  st.className="status";st.textContent="產出中…";$("#renderBtn").disabled=true;
+  try{
+    var res=await fetch("/api/render",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:currentData,filename:$("#fname").value.trim()})});
+    if(!res.ok){var j=await res.json();throw new Error(j.error||"產出失敗");}
+    var saved=decodeURIComponent(res.headers.get("x-saved-path")||"");
+    var blob=await res.blob();var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");a.href=url;
+    var cd=res.headers.get("content-disposition")||"";var m=cd.match(/filename\*=UTF-8''([^;]+)/);
+    a.download=m?decodeURIComponent(m[1]):"詳解.docx";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+    st.className="status ok";st.textContent="已產出並下載。";
+    if(saved)$("#savedPath").textContent="已存到本機："+saved;
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}
+  finally{$("#renderBtn").disabled=false;}
+});
+
+// 顯示目前引擎
+fetch("/").then(function(){return;}).catch(function(){});
+$("#engineBadge").textContent="引擎："+(location.search.indexOf("api")>-1?"api":"claude-code")+"（由伺服器端 ENGINE 決定）";
+</script>
+</body>
+</html>

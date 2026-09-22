@@ -4,6 +4,10 @@ __pycache__/
 
 # Node
 node_modules/
+package-lock.json
+
+# 本機應用產出的 Word
+local-app/output/
 
 # OS
 .DS_Store

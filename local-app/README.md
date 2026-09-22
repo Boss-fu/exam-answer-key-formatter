@@ -1,0 +1,62 @@
+# 詳解產生器（本機應用）
+
+在**你自己的電腦**上跑的小網頁工具：丟考卷文字 → 產生詳解 → 產出 Word(.docx) 並存到本機。
+因為是本機伺服器，才有權限讀寫你的檔案；claude.ai 上的 artifact 是沙箱網頁，碰不到本機，做不到這件事。
+
+## 為什麼不是用 artifact
+
+| | artifact（claude.ai 沙箱網頁） | 本機應用（這個） |
+|---|---|---|
+| 讀寫本機檔案 | ❌ 不行 | ✅ 可以 |
+| 叫本機 Claude Code | ❌ 不行 | ✅ 可以（`claude -p`） |
+| 存 .docx 到你的資料夾 | ❌（下載被沙箱擋） | ✅ 存到 `output/` |
+| 用途 | 只適合檢視／驗證準確度 | 真正的「丟檔案→出檔案」管道 |
+
+## 安裝與啟動
+
+在 repo 根目錄（不是這個子資料夾）：
+
+```bash
+npm install          # 安裝 docx 套件
+npm start            # 啟動，預設 http://localhost:8787
+```
+
+瀏覽器打開 `http://localhost:8787`，貼上考卷文字，按「產生詳解」→「產出 Word 並存本機」。
+
+## 選擇解題引擎
+
+用環境變數 `ENGINE` 決定誰來解題：
+
+- **`claude-code`（預設）** — 呼叫本機已安裝的 Claude Code CLI（`claude -p`）。
+  沿用你現有的 Claude Code，不需另外的 API 金鑰。
+  需要本機能在終端機直接執行 `claude`；若指令名稱不同，用 `CLAUDE_BIN` 指定。
+  ```bash
+  npm start
+  ```
+- **`api`** — 呼叫 Anthropic Claude API，需要金鑰。
+  ```bash
+  ENGINE=api ANTHROPIC_API_KEY=sk-ant-... npm start
+  # 可選：ANTHROPIC_MODEL=claude-sonnet-4-5
+  ```
+
+## 產出規則
+
+- 詳解格式、欄寬、字體、行高、分頁等一律沿用 repo 的 `理化數學詳解與簡答產出規範.md` 與
+  `exam-answer-key-formatter/SKILL.md`（引擎會把這兩份當系統規則）。
+- 數學公式為單一錢號 `$...$` 純文字；開檔後在 Word 用 MathType 的 Toggle TeX（Alt+\ / Option+\）批次轉換。
+- 產出的 Word 會同時：在瀏覽器下載、並存一份到 `local-app/output/`。
+
+## 目前範圍與限制
+
+- **輸入以「文字」為主。** 掃描 PDF／照片的辨識不在此工具內；若要處理掃描卷，先用 `exam-to-word`
+  技能整理成文字/乾淨 Word，再貼進來。
+- 產出的答案由引擎判斷，**務必用「官方答案」欄位對照命中率**再採用（見 Step 2）。
+- 這是本機開發用途，沒有做身分驗證，不要對外網開放這個埠。
+
+## 檔案
+
+- `server.js` — 本機 HTTP 伺服器（`/api/generate` 產詳解、`/api/render` 產 Word）
+- `engine.js` — 解題引擎抽象層（claude-code / api）
+- `public/index.html` — 前端頁面
+- `output/` — 產出的 .docx（自動建立，已被 .gitignore 忽略）
+- 共用產檔邏輯在 `../code/render.js`（包裝 `../code/lib3.js`）

@@ -1,0 +1,14 @@
+{
+  "name": "exam-answer-key-formatter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "國中理化/數學詳解與簡答產生工具：docx-js 排版核心、JSON→Word CLI，以及本機丟檔案產詳解的小網頁應用。",
+  "main": "code/render.js",
+  "scripts": {
+    "start": "node local-app/server.js",
+    "build:json": "node code/build_from_json.js"
+  },
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}
