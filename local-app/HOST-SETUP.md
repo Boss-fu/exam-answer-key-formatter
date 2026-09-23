@@ -48,6 +48,22 @@
 2. 按 `Win + R`，輸入 `shell:startup`，Enter，會開啟「啟動」資料夾。
 3. 把剛剛的捷徑丟進去。之後開機就會自動跑起來。
 
+## 想「自動更新」（在別台電腦維護、主機自己拉新版）
+
+`local-app\auto-update.ps1` 每次執行會：檢查 GitHub `main` 有沒有新版 → 有就快轉更新並重開服務；服務沒在跑就把它叫起來。
+用工作排程器設成「登入時＋每 5 分鐘」執行，就能取代上面的開機捷徑（兩者擇一，別同時用）：
+
+```powershell
+$ps1 = "<repo 路徑>\local-app\auto-update.ps1"
+$act = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ps1`""
+$t1 = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$t2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName "詳解本機應用 自動更新" -Action $act -Trigger $t1,$t2 -Settings (New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable)
+```
+
+- 主機的 repo 請各自 `git clone` 在 Dropbox/OneDrive **以外**的資料夾，只由這個腳本更新，不要在主機上直接改檔。
+- 紀錄在 `local-app\output\auto-update.log`。
+
 ---
 
 ## 安全注意
