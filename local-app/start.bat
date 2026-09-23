@@ -22,6 +22,8 @@ echo 關閉此視窗即停止服務。
 echo.
 
 REM 引擎預設 claude-code（需本機已安裝並登入 Claude Code CLI）。
+REM Windows 上 Node 無法直接 spawn "claude"（npm 只放了 .cmd/.ps1 包裝），改指向實際的 claude.exe。
+if not defined CLAUDE_BIN if exist "%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe" set "CLAUDE_BIN=%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
 REM 若要改用 API，把上面那行註解拿掉、填入金鑰，並把下面 npm start 前加 set：
 REM set ENGINE=api
 REM set ANTHROPIC_API_KEY=sk-ant-...
