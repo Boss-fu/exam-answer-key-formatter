@@ -6,35 +6,32 @@
 <title>詳解產生器（本機）</title>
 <style>
   :root{
-    --bg:#eef1f5; --surface:#fff; --surface-2:#f5f7fa; --ink:#1b2733; --muted:#5c6b7a;
-    --line:#dbe2ea; --accent:#0f6f66; --good:#1c8a4e; --good-soft:#dcf0e4;
-    --bad:#c5343a; --bad-soft:#f7dede; --warn:#a86a10; --warn-soft:#f6e8cf;
-    --r:12px; --shadow:0 1px 2px rgba(20,30,45,.06),0 6px 20px rgba(20,30,45,.06);
+    --bg:#f8f7f4; --surface:#fffefb; --surface-2:#f4f1eb; --ink:#2d3038; --muted:#807a73;
+    --line:#e5dfd5; --accent:#850103; --accent-hover:#6f0002; --good:#1f6f5c; --good-soft:#e3f0ea;
+    --bad:#b33a36; --bad-soft:#f9e6e2; --warn:#9a6b19; --warn-soft:#f8efd9;
+    --r:15px; --shadow:0 2px 9px rgba(43,32,28,.045); --ui:"PingFang TC","Microsoft JhengHei",system-ui,-apple-system,sans-serif;
   }
-  @media (prefers-color-scheme:dark){:root{
-    --bg:#10151b; --surface:#1a212b; --surface-2:#141a22; --ink:#e8eef4; --muted:#93a2b2;
-    --line:#2a333f; --accent:#3fb9ab; --good:#4cc07d; --good-soft:#123020;
-    --bad:#ec6a6d; --bad-soft:#3a1a1c; --warn:#e0a951; --warn-soft:#3a2c12;
-    color-scheme:dark;
-  }}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.6;
-    font-family:system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}
-  .wrap{max-width:920px;margin:0 auto;padding:20px 16px 64px}
-  h1{font-size:21px;margin:0}
-  .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-  .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
-  .lead{color:var(--muted);font-size:13.5px;margin:0 0 18px}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
-  .step{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8px}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.7;font-family:var(--ui);font-weight:500}
+  header{height:72px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center}
+  .bar{width:min(1120px,calc(100% - 48px));margin:auto;display:flex;align-items:center;gap:12px}
+  .brand-mark{width:39px;height:39px;display:grid;place-items:center;flex:none;border-right:1px solid var(--line);padding-right:12px;box-sizing:content-box;color:var(--accent);font-size:26px;font-weight:900;line-height:1}
+  .brand-name{font-size:18px;font-weight:800;letter-spacing:1px}.brand-sub{font-size:10px;letter-spacing:1.7px;color:#968d84;margin-top:-3px}
+  .wrap{width:min(1040px,calc(100% - 48px));margin:0 auto;padding:48px 0 68px}
+  .hero{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:32px 34px 30px;margin-bottom:18px}
+  .kicker{font-size:10px;font-weight:700;letter-spacing:2.8px;color:#9a8d7e;margin-bottom:7px}.hero h1{font-size:26px;letter-spacing:1.2px;line-height:1.35;font-weight:800;margin:0}.hero p{font-size:13.5px;color:var(--muted);margin:7px 0 0}.engine-badge{display:inline-flex;align-items:center;margin-left:7px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);font-size:11px;color:var(--muted);white-space:nowrap}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:24px 26px;margin-bottom:18px}
+  .step{font-size:10px;letter-spacing:2.2px;text-transform:uppercase;color:#9a8d7e;font-weight:700;margin-bottom:8px}
+  h2{font-size:18px;letter-spacing:1px;margin:0 0 4px}.section-note{font-size:13px;color:var(--muted);margin:0 0 16px}
+  .workflow{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:24px;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--line)}.workflow-item{padding:11px 13px;background:var(--surface);font-size:12px;color:var(--muted)}.workflow-item b{display:block;margin-bottom:1px;color:var(--ink);font-size:13px;letter-spacing:.25px}.workflow-no{display:inline-grid;place-items:center;width:18px;height:18px;margin-right:6px;border-radius:50%;background:var(--accent);color:#fff;font-size:10px;font-weight:800}
   textarea{width:100%;min-height:150px;resize:vertical;background:var(--surface-2);color:var(--ink);
-    border:1px solid var(--line);border-radius:9px;padding:11px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.55}
-  input[type=text]{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:14px}
+    border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.55}
+  input[type=text]{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px}
   textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
   label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500}
   .rowb{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
   button{font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border-radius:9px;padding:10px 16px;border:1px solid transparent}
-  .primary{background:var(--accent);color:#fff}.primary:hover{filter:brightness(1.06)}
+  .primary{background:var(--accent);color:#fff;letter-spacing:.6px}.primary:hover{background:var(--accent-hover)}
   .primary:disabled{opacity:.5;cursor:progress}
   .ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line)}.ghost:hover{border-color:var(--accent);color:var(--accent)}
   .file{font-size:13px;color:var(--muted)}
@@ -47,7 +44,7 @@
   .stat .k{font-size:11.5px;color:var(--muted)}
   .stat .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
   .stat.hero .v{color:var(--accent)} .stat.bad .v{color:var(--bad)} .stat.warn .v{color:var(--warn)}
-  .q{border:1px solid var(--line);border-radius:10px;margin-bottom:9px;overflow:hidden;background:var(--surface)}
+  .q{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;overflow:hidden;background:#fff}
   .q.miss{border-left:4px solid var(--bad)} .q.incons{border-left:4px solid var(--warn)} .q.ok{border-left:4px solid var(--good)}
   .qh{display:flex;gap:12px;align-items:center;padding:10px 12px;cursor:pointer;flex-wrap:wrap}
   .qno{font-weight:700;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;min-width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
@@ -62,19 +59,18 @@
   .opt{display:grid;grid-template-columns:auto 1fr;gap:9px;font-size:13px;padding:7px 9px;border-radius:7px;margin-bottom:5px}
   .opt.correct{background:var(--good-soft)} .opt .ol{font-weight:700}
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
-  .hidden{display:none}
+  .hidden{display:none}footer{text-align:center;color:#a0978d;font-size:11px;letter-spacing:.8px;padding:0 20px 30px}
+  @media(max-width:680px){header{height:64px}.bar,.wrap{width:calc(100% - 32px)}.wrap{padding:25px 0 42px}.hero{padding:24px 20px}.hero h1{font-size:22px}.card{padding:19px 16px}.workflow{grid-template-columns:1fr}.engine-badge{margin:8px 0 0}}
 </style>
 </head>
 <body>
+<header><div class="bar"><div class="brand-mark" aria-hidden="true">茲</div><div><div class="brand-name">茲茲文教｜詳解工作台</div><div class="brand-sub">TZUTZU EDUCATION · ANSWER KEY WORKSPACE</div></div></div></header>
 <div class="wrap">
-  <div class="top">
-    <h1>詳解產生器（本機）</h1>
-    <span class="badge" id="engineBadge">引擎：讀取中…</span>
-  </div>
-  <p class="lead">丟考卷文字 → 產生詳解 → 產出 Word 並存到本機 <code>local-app/output/</code>。此頁在你自己的電腦上跑，可直接讀寫檔案。</p>
+  <section class="hero"><div class="kicker">ANSWER KEY WORKSPACE</div><h1>國中自然／數學詳解產生器</h1><p>匯入考卷、核對答案，再輸出符合講義格式的 Word 詳解。<span class="engine-badge" id="engineBadge">引擎：讀取中…</span></p><div class="workflow" aria-label="操作流程"><div class="workflow-item"><b><span class="workflow-no">1</span>匯入考卷</b>貼上文字或上傳檔案</div><div class="workflow-item"><b><span class="workflow-no">2</span>核對詳解</b>對照官方答案與逐題內容</div><div class="workflow-item"><b><span class="workflow-no">3</span>輸出 Word</b>下載並保存講義詳解</div></div></section>
 
   <div class="card">
-    <div class="step">Step 1 · 考卷輸入</div>
+    <div class="step">STEP 1 · EXAM INPUT</div>
+    <h2>匯入考卷內容</h2><p class="section-note">上傳有文字層的考卷檔，或直接貼上題目文字。</p>
     <label for="exam">上傳乾淨考卷檔（PDF / Word），或直接貼上文字</label>
     <div class="rowb" style="margin:0 0 10px">
       <input class="file" type="file" id="examFile" accept=".pdf,.docx,.txt,.md">
@@ -88,8 +84,20 @@
     <div class="status" id="genStatus"></div>
   </div>
 
+  <div class="card">
+    <div class="step">SCAN CLEANUP · BETA</div>
+    <h2>髒考卷整理</h2><p class="section-note">上傳掃描 PDF 或照片，重建成套用茲茲格式的可編輯 Word。處理時間較長；筆跡、圖表與看不清的文字會列入人工確認。</p>
+    <label for="dirtyFile">掃描考卷（PDF / PNG / JPG）</label>
+    <div class="rowb" style="margin:0 0 10px"><input class="file" type="file" id="dirtyFile" accept=".pdf,.png,.jpg,.jpeg"><span class="status" id="dirtyStatus"></span></div>
+    <div class="hint">此功能需要主機已登入 Claude Code。請使用原始掃描檔；不要先用低解析度截圖或 OCR Word 取代原卷。</div>
+    <div class="rowb"><button class="primary" id="dirtyBtn">整理成茲茲 Word</button></div>
+    <div class="status" id="dirtyRunStatus"></div>
+    <div class="detail hidden" id="dirtyResult"></div>
+  </div>
+
   <div class="card hidden" id="resultCard">
-    <div class="step">Step 2 · 檢核與產檔</div>
+    <div class="step">STEP 2 · REVIEW & EXPORT</div>
+    <h2>核對詳解並輸出</h2><p class="section-note">輸入官方答案可檢視命中率與每題詳解的一致性。</p>
     <label for="key">官方答案（依題號順序，只認 A–D，分隔可隨意；留空不計命中率）</label>
     <input type="text" id="key" placeholder="例：B A D A B">
     <div class="stats" id="stats"></div>
@@ -103,6 +111,7 @@
     <div class="hint">產出後 Word 會同時下載到瀏覽器、並存一份到 output/。公式為單錢號 $...$，開檔後用 MathType Toggle TeX 轉換。</div>
   </div>
 </div>
+<footer>茲茲文教・自然科詳解工作台</footer>
 
 <script>
 var $=function(s){return document.querySelector(s);};
@@ -153,6 +162,19 @@ $("#genBtn").addEventListener("click",async function(){
     $("#resultCard").scrollIntoView({behavior:"smooth"});
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}
   finally{$("#genBtn").disabled=false;}
+});
+
+$("#dirtyBtn").addEventListener("click",async function(){
+  var f=$("#dirtyFile").files[0],st=$("#dirtyRunStatus"),box=$("#dirtyResult");
+  if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
+  if(!/\.(pdf|png|jpe?g)$/i.test(f.name)){st.className="status err";st.textContent="只接受 PDF、PNG 或 JPG 檔案。";return;}
+  st.className="status";st.textContent="整理中…這會依考卷頁數與筆跡多寡花幾分鐘，請勿關閉此頁。";box.classList.add("hidden");$("#dirtyBtn").disabled=true;
+  try{var data=await new Promise(function(resolve,reject){var r=new FileReader();r.onerror=function(){reject(new Error("檔案讀取失敗"));};r.onload=function(){resolve(String(r.result).split(",")[1]||"");};r.readAsDataURL(f);});
+    var res=await fetch("/api/dirty-exam",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});var j=await res.json();if(!j.ok)throw new Error(j.error||"整理失敗");
+    st.className="status ok";st.textContent="已完成："+(j.summary||"考卷已整理");
+    var review=(j.reviewItems||[]).length?("<br><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")):"<br>未回報需人工確認項目。";
+    box.innerHTML='<a class="primary" href="'+esc(j.downloadUrl)+'">下載茲茲 Word</a>'+review;box.classList.remove("hidden");
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#dirtyBtn").disabled=false;}
 });
 
 $("#key").addEventListener("input",function(){keyArr=parseKey(this.value);render();});

@@ -111,4 +111,45 @@ async function generate(examText) {
   return generateWithClaudeCode(examText);
 }
 
-module.exports = { generate, buildPrompt, extractJson };
+function generateDirtyExam({ sourcePath, workDir, outputDir }) {
+  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  if (engine === "api") throw new Error("髒考卷整理需要可讀取檔案並產出 Word 的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
+  const bin = process.env.CLAUDE_BIN || "claude";
+  const skill = path.join(REPO, "exam-to-word");
+  const resultPath = path.join(workDir, "result.json");
+  const prompt = `你是茲茲文教的考卷清稿助理。請完整閱讀 ${path.join(skill, "SKILL.md")}、${path.join(skill, "references", "example_build.py")} 與 ${path.join(skill, "references", "lessons.md")} 後執行工作。
+
+來源檔案：${sourcePath}
+工作資料夾：${workDir}
+輸出資料夾：${outputDir}
+範本：${path.join(skill, "assets", "template.docx")}
+
+請把 scripts 複製到工作資料夾，依 SKILL 的流程將來源考卷重建成可編輯、套用茲茲格式的 Word。來源看不清、筆跡無法完全移除、或原卷疑似錯誤時，不可捏造，請列入人工確認。
+
+完成後必須在 ${resultPath} 寫入 UTF-8 JSON（不要只在回答文字中說明）：
+{
+  "outputFile": "絕對路徑，且必須位於 ${outputDir} 內的 .docx 檔",
+  "reviewItems": ["需人工確認事項"],
+  "summary": "完成摘要"
+}
+最後只回覆一句完成狀態。`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, ["-p", prompt], { cwd: REPO, env: process.env });
+    let err = "";
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`髒考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
+      try {
+        const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+        if (!result.outputFile || !path.resolve(result.outputFile).startsWith(path.resolve(outputDir) + path.sep) || !/\.docx$/i.test(result.outputFile)) {
+          throw new Error("引擎沒有產出有效的 Word 檔案路徑");
+        }
+        if (!fs.existsSync(result.outputFile)) throw new Error("引擎回報的 Word 檔案不存在");
+        resolve({ summary: String(result.summary || "已完成考卷整理"), reviewItems: Array.isArray(result.reviewItems) ? result.reviewItems.map(String) : [], outputFile: result.outputFile });
+      } catch (e) { reject(new Error(`無法讀取髒考卷處理結果：${e.message}`)); }
+    });
+  });
+}
+
+module.exports = { generate, generateDirtyExam, buildPrompt, extractJson };
