@@ -43,6 +43,8 @@ function Start-Server {
 }
 
 Set-Location -LiteralPath $repo
+# 重新讀取系統＋使用者 PATH，避免繼承到安裝 git/node 之前的舊環境
+$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 $env:GIT_TERMINAL_PROMPT = '0'
 $restart = $false
 
