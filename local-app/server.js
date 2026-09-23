@@ -5,6 +5,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { generate } = require("./engine");
+const { extractText } = require("./extract");
 const { buildDocxBuffer, checkAnswers } = require("../code/render");
 
 const PORT = process.env.PORT || 8787;
@@ -18,7 +19,7 @@ function send(res, code, type, body) {
 }
 function sendJson(res, code, obj) { send(res, code, "application/json; charset=utf-8", JSON.stringify(obj)); }
 
-function readBody(req, limit = 8 * 1024 * 1024) {
+function readBody(req, limit = 24 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let data = "", size = 0;
     req.on("data", (c) => {
@@ -42,6 +43,15 @@ const server = http.createServer(async (req, res) => {
     // --- 靜態首頁 ---
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
+    }
+
+    // --- 上傳 PDF/Word/文字檔 → 取出純文字（給前端放進考卷欄位確認後再產詳解）---
+    if (req.method === "POST" && url.pathname === "/api/extract") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少檔案內容" });
+      const buffer = Buffer.from(dataBase64, "base64");
+      const text = await extractText(filename || "", buffer);
+      return sendJson(res, 200, { ok: true, filename, chars: text.length, text });
     }
 
     // --- 產生詳解：examText → JSON ---
