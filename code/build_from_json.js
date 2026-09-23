@@ -9,7 +9,7 @@
 // }
 const fs = require("fs");
 const { Document, Packer, Paragraph } = require("docx");
-const { buildQuestionTable, spacer, run } = require("./lib3");
+const { buildQuestionTable, spacer, run, LINE_SPACING, LINE_RULE, PAGE_MARGIN } = require("./lib3");
 
 const [, , inputPath, outputPath] = process.argv;
 if (!inputPath || !outputPath) {
@@ -23,7 +23,7 @@ const questions = data.questions;
 // answer-consistency self-check before rendering
 let mismatches = [];
 questions.forEach((q) => {
-  const correctOpt = q.options.find((o) => /正確/.test(o.text));
+  const correctOpt = q.options.find((o) => /^正確/.test(o.text));
   if (!correctOpt || correctOpt.label !== q.answer) {
     mismatches.push(q.no);
   }
@@ -39,14 +39,22 @@ for (let i = 0; i < answerString.length; i += 5) groups.push(answerString.slice(
 const summaryLine = `${data.summaryLabel || "需人工確認"} ${groups.join("/")}`;
 
 const children = [];
-children.push(new Paragraph({ spacing: { after: 200 }, children: [run(summaryLine, { bold: true })] }));
+children.push(new Paragraph({ spacing: { after: 200, line: LINE_SPACING, lineRule: LINE_RULE }, children: [run(summaryLine, { bold: true })] }));
 questions.forEach((q, i) => {
   children.push(buildQuestionTable(q));
   if (i < questions.length - 1) children.push(spacer());
 });
 
 const doc = new Document({
-  sections: [{ properties: { page: { size: { width: 11906, height: 16838 } } }, children }],
+  sections: [{
+    properties: {
+      page: {
+        size: { width: 11906, height: 16838 }, // A4
+        margin: { top: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN, right: PAGE_MARGIN, gutter: 0 },
+      },
+    },
+    children,
+  }],
 });
 
 Packer.toBuffer(doc).then((buf) => {
