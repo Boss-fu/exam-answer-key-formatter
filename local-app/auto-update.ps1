@@ -52,7 +52,11 @@ if ($LASTEXITCODE -ne 0) {
 } else {
   $local = git rev-parse HEAD
   $remote = git rev-parse "origin/$branch"
-  if ($local -ne $remote) {
+  git merge-base --is-ancestor HEAD "origin/$branch"
+  $behind = ($LASTEXITCODE -eq 0)
+  if ($local -ne $remote -and -not $behind) {
+    Write-Log "本機有 GitHub 上沒有的提交（領先或分歧），略過更新"
+  } elseif ($local -ne $remote) {
     $dirty = git status --porcelain --untracked-files=no
     if ($dirty) {
       Write-Log "本機有未提交修改，略過更新：$($dirty -join '; ')"
