@@ -4,7 +4,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { generate, generateDirtyExam } = require("./engine");
+const { generate, generateDirtyExam, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
 const { buildDocxBuffer, checkAnswers } = require("../code/render");
 
@@ -88,10 +88,10 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(file).pipe(res);
     }
 
-    // --- 產生詳解：examText → JSON ---
+    // --- 產生詳解：examText（文字）或 images（拍照/圖片，讓 Claude 讀圖）→ JSON ---
     if (req.method === "POST" && url.pathname === "/api/generate") {
-      const { examText } = JSON.parse(await readBody(req) || "{}");
-      const data = await generate(examText);
+      const { examText, images } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      const data = (images && images.length) ? await generateFromImages(images) : await generate(examText);
       const mismatches = checkAnswers(data.questions);
       return sendJson(res, 200, { ok: true, data, mismatches });
     }

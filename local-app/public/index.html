@@ -70,14 +70,14 @@
 
   <div class="card">
     <div class="step">STEP 1 · EXAM INPUT</div>
-    <h2>匯入考卷內容</h2><p class="section-note">上傳有文字層的考卷檔，或直接貼上題目文字。</p>
-    <label for="exam">上傳乾淨考卷檔（PDF / Word），或直接貼上文字</label>
+    <h2>匯入考卷內容</h2><p class="section-note">上傳有文字層的考卷檔、拍照，或直接貼上題目文字。</p>
+    <label for="exam">上傳考卷檔（PDF / Word / 拍照），或直接貼上文字</label>
     <div class="rowb" style="margin:0 0 10px">
-      <input class="file" type="file" id="examFile" accept=".pdf,.docx,.txt,.md">
+      <input class="file" type="file" id="examFile" accept=".pdf,.docx,.txt,.md,image/*" multiple>
       <span class="status" id="uploadStatus"></span>
     </div>
     <textarea id="exam" placeholder="上傳 PDF/Word 後文字會出現在這裡供你確認，也可以直接貼字：&#10;1. （　）下列關於……&#10;(A)……(B)……(C)……(D)……"></textarea>
-    <div class="hint">支援已打字排版的 PDF / Word(.docx)。掃描成圖片的考卷讀不到文字，請先轉成文字。</div>
+    <div class="hint">PDF / Word(.docx)：抽出文字。拍照/圖片（可多張＝多頁）：交給 Claude 直接看圖產詳解。</div>
     <div class="rowb">
       <button class="primary" id="genBtn">產生詳解</button>
     </div>
@@ -115,44 +115,66 @@
 
 <script>
 var $=function(s){return document.querySelector(s);};
-var currentData=null, keyArr=[];
+var currentData=null, keyArr=[], pendingImages=[];
+
+function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsDataURL(f);});}
+function readAsText(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsText(f);});}
+function extOf(name){return (name.split(".").pop()||"").toLowerCase();}
+function isImage(f){return /^image\//.test(f.type)||["jpg","jpeg","png","webp","gif","heic"].indexOf(extOf(f.name))>-1;}
 
 function esc(t){return String(t==null?"":t).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
 function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++){var c=s[i];if(c>="A"&&c<="D")o.push(c);}return o;}
 
-$("#examFile").addEventListener("change",function(e){
-  var f=e.target.files[0];if(!f)return;
+$("#examFile").addEventListener("change",async function(e){
+  var files=Array.prototype.slice.call(e.target.files||[]);
+  if(!files.length)return;
   var st=$("#uploadStatus");
-  var ext=(f.name.split(".").pop()||"").toLowerCase();
-  // 純文字直接本機讀，PDF/Word 送伺服器抽字
-  if(ext==="txt"||ext==="md"){
-    var r=new FileReader();
-    r.onload=function(){$("#exam").value=r.result;st.className="status ok";st.textContent="已讀取 "+f.name;};
-    r.readAsText(f);return;
-  }
-  st.className="status";st.textContent="讀取 "+f.name+" 中…";
-  var r=new FileReader();
-  r.onerror=function(){st.className="status err";st.textContent="檔案讀取失敗。";};
-  r.onload=async function(){
-    try{
-      var b64=String(r.result).split(",")[1]||"";
-      var res=await fetch("/api/extract",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:b64})});
-      var j=await res.json();
-      if(!j.ok)throw new Error(j.error||"讀取失敗");
-      $("#exam").value=j.text;
-      st.className="status ok";st.textContent="已從 "+f.name+" 讀取 "+j.chars+" 字，請確認內容後按「產生詳解」。";
-    }catch(err){st.className="status err";st.textContent="錯誤："+err.message;}
-  };
-  r.readAsDataURL(f);
+  pendingImages=[];
+  var images=files.filter(isImage);
+  var docs=files.filter(function(f){return !isImage(f);});
+  try{
+    // 有圖片 → 圖片模式（可多張＝多頁），交給 Claude 讀圖，不抽字
+    if(images.length){
+      st.className="status";st.textContent="讀取 "+images.length+" 張圖片中…";
+      pendingImages=await Promise.all(images.map(async function(f){
+        var d=await readAsDataURL(f);
+        return {filename:f.name,mediaType:(f.type||""),dataBase64:(d.split(",")[1]||"")};
+      }));
+      $("#exam").value="";
+      st.className="status ok";
+      st.textContent="已選 "+pendingImages.length+" 張圖片，按「產生詳解」讓 Claude 讀圖。"+(docs.length?"（已忽略同時選到的非圖片檔）":"");
+      return;
+    }
+    // 文件模式：取第一個
+    var f=docs[0];var ext=extOf(f.name);
+    if(ext==="txt"||ext==="md"){
+      $("#exam").value=await readAsText(f);
+      st.className="status ok";st.textContent="已讀取 "+f.name;return;
+    }
+    st.className="status";st.textContent="讀取 "+f.name+" 中…";
+    var d=await readAsDataURL(f);
+    var res=await fetch("/api/extract",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:(d.split(",")[1]||"")})});
+    var j=await res.json();
+    if(!j.ok)throw new Error(j.error||"讀取失敗");
+    $("#exam").value=j.text;
+    st.className="status ok";st.textContent="已從 "+f.name+" 讀取 "+j.chars+" 字，請確認內容後按「產生詳解」。";
+  }catch(err){st.className="status err";st.textContent="錯誤："+err.message;}
+});
+// 手動打字就退出圖片模式，避免混淆
+$("#exam").addEventListener("input",function(){
+  if(pendingImages.length){pendingImages=[];$("#uploadStatus").textContent="";}
 });
 
 $("#genBtn").addEventListener("click",async function(){
-  var exam=$("#exam").value.trim();var st=$("#genStatus");
-  if(!exam){st.className="status err";st.textContent="請先貼上考卷文字。";return;}
-  st.className="status";st.textContent="產生中…（引擎解題可能要一點時間）";
+  var st=$("#genStatus");
+  var hasImg=pendingImages.length>0;
+  var exam=$("#exam").value.trim();
+  if(!hasImg&&!exam){st.className="status err";st.textContent="請先上傳考卷（PDF/Word/拍照）或貼上文字。";return;}
+  st.className="status";st.textContent=hasImg?("Claude 讀圖產生中…（"+pendingImages.length+" 張，可能較久）"):"產生中…（引擎解題可能要一點時間）";
   $("#genBtn").disabled=true;
   try{
-    var res=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({examText:exam})});
+    var payload=hasImg?{images:pendingImages}:{examText:exam};
+    var res=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
     var j=await res.json();
     if(!j.ok)throw new Error(j.error||"產生失敗");
     currentData=j.data;

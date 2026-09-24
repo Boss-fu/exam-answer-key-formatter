@@ -12,3 +12,6 @@ local-app/output/
 # OS
 .DS_Store
 Thumbs.db
+
+# 圖片考卷暫存（讀圖用）
+.exam-tmp-*/

@@ -152,4 +152,82 @@ function generateDirtyExam({ sourcePath, workDir, outputDir }) {
   });
 }
 
-module.exports = { generate, generateDirtyExam, buildPrompt, extractJson };
+// ===== 拍照/圖片考卷：讓 Claude「看」圖片產詳解（沒有文字層，不能抽字）=====
+
+const IMG_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+function imgExt(name) {
+  const e = path.extname(name || "").toLowerCase();
+  return IMG_EXTS.includes(e) ? e : "";
+}
+function imgMediaType(img) {
+  if (img.mediaType) return img.mediaType;
+  const e = imgExt(img.filename);
+  return e === ".png" ? "image/png"
+    : e === ".webp" ? "image/webp"
+    : e === ".gif" ? "image/gif" : "image/jpeg";
+}
+function imagePrompt() {
+  return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 考卷在圖片中 ==========\n請先仔細閱讀圖片裡的每一題（題幹、選項、圖表、公式都要看），再依規範產出 JSON。同一份考卷可能有多張圖（多頁），請合併處理。`;
+}
+function rmDir(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
+
+// 引擎一（claude-code）：把圖片寫成暫存檔，prompt 附上路徑讓 Claude Code 讀圖。
+function generateFromImagesClaudeCode(images) {
+  return new Promise((resolve, reject) => {
+    let dir;
+    try {
+      // 暫存檔放在工作目錄內：headless Claude Code 的檔案沙箱只讓它讀 cwd 內的檔。
+      dir = fs.mkdtempSync(path.join(REPO, ".exam-tmp-"));
+      const paths = images.map((img, i) => {
+        const p = path.join(dir, `page${i + 1}${imgExt(img.filename) || ".png"}`);
+        fs.writeFileSync(p, Buffer.from(img.dataBase64, "base64"));
+        return p;
+      });
+      const bin = process.env.CLAUDE_BIN || "claude";
+      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}`;
+      // --allowedTools Read：授權讀檔工具，否則 headless 模式會停下來要權限、產不出 JSON。
+      const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read"], { cwd: REPO, env: process.env });
+      let out = "", err = "";
+      child.stdout.on("data", (d) => { out += d; });
+      child.stderr.on("data", (d) => { err += d; });
+      child.on("error", (e) => { rmDir(dir); reject(new Error(
+        `無法啟動 Claude Code（${bin}）：${e.message}。請確認本機已安裝 claude CLI，或設 CLAUDE_BIN。`)); });
+      child.on("close", (code) => {
+        rmDir(dir);
+        if (code !== 0 && !out) return reject(new Error(`Claude Code 結束碼 ${code}：${err.slice(0, 500)}`));
+        try { resolve(extractJson(out)); }
+        catch (e) { reject(new Error(`${e.message}\n引擎原始輸出前 500 字：${out.slice(0, 500)}`)); }
+      });
+    } catch (e) { if (dir) rmDir(dir); reject(e); }
+  });
+}
+
+// 引擎二（api）：用 image content blocks 傳給 Claude。
+async function generateFromImagesApi(images) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ENGINE=api 需要環境變數 ANTHROPIC_API_KEY");
+  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+  const content = images.map((img) => ({
+    type: "image",
+    source: { type: "base64", media_type: imgMediaType(img), data: img.dataBase64 },
+  }));
+  content.push({ type: "text", text: imagePrompt() });
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: "user", content }] }),
+  });
+  if (!res.ok) throw new Error(`API 錯誤 ${res.status}：${(await res.text()).slice(0, 500)}`);
+  const body = await res.json();
+  const text = (body.content || []).map((b) => b.text || "").join("");
+  return extractJson(text);
+}
+
+async function generateFromImages(images) {
+  if (!images || !images.length) throw new Error("沒有圖片");
+  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  if (engine === "api") return generateFromImagesApi(images);
+  return generateFromImagesClaudeCode(images);
+}
+
+module.exports = { generate, generateDirtyExam, generateFromImages, buildPrompt, extractJson };
