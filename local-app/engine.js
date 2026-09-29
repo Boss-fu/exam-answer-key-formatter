@@ -152,6 +152,53 @@ function generateDirtyExam({ sourcePath, workDir, outputDir }) {
   });
 }
 
+// ===== 快速純文字乾淨考卷：不裁圖，圖用〔含圖：…〕佔位，速度優先 =====
+function generateCleanExam({ sourcePath, workDir, outputDir }) {
+  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  if (engine === "api") throw new Error("快速乾淨考卷需要可讀檔並產出 Word 的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
+  const bin = process.env.CLAUDE_BIN || "claude";
+  const skill = path.join(REPO, "exam-to-word");
+  const resultPath = path.join(workDir, "result.json");
+  const prompt = `你是茲茲文教的考卷清稿助理，現在跑「純文字快速模式」。請先讀 ${path.join(skill, "TEXT-MODE.md")}（規則以它為準），需要時再參考 ${path.join(skill, "SKILL.md")} 的卷頭/橫幅與 ${path.join(skill, "references", "example_build.py")} 的腳本形式、以及 ${path.join(skill, "scripts", "buildlib.py")} 可用的函式（含 note()）。
+
+來源檔案：${sourcePath}
+工作資料夾：${workDir}
+輸出資料夾：${outputDir}
+範本：${path.join(skill, "assets", "template.docx")}
+
+重點（務必遵守，這是速度關鍵）：
+- 只重打「文字」與「表格」；**完全不要裁圖、不要找座標、不要做圖片預覽**。
+- 每一處原本有圖的位置改用 note("<簡短說明>") 佔位（讓使用者之後自己框選截圖貼上）。
+- **不要輸出答案，也不要標正解。**
+- 原卷看不清或疑似錯字：保留原文並列入人工確認，不可捏造。
+
+請把 scripts 複製到工作資料夾，寫一支 buildlib 內容腳本並 finish() 組出 Word，存到輸出資料夾。
+完成後必須在 ${resultPath} 寫入 UTF-8 JSON（不要只在回答文字中說明）：
+{
+  "outputFile": "絕對路徑，且必須位於 ${outputDir} 內的 .docx 檔",
+  "reviewItems": ["需人工確認事項（推定的橫幅/冊別、疑似錯字、看不清的文字；圖片不用列）"],
+  "summary": "完成摘要（含題數）"
+}
+最後只回覆一句完成狀態。`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read,Write,Edit,Bash"], { cwd: REPO, env: process.env });
+    let err = "";
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`快速乾淨考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
+      try {
+        const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+        if (!result.outputFile || !path.resolve(result.outputFile).startsWith(path.resolve(outputDir) + path.sep) || !/\.docx$/i.test(result.outputFile)) {
+          throw new Error("引擎沒有產出有效的 Word 檔案路徑");
+        }
+        if (!fs.existsSync(result.outputFile)) throw new Error("引擎回報的 Word 檔案不存在");
+        resolve({ summary: String(result.summary || "已完成乾淨考卷"), reviewItems: Array.isArray(result.reviewItems) ? result.reviewItems.map(String) : [], outputFile: result.outputFile });
+      } catch (e) { reject(new Error(`無法讀取快速乾淨考卷結果：${e.message}`)); }
+    });
+  });
+}
+
 // ===== 拍照/圖片考卷：讓 Claude「看」圖片產詳解（沒有文字層，不能抽字）=====
 
 const IMG_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
@@ -230,4 +277,4 @@ async function generateFromImages(images) {
   return generateFromImagesClaudeCode(images);
 }
 
-module.exports = { generate, generateDirtyExam, generateFromImages, buildPrompt, extractJson };
+module.exports = { generate, generateDirtyExam, generateCleanExam, generateFromImages, buildPrompt, extractJson };

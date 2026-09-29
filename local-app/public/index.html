@@ -95,6 +95,28 @@
     <div class="detail hidden" id="dirtyResult"></div>
   </div>
 
+  <div class="card">
+    <div class="step">FAST CLEAN EXAM · 純文字</div>
+    <h2>⚡ 快速乾淨考卷（純文字，自己貼圖）</h2><p class="section-note">上傳掃描 PDF 或照片，只重打文字與表格、不裁圖（圖的位置留「〔含圖：…〕」讓你自己框選截圖貼上），不含答案。速度最快，適合一份 3–5 分鐘搞定。</p>
+    <label for="cleanFile">掃描考卷（PDF / PNG / JPG）</label>
+    <div class="rowb" style="margin:0 0 10px"><input class="file" type="file" id="cleanFile" accept=".pdf,.png,.jpg,.jpeg"><span class="status" id="cleanStatus"></span></div>
+    <div class="hint">流程建議：按下後在等文字生成的同時，先到題庫系統把這份考卷的圖一張張框選截圖；文字檔下載後把圖貼到對應的〔含圖〕位置即可。</div>
+    <div class="rowb"><button class="primary" id="cleanBtn">產出純文字乾淨 Word</button><a class="ghost" id="qbankBtn2" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:none">前往題庫系統框圖 ↗</a></div>
+    <div class="status" id="cleanRunStatus"></div>
+    <div class="detail hidden" id="cleanResult"></div>
+  </div>
+
+  <div class="card">
+    <div class="step">QBANK · 題庫系統</div>
+    <h2>題庫系統連結</h2><p class="section-note">貼上你的題庫系統網址並儲存（存在這台瀏覽器）。之後就能一鍵前往框選截圖、或把做好的考卷貼進去。</p>
+    <div class="rowb" style="margin:0 0 6px">
+      <input type="text" id="qbankUrl" placeholder="https://…（你的題庫系統網址）" style="flex:1;min-width:220px">
+      <button class="ghost" id="qbankSave">儲存</button>
+      <a class="primary" id="qbankGo" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:none">前往題庫系統 ↗</a>
+    </div>
+    <div class="status" id="qbankStatus"></div>
+  </div>
+
   <div class="card hidden" id="resultCard">
     <div class="step">STEP 2 · REVIEW & EXPORT</div>
     <h2>核對詳解並輸出</h2><p class="section-note">輸入官方答案可檢視命中率與每題詳解的一致性。</p>
@@ -197,6 +219,38 @@ $("#dirtyBtn").addEventListener("click",async function(){
     var review=(j.reviewItems||[]).length?("<br><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")):"<br>未回報需人工確認項目。";
     box.innerHTML='<a class="primary" href="'+esc(j.downloadUrl)+'">下載茲茲 Word</a>'+review;box.classList.remove("hidden");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#dirtyBtn").disabled=false;}
+});
+
+// 快速純文字乾淨考卷
+$("#cleanBtn").addEventListener("click",async function(){
+  var f=$("#cleanFile").files[0],st=$("#cleanRunStatus"),box=$("#cleanResult");
+  if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
+  if(!/\.(pdf|png|jpe?g)$/i.test(f.name)){st.className="status err";st.textContent="只接受 PDF、PNG 或 JPG 檔案。";return;}
+  st.className="status";st.textContent="產生中…只打字不裁圖，通常 3–5 分鐘。趁現在去題庫系統把圖框選截圖起來。請勿關閉此頁。";box.classList.add("hidden");$("#cleanBtn").disabled=true;
+  try{var data=await new Promise(function(resolve,reject){var r=new FileReader();r.onerror=function(){reject(new Error("檔案讀取失敗"));};r.onload=function(){resolve(String(r.result).split(",")[1]||"");};r.readAsDataURL(f);});
+    var res=await fetch("/api/clean-exam",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
+    st.className="status ok";st.textContent="已完成："+(j.summary||"乾淨考卷已產出");
+    var review=(j.reviewItems||[]).length?("<br><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")):"<br>未回報需人工確認項目。";
+    box.innerHTML='<a class="primary" href="'+esc(j.downloadUrl)+'">下載純文字 Word</a>　<span class="hint">下載後把截圖貼到各題的〔含圖：…〕位置。</span>'+review;box.classList.remove("hidden");
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#cleanBtn").disabled=false;}
+});
+
+// 題庫系統連結（存在瀏覽器 localStorage）
+function applyQbank(u){
+  var go=$("#qbankGo"),b2=$("#qbankBtn2");
+  if(u){go.href=u;go.style.display="";b2.href=u;b2.style.display="";}
+  else{go.style.display="none";b2.style.display="none";}
+}
+(function(){
+  var saved="";try{saved=localStorage.getItem("qbankUrl")||"";}catch(e){}
+  if(saved){$("#qbankUrl").value=saved;applyQbank(saved);}
+})();
+$("#qbankSave").addEventListener("click",function(){
+  var u=$("#qbankUrl").value.trim(),st=$("#qbankStatus");
+  if(u&&!/^https?:\/\//i.test(u))u="https://"+u;
+  try{localStorage.setItem("qbankUrl",u);}catch(e){}
+  $("#qbankUrl").value=u;applyQbank(u);
+  st.className="status ok";st.textContent=u?"已儲存。":"已清除。";
 });
 
 $("#key").addEventListener("input",function(){keyArr=parseKey(this.value);render();});

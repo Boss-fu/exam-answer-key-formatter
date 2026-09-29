@@ -162,6 +162,15 @@ def opts_para(t):
     return ('<w:p><w:pPr><w:adjustRightInd w:val="0"/><w:snapToGrid w:val="0"/><w:spacing w:afterLines="20" w:after="72"/>'
             f'<w:ind w:left="960"/><w:rPr><w:rFonts {FQ}/></w:rPr></w:pPr>'+runs(t)+'</w:p>')
 
+
+def note(t):
+    """純文字模式的圖片佔位標註：置中輸出「〔含圖：<簡短說明>〕」。
+    用於不裁圖、由使用者自行框選截圖貼上的流程；<t> 只寫簡短說明，別重覆題幹。"""
+    return ('<w:p><w:pPr><w:snapToGrid w:val="0"/>'
+            '<w:spacing w:beforeLines="10" w:before="36" w:afterLines="10" w:after="36"/>'
+            f'<w:jc w:val="center"/><w:rPr><w:rFonts {FQ}/></w:rPr></w:pPr>'
+            + runs("〔含圖：" + t + "〕") + '</w:p>')
+
 def finish(C, out, repl=()):
     """C: 段落 XML 字串清單；out: 輸出 .docx；repl: 橫幅文字替換 [(舊,新)]"""
     DOC = os.path.join(BUILD, "word/document.xml"); RELS = os.path.join(BUILD, "word/_rels/document.xml.rels")
