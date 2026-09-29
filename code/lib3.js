@@ -23,10 +23,11 @@ const FONT = {
   eastAsia: "DFPYuanMedium-B5",
   cs: "DFPYuanMedium-B5",
 };
-// 對應使用者真實 Word 範本（Paragraph 對話框截圖確認）：12pt 字體、行高 Exactly 12pt（不是1.5倍行高／multiple）、1.5cm 頁面邊界。
+// 對應使用者真實 Word 範本：12pt 字體、1.5cm 頁面邊界；行高用 1.5 倍（multiple），
+// 讓 MathType 的分數／上下標不會上下擠在一起、方便閱讀（先前為 Exactly 12pt，使用者要求改回 1.5 倍）。
 const FONT_SIZE = 24; // half-points => 12pt
-const LINE_SPACING = 240; // dxa in twentieths of a point: 240 = 12pt
-const LINE_RULE = "exact"; // "exact" = 固定行高剛好等於這個值，不是倍數
+const LINE_SPACING = 360; // 240ths of a line：360 = 1.5 倍行高（搭配 lineRule "auto"）
+const LINE_RULE = "auto"; // "auto" = 倍數行高（相對單行），1.5 倍即 360
 const PAGE_MARGIN = dxa(1.5); // 1.5cm margins on all sides
 
 // 表格格線：無色無填滿（使用者最新指示，取代先前「黑色實線框線」定案）——邊框樣式設為 NONE，儲存格也不設底色。
