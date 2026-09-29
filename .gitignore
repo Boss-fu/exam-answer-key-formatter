@@ -15,3 +15,6 @@ Thumbs.db
 
 # 圖片考卷暫存（讀圖用）
 .exam-tmp-*/
+
+# OCR 評測產出
+ocr/results/
