@@ -199,6 +199,54 @@ function generateCleanExam({ sourcePath, workDir, outputDir }) {
   });
 }
 
+// ===== 一份考卷一次搞定：Claude 讀圖 → 23 欄 CSV，再由 CSV 直接生乾淨 Word（不二次讀圖，省時間）=====
+function generateExamPackage({ sourcePath, workDir, outputDir }) {
+  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  if (engine === "api") throw new Error("此功能需要可讀檔並執行的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
+  const bin = process.env.CLAUDE_BIN || "claude";
+  const skill = path.join(REPO, "exam-to-word");
+  const promptFile = path.join(REPO, "local-app", "qbank-csv-prompt.txt");
+  const rules = fs.readFileSync(promptFile, "utf8");
+  const csvPath = path.join(outputDir, "題庫23欄.csv");
+  const base = path.basename(sourcePath).replace(/\.[^.]+$/, "");
+  const docxPath = path.join(outputDir, base + "-乾淨考卷.docx");
+  const resultPath = path.join(workDir, "result.json");
+  const prompt = `${rules}
+
+========== 執行指示 ==========
+考卷來源檔案：${sourcePath}
+這是掃描 PDF 或照片（沒有文字層）。請先把它轉成頁面圖片再逐張辨識：
+可複製 ${path.join(skill, "scripts")} 的 imgtools.py 到 ${workDir} 後用 prep() 轉圖（300dpi），或用 pdftoppm／pymupdf，圖存在 ${workDir} 內。
+逐題辨識（題幹、選項、公式、圖表、表格），依上面規則整理成 23 欄 CSV。
+忽略學生手寫作答與老師批改筆跡；被筆跡蓋住看不清處，該題「待確認」欄填 Y，不要猜。
+
+輸出：把完整 23 欄 CSV（含標題列、UTF-8）寫入檔案：${csvPath}
+並在 ${resultPath} 寫入 UTF-8 JSON：{"csv":"${csvPath}","summary":"完成摘要（含題數）","reviewItems":["需人工確認事項"]}
+最後只回覆一句完成狀態。`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read,Write,Edit,Bash"], { cwd: REPO, env: process.env });
+    let err = "";
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
+      try {
+        let summary = "已完成", reviewItems = [];
+        try { const rj = JSON.parse(fs.readFileSync(resultPath, "utf8")); summary = String(rj.summary || summary); reviewItems = Array.isArray(rj.reviewItems) ? rj.reviewItems.map(String) : []; } catch (e) {}
+        if (!fs.existsSync(csvPath)) throw new Error("引擎沒有產出 CSV");
+        // 補上 UTF-8 BOM，讓 Excel 直接開中文不亂碼
+        try { const buf = fs.readFileSync(csvPath); if (!(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF)) fs.writeFileSync(csvPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buf])); } catch (e) {}
+        // 由同一份 CSV 直接生乾淨 Word（不再讓 AI 讀第二次）
+        const repl = JSON.stringify([["<w:t>國七生物</w:t>", "<w:t>國中自然</w:t>"], ["Ch1(全)", ""], ["【112.百齡】", ""]]);
+        const py = require("child_process").spawnSync("python3", [path.join(REPO, "local-app", "csv_to_word.py"), csvPath, docxPath, repl], { encoding: "utf8" });
+        const wordOk = py.status === 0 && fs.existsSync(docxPath);
+        if (!wordOk) reviewItems.push("乾淨 Word 產生失敗（CSV 仍可用）：" + String(py.stderr || "").slice(0, 200));
+        resolve({ summary, reviewItems, csvPath, docxPath: wordOk ? docxPath : null });
+      } catch (e) { reject(new Error(`讀取考卷處理結果失敗：${e.message}`)); }
+    });
+  });
+}
+
 // ===== 拍照/圖片考卷：讓 Claude「看」圖片產詳解（沒有文字層，不能抽字）=====
 
 const IMG_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
@@ -277,4 +325,4 @@ async function generateFromImages(images) {
   return generateFromImagesClaudeCode(images);
 }
 
-module.exports = { generate, generateDirtyExam, generateCleanExam, generateFromImages, buildPrompt, extractJson };
+module.exports = { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages, buildPrompt, extractJson };

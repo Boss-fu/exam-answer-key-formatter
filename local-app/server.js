@@ -4,7 +4,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { generate, generateDirtyExam, generateCleanExam, generateFromImages } = require("./engine");
+const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
 const { buildDocxBuffer, checkAnswers } = require("../code/render");
 
@@ -13,9 +13,11 @@ const PUBLIC = path.join(__dirname, "public");
 const OUTPUT = path.join(__dirname, "output");
 const DIRTY_OUTPUT = path.join(OUTPUT, "dirty-exams");
 const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
+const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.mkdirSync(DIRTY_OUTPUT, { recursive: true });
 fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
+fs.mkdirSync(PKG_OUTPUT, { recursive: true });
 
 function send(res, code, type, body) {
   res.writeHead(code, { "content-type": type });
@@ -77,6 +79,44 @@ const server = http.createServer(async (req, res) => {
       const result = await generateDirtyExam({ sourcePath: source, workDir, outputDir: resultDir });
       fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify({ ...result, outputFile: path.basename(result.outputFile) }, null, 2));
       return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems, downloadUrl: `/api/dirty-exam/download?job=${job}` });
+    }
+
+    // --- 一鍵包：掃描 PDF/圖片 → 一次 Claude → 乾淨 Word ＋ 題庫 23 欄 CSV ---
+    if (req.method === "POST" && url.pathname === "/api/exam-package") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(PKG_OUTPUT, job);
+      const workDir = path.join(jobDir, "work");
+      const resultDir = path.join(jobDir, "result");
+      fs.mkdirSync(workDir, { recursive: true });
+      fs.mkdirSync(resultDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const result = await generateExamPackage({ sourcePath: source, workDir, outputDir: resultDir });
+      const report = { summary: result.summary, reviewItems: result.reviewItems,
+        csv: result.csvPath ? path.basename(result.csvPath) : null,
+        docx: result.docxPath ? path.basename(result.docxPath) : null };
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems,
+        csvUrl: report.csv ? `/api/exam-package/download?job=${job}&kind=csv` : null,
+        docxUrl: report.docx ? `/api/exam-package/download?job=${job}&kind=docx` : null });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/exam-package/download") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const kind = url.searchParams.get("kind") === "csv" ? "csv" : "docx";
+      if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
+      const report = JSON.parse(fs.readFileSync(path.join(PKG_OUTPUT, job, "report.json"), "utf8"));
+      const fname = kind === "csv" ? report.csv : report.docx;
+      if (!fname) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const file = path.join(PKG_OUTPUT, job, "result", path.basename(fname));
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const ct = kind === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
+      return fs.createReadStream(file).pipe(res);
     }
 
     // --- 快速乾淨考卷（純文字）：掃描 PDF / 圖片 → Claude Code 只重打文字與表格、圖用〔含圖〕佔位 ---

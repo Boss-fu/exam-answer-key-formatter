@@ -85,6 +85,17 @@
   </div>
 
   <div class="card">
+    <div class="step">ONE-CLICK · 一鍵包</div>
+    <h2>⚡ 一鍵：乾淨考卷 Word ＋ 題庫 23 欄 CSV</h2><p class="section-note">上傳掃描 PDF／照片，<b>一次 Claude 讀圖</b>同時產出「乾淨考卷 Word（可貼圖）」和「題庫 23 欄 CSV（Excel 可開、直接匯題庫）」。圖不裁，位置留〔含圖〕；約 4–5 分鐘。</p>
+    <label for="pkgFile">掃描考卷（PDF / PNG / JPG）</label>
+    <div class="rowb" style="margin:0 0 10px"><input class="file" type="file" id="pkgFile" accept=".pdf,.png,.jpg,.jpeg"><span class="status" id="pkgStatus"></span></div>
+    <div class="hint">建議：按下後趁 Claude 讀圖時，到題庫或下方截圖工具把圖框選好；跑完下載 Word 後把圖貼到〔含圖〕位置，CSV 則直接匯入題庫。</div>
+    <div class="rowb"><button class="primary" id="pkgBtn">一鍵產出 Word ＋ CSV</button></div>
+    <div class="status" id="pkgRunStatus"></div>
+    <div class="detail hidden" id="pkgResult"></div>
+  </div>
+
+  <div class="card">
     <div class="step">SCAN CLEANUP · BETA</div>
     <h2>髒考卷整理</h2><p class="section-note">上傳掃描 PDF 或照片，重建成套用茲茲格式的可編輯 Word。處理時間較長；筆跡、圖表與看不清的文字會列入人工確認。</p>
     <label for="dirtyFile">掃描考卷（PDF / PNG / JPG）</label>
@@ -234,6 +245,23 @@ $("#dirtyBtn").addEventListener("click",async function(){
     var review=(j.reviewItems||[]).length?("<br><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")):"<br>未回報需人工確認項目。";
     box.innerHTML='<a class="primary" href="'+esc(j.downloadUrl)+'">下載茲茲 Word</a>'+review;box.classList.remove("hidden");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#dirtyBtn").disabled=false;}
+});
+
+// 一鍵包：乾淨 Word + 題庫 23欄 CSV
+$("#pkgBtn").addEventListener("click",async function(){
+  var f=$("#pkgFile").files[0],st=$("#pkgRunStatus"),box=$("#pkgResult");
+  if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
+  if(!/\.(pdf|png|jpe?g)$/i.test(f.name)){st.className="status err";st.textContent="只接受 PDF、PNG 或 JPG 檔案。";return;}
+  st.className="status";st.textContent="一次讀圖產出中…約 4–5 分鐘。趁現在把圖框選截圖起來。請勿關閉此頁。";box.classList.add("hidden");$("#pkgBtn").disabled=true;
+  try{var data=await new Promise(function(resolve,reject){var r=new FileReader();r.onerror=function(){reject(new Error("檔案讀取失敗"));};r.onload=function(){resolve(String(r.result).split(",")[1]||"");};r.readAsDataURL(f);});
+    var res=await fetch("/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
+    st.className="status ok";st.textContent="已完成："+(j.summary||"考卷已處理");
+    var links="";
+    if(j.docxUrl)links+='<a class="primary" href="'+esc(j.docxUrl)+'">⬇ 下載乾淨考卷 Word</a>　';
+    if(j.csvUrl)links+='<a class="primary" href="'+esc(j.csvUrl)+'">⬇ 下載題庫 23欄 CSV</a>';
+    var review=(j.reviewItems||[]).length?("<br><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")):"<br>未回報需人工確認項目。";
+    box.innerHTML=links+'　<span class="hint">Word 貼截圖到〔含圖〕；CSV 用 Excel 開或直接匯題庫。</span>'+review;box.classList.remove("hidden");
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pkgBtn").disabled=false;}
 });
 
 // 快速純文字乾淨考卷
