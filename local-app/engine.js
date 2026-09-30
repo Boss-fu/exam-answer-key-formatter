@@ -1,9 +1,10 @@
 // 解題引擎抽象層：examText（考卷文字）→ 詳解 JSON（build_from_json / render 使用的格式）。
 //
-// 支援兩種引擎，用環境變數 ENGINE 選擇：
+// 支援三種引擎，用環境變數 ENGINE 選擇：
 //   ENGINE=claude-code （預設）— 呼叫本機已安裝的 Claude Code：`claude -p <prompt>`。
 //                        沿用你現有的 Claude Code 訂閱，不需另外的 API 金鑰。
 //   ENGINE=api          — 呼叫 Anthropic Claude API，需環境變數 ANTHROPIC_API_KEY。
+//   ENGINE=codex        — 呼叫本機 Codex CLI：`codex exec --full-auto`。
 //
 // 兩者都把 repo 的規範/SKILL 當系統規則塞進 prompt，要求「只輸出 JSON」。
 const fs = require("fs");
@@ -11,6 +12,19 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 const REPO = path.resolve(__dirname, "..");
+
+function selectedEngine() {
+  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  if (!["claude-code", "api", "codex"].includes(engine)) throw new Error(`不支援的 ENGINE=${engine}；可用 claude-code、codex、api`);
+  return engine;
+}
+
+function localAgentCommand(prompt, claudeArgs = []) {
+  if (selectedEngine() === "codex") {
+    return { bin: process.env.CODEX_BIN || "codex", args: ["exec", "--full-auto", prompt], label: "Codex" };
+  }
+  return { bin: process.env.CLAUDE_BIN || "claude", args: ["-p", prompt, ...claudeArgs], label: "Claude Code" };
+}
 
 // 讀規範與 SKILL 當作系統規則（找不到就跳過，不讓它擋住流程）。
 function loadRules() {
@@ -80,6 +94,22 @@ function generateWithClaudeCode(examText) {
   });
 }
 
+function generateWithCodex(examText) {
+  return new Promise((resolve, reject) => {
+    const cmd = localAgentCommand(buildPrompt(examText));
+    const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", (e) => reject(new Error(`無法啟動 Codex（${cmd.bin}）：${e.message}。請確認主機已安裝並登入 codex CLI，或設 CODEX_BIN。`)));
+    child.on("close", (code) => {
+      if (code !== 0 && !out) return reject(new Error(`Codex 結束碼 ${code}：${err.slice(0, 500)}`));
+      try { resolve(extractJson(out)); }
+      catch (e) { reject(new Error(`${e.message}\nCodex 原始輸出前 500 字：${out.slice(0, 500)}`)); }
+    });
+  });
+}
+
 // --- 引擎二：Anthropic API ---
 async function generateWithApi(examText) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -106,15 +136,15 @@ async function generateWithApi(examText) {
 
 async function generate(examText) {
   if (!examText || !examText.trim()) throw new Error("考卷內容是空的");
-  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  const engine = selectedEngine();
   if (engine === "api") return generateWithApi(examText);
+  if (engine === "codex") return generateWithCodex(examText);
   return generateWithClaudeCode(examText);
 }
 
 function generateDirtyExam({ sourcePath, workDir, outputDir }) {
-  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
-  if (engine === "api") throw new Error("髒考卷整理需要可讀取檔案並產出 Word 的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
-  const bin = process.env.CLAUDE_BIN || "claude";
+  const engine = selectedEngine();
+  if (engine === "api") throw new Error("髒考卷整理需要可讀取檔案並產出 Word 的本機代理；請使用 claude-code 或 codex 模式啟動。");
   const skill = path.join(REPO, "exam-to-word");
   const resultPath = path.join(workDir, "result.json");
   const prompt = `你是茲茲文教的考卷清稿助理。請完整閱讀 ${path.join(skill, "SKILL.md")}、${path.join(skill, "references", "example_build.py")} 與 ${path.join(skill, "references", "lessons.md")} 後執行工作。
@@ -134,10 +164,11 @@ function generateDirtyExam({ sourcePath, workDir, outputDir }) {
 }
 最後只回覆一句完成狀態。`;
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ["-p", prompt], { cwd: REPO, env: process.env });
+    const cmd = localAgentCommand(prompt);
+    const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
     let err = "";
     child.stderr.on("data", (d) => { err += d; });
-    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("error", (e) => reject(new Error(`無法啟動 ${cmd.label}（${cmd.bin}）：${e.message}`)));
     child.on("close", (code) => {
       if (code !== 0) return reject(new Error(`髒考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
       try {
@@ -154,9 +185,8 @@ function generateDirtyExam({ sourcePath, workDir, outputDir }) {
 
 // ===== 快速純文字乾淨考卷：不裁圖，圖用〔含圖：…〕佔位，速度優先 =====
 function generateCleanExam({ sourcePath, workDir, outputDir }) {
-  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
-  if (engine === "api") throw new Error("快速乾淨考卷需要可讀檔並產出 Word 的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
-  const bin = process.env.CLAUDE_BIN || "claude";
+  const engine = selectedEngine();
+  if (engine === "api") throw new Error("快速乾淨考卷需要可讀檔並產出 Word 的本機代理；請使用 claude-code 或 codex 模式啟動。");
   const skill = path.join(REPO, "exam-to-word");
   const resultPath = path.join(workDir, "result.json");
   const prompt = `你是茲茲文教的考卷清稿助理，現在跑「純文字快速模式」。請先讀 ${path.join(skill, "TEXT-MODE.md")}（規則以它為準），需要時再參考 ${path.join(skill, "SKILL.md")} 的卷頭/橫幅與 ${path.join(skill, "references", "example_build.py")} 的腳本形式、以及 ${path.join(skill, "scripts", "buildlib.py")} 可用的函式（含 note()）。
@@ -181,10 +211,11 @@ function generateCleanExam({ sourcePath, workDir, outputDir }) {
 }
 最後只回覆一句完成狀態。`;
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read,Write,Edit,Bash"], { cwd: REPO, env: process.env });
+    const cmd = localAgentCommand(prompt, ["--allowedTools", "Read,Write,Edit,Bash"]);
+    const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
     let err = "";
     child.stderr.on("data", (d) => { err += d; });
-    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("error", (e) => reject(new Error(`無法啟動 ${cmd.label}（${cmd.bin}）：${e.message}`)));
     child.on("close", (code) => {
       if (code !== 0) return reject(new Error(`快速乾淨考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
       try {
@@ -201,9 +232,8 @@ function generateCleanExam({ sourcePath, workDir, outputDir }) {
 
 // ===== 一份考卷一次搞定：Claude 讀圖 → 23 欄 CSV，再由 CSV 直接生乾淨 Word（不二次讀圖，省時間）=====
 function generateExamPackage({ sourcePath, workDir, outputDir }) {
-  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
-  if (engine === "api") throw new Error("此功能需要可讀檔並執行的 Claude Code 引擎；請以預設 claude-code 模式啟動。");
-  const bin = process.env.CLAUDE_BIN || "claude";
+  const engine = selectedEngine();
+  if (engine === "api") throw new Error("此功能需要可讀檔並執行的本機代理；請使用 claude-code 或 codex 模式啟動。");
   const skill = path.join(REPO, "exam-to-word");
   const promptFile = path.join(REPO, "local-app", "qbank-csv-prompt.txt");
   const rules = fs.readFileSync(promptFile, "utf8");
@@ -224,10 +254,11 @@ function generateExamPackage({ sourcePath, workDir, outputDir }) {
 並在 ${resultPath} 寫入 UTF-8 JSON：{"csv":"${csvPath}","summary":"完成摘要（含題數）","reviewItems":["需人工確認事項"]}
 最後只回覆一句完成狀態。`;
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read,Write,Edit,Bash"], { cwd: REPO, env: process.env });
+    const cmd = localAgentCommand(prompt, ["--allowedTools", "Read,Write,Edit,Bash"]);
+    const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
     let err = "";
     child.stderr.on("data", (d) => { err += d; });
-    child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
+    child.on("error", (e) => reject(new Error(`無法啟動 ${cmd.label}（${cmd.bin}）：${e.message}`)));
     child.on("close", async (code) => {
       if (code !== 0) return reject(new Error(`考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
       try {
@@ -300,6 +331,33 @@ function generateFromImagesClaudeCode(images) {
   });
 }
 
+function generateFromImagesCodex(images) {
+  return new Promise((resolve, reject) => {
+    let dir;
+    try {
+      dir = fs.mkdtempSync(path.join(REPO, ".exam-tmp-"));
+      const paths = images.map((img, i) => {
+        const p = path.join(dir, `page${i + 1}${imgExt(img.filename) || ".png"}`);
+        fs.writeFileSync(p, Buffer.from(img.dataBase64, "base64"));
+        return p;
+      });
+      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀圖工具檢視這些考卷圖片）：\n${paths.join("\n")}`;
+      const cmd = localAgentCommand(prompt);
+      const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
+      let out = "", err = "";
+      child.stdout.on("data", (d) => { out += d; });
+      child.stderr.on("data", (d) => { err += d; });
+      child.on("error", (e) => { rmDir(dir); reject(new Error(`無法啟動 Codex（${cmd.bin}）：${e.message}。請確認主機已安裝並登入 codex CLI，或設 CODEX_BIN。`)); });
+      child.on("close", (code) => {
+        rmDir(dir);
+        if (code !== 0 && !out) return reject(new Error(`Codex 結束碼 ${code}：${err.slice(0, 500)}`));
+        try { resolve(extractJson(out)); }
+        catch (e) { reject(new Error(`${e.message}\nCodex 原始輸出前 500 字：${out.slice(0, 500)}`)); }
+      });
+    } catch (e) { if (dir) rmDir(dir); reject(e); }
+  });
+}
+
 // 引擎二（api）：用 image content blocks 傳給 Claude。
 async function generateFromImagesApi(images) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -323,8 +381,9 @@ async function generateFromImagesApi(images) {
 
 async function generateFromImages(images) {
   if (!images || !images.length) throw new Error("沒有圖片");
-  const engine = (process.env.ENGINE || "claude-code").toLowerCase();
+  const engine = selectedEngine();
   if (engine === "api") return generateFromImagesApi(images);
+  if (engine === "codex") return generateFromImagesCodex(images);
   return generateFromImagesClaudeCode(images);
 }
 

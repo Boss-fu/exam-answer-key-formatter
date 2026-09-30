@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
+const { preflight } = require("./ocr-preflight");
 const { buildDocxBuffer, checkAnswers, buildCleanExamBuffer } = require("../code/render");
 
 const PORT = process.env.PORT || 8787;
@@ -14,10 +15,12 @@ const OUTPUT = path.join(__dirname, "output");
 const DIRTY_OUTPUT = path.join(OUTPUT, "dirty-exams");
 const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
 const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
+const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.mkdirSync(DIRTY_OUTPUT, { recursive: true });
 fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
 fs.mkdirSync(PKG_OUTPUT, { recursive: true });
+fs.mkdirSync(OCR_OUTPUT, { recursive: true });
 
 function send(res, code, type, body) {
   res.writeHead(code, { "content-type": type });
@@ -60,6 +63,46 @@ const server = http.createServer(async (req, res) => {
       const buffer = Buffer.from(dataBase64, "base64");
       const text = await extractText(filename || "", buffer);
       return sendJson(res, 200, { ok: true, filename, chars: text.length, text });
+    }
+
+    // --- 本機 OCR 試跑：先回傳題目候選區與信心，讓使用者覆核後再匯出 ---
+    if (req.method === "POST" && url.pathname === "/api/ocr-preflight") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "OCR 試跑只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(OCR_OUTPUT, job);
+      fs.mkdirSync(jobDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const report = preflight({ sourcePath: source, jobDir });
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, job, report });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/ocr-review") {
+      const { job, questionId, text, status } = JSON.parse(await readBody(req) || "{}");
+      if (!safeJobId(job) || !questionId) return sendJson(res, 400, { ok: false, error: "缺少工作或題目編號" });
+      const reportPath = path.join(OCR_OUTPUT, job, "report.json");
+      const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+      const question = report.questions.find((q) => q.id === questionId);
+      if (!question) return sendJson(res, 404, { ok: false, error: "找不到這一題" });
+      question.correctedText = String(text || "");
+      question.status = status === "ok" ? "ok" : "review";
+      report.corrections[questionId] = { text: question.correctedText, status: question.status, updatedAt: new Date().toISOString() };
+      report.summary.reviewCount = report.questions.filter((q) => q.status !== "ok").length;
+      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, question, reviewCount: report.summary.reviewCount });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ocr-page") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const image = path.basename(url.searchParams.get("image") || "");
+      if (!job || !/\.(png|jpe?g)$/i.test(image)) return send(res, 400, "text/plain; charset=utf-8", "Invalid request");
+      const file = path.join(OCR_OUTPUT, job, "pages", image);
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      return fs.createReadStream(file).pipe(res);
     }
 
     // --- 髒考卷：掃描 PDF / 圖片 → Claude Code 重建茲茲格式 Word ---
@@ -208,6 +251,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`\n  詳解本機應用已啟動 →  http://localhost:${PORT}`);
-  console.log(`  引擎：${process.env.ENGINE || "claude-code"}（用 ENGINE=api 可切換到 Anthropic API）`);
+  console.log(`  引擎：${process.env.ENGINE || "claude-code"}（可用 ENGINE=codex 或 ENGINE=api 切換）`);
   console.log(`  產出的 Word 會存到：${OUTPUT}\n`);
 });

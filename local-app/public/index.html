@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>茲茲文教｜考卷 AI 處理（本機）</title>
+<title>茲茲 OCR 系統｜考卷文件處理平台</title>
 <style>
   :root{--ink:#2d3038;--paper:#f6f5f2;--line:#e6e4de;--red:#850103;--orange:#f9a12c;--green:#1f6f5c;--muted:#6e6f74}
   *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
@@ -40,6 +40,8 @@
   .crop-page .pgno{position:absolute;top:6px;left:8px;background:rgba(45,48,56,.72);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;pointer-events:none;z-index:3}
   .crop-item{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px;background:#fff}
   .crop-item img{width:96px;height:64px;object-fit:contain;background:#f5f4f1;border-radius:6px}.crop-item .fn{font-size:12.5px;font-weight:700;word-break:break-all}
+  /* OCR 試跑與覆核 */
+  .ocr-page{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:14px;background:#fff}.ocr-page summary{cursor:pointer;font-weight:700;font-size:13px}.ocr-page img{display:block;width:100%;max-height:420px;object-fit:contain;object-position:top;background:#f5f4f1;border-radius:8px;margin-top:10px}.ocr-q{border:1px solid var(--line);border-left:4px solid var(--green);border-radius:9px;padding:10px;margin-top:9px;background:#fff}.ocr-q.review{border-left-color:#9a6b19}.ocr-q.attention{border-left-color:#b33a36}.ocr-q-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700}.ocr-q textarea{min-height:74px;margin-top:8px;font-size:12px}.ocr-meta{font-size:11px;color:var(--muted);margin-left:auto;font-weight:500}.ocr-actions{display:flex;gap:7px;align-items:center;margin-top:7px}.ocr-actions .status{margin:0}
   /* 詳解核對 */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 14px}.stat{background:#faf8f4;border:1px solid var(--line);border-radius:10px;padding:10px 12px}.stat .k{font-size:11.5px;color:var(--muted)}.stat .v{font-size:22px;font-weight:700}.stat.bad .v{color:#b33a36}.stat.warn .v{color:#9a6b19}.stat.hero .v{color:var(--red)}
   .q{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;overflow:hidden;background:#fff}.q.miss{border-left:4px solid #b33a36}.q.incons{border-left:4px solid #9a6b19}.q.ok{border-left:4px solid var(--green)}
@@ -49,46 +51,86 @@
   .qb{display:none;padding:0 12px 13px;border-top:1px solid var(--line)}.q.open .qb{display:block}.detail{background:#faf8f4;border-radius:8px;padding:10px 12px;font-size:13px;margin:11px 0}.opt{display:grid;grid-template-columns:auto 1fr;gap:9px;font-size:13px;padding:7px 9px;border-radius:7px;margin-bottom:5px}.opt.correct{background:#e3f0ea}.opt .ol{font-weight:700}
   footer{text-align:center;color:#a79c90;font-size:11px;letter-spacing:.8px;padding:0 20px 34px}
   @media(max-width:680px){header{padding:14px 18px}main{padding:22px 14px}.stage,.intro{padding:18px}.stats{grid-template-columns:1fr 1fr}}
+  /* 後台式工作台佈局 */
+  body{background:#f7f4ee}.topbar{height:68px;padding:0 28px;position:sticky;top:0;z-index:20;background:rgba(255,254,251,.96);backdrop-filter:blur(12px);box-shadow:0 1px 0 #e7e1d7}.app-shell{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:238px minmax(0,1fr);gap:0;min-height:calc(100vh - 68px)}
+  .sidebar{border-right:1px solid #e6e1d8;padding:25px 16px;background:#fbfaf7;position:sticky;top:68px;height:calc(100vh - 68px);align-self:start}.side-label{font-size:10px;letter-spacing:1.3px;color:#9b9285;font-weight:800;padding:0 12px;margin:8px 0 9px}.side-nav{display:flex;flex-direction:column;gap:4px}.side-nav a{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;text-decoration:none;color:#5f6267;font-size:12.5px;font-weight:650}.side-nav a:hover{background:#f4ebe3;color:#850103}.side-nav a.active{background:#850103;color:#fff;box-shadow:0 5px 14px -8px #850103}.side-icon{width:22px;height:22px;border-radius:7px;background:#efe9df;color:#850103;display:grid;place-items:center;font-size:11px;font-family:Georgia,serif}.side-nav a.active .side-icon{background:rgba(255,255,255,.18);color:#fff}.side-rule{border:0;border-top:1px solid #e8e2d8;margin:20px 8px}.side-status{margin:0 8px;padding:12px;border:1px solid #e6ded2;border-radius:12px;background:#fff;font-size:11px;line-height:1.6;color:#77716a}.side-status b{display:block;color:#34363b;font-size:11.5px}.status-dot{display:inline-block;width:7px;height:7px;border-radius:99px;background:#1f8a68;margin-right:5px}
+  main{max-width:none;margin:0;padding:28px 36px 64px;min-width:0}.workspace-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin:0 0 22px}.breadcrumb{font-size:11px;color:#9a9185;letter-spacing:.6px;margin-bottom:7px}.workspace-head h2{font-size:26px;letter-spacing:-.5px;margin:0;color:#2e3037}.workspace-head p{font-size:13px;color:#77746e;margin:6px 0 0;line-height:1.65}.system-state{display:flex;align-items:center;gap:8px;border:1px solid #ded6ca;background:#fff;border-radius:12px;padding:8px 12px;font-size:11.5px;color:#66635e;white-space:nowrap}.system-state .status-dot{margin:0}
+  .intro,.stage{border-radius:16px;box-shadow:0 8px 26px -22px rgba(48,37,24,.45);border-color:#e4ddd3}.intro{padding:0;background:transparent;border:0;box-shadow:none}.dashboard-hero{border:1px solid #e1d7cb;border-radius:16px;background:linear-gradient(115deg,#fffdf9 0%,#fbf5ed 72%,#f6e7de 100%);padding:24px 26px;margin-bottom:16px;position:relative;overflow:hidden}.dashboard-hero:after{content:"OCR";position:absolute;right:18px;bottom:-25px;font-size:105px;line-height:1;font-weight:900;letter-spacing:-8px;color:rgba(133,1,3,.045);pointer-events:none}.dashboard-hero h2{font-size:20px;margin:0 0 6px}.dashboard-hero p{max-width:760px}.flow{position:relative;z-index:1;margin-top:18px;gap:7px}.flow span{border-radius:8px;background:#fffdf9;padding:7px 10px;color:#6d2426;font-size:11px;box-shadow:0 1px 0 rgba(255,255,255,.8)}.operation-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}.operation-card{background:#fff;border:1px solid #e5dfd6;border-radius:13px;padding:14px 15px}.operation-card .label{font-size:10.5px;color:#8c857a;letter-spacing:.7px;font-weight:750}.operation-card .metric{font-size:20px;font-weight:750;color:#292b31;margin-top:5px}.operation-card .detail{font-size:10.5px;color:#77736c;margin-top:3px}.operation-card.warn .metric{color:#a3721e}.operation-card .mini-dot{float:right;width:7px;height:7px;border-radius:50%;background:#1f8a68;margin-top:3px}.operation-card.warn .mini-dot{background:#d09128}
+  .stage{padding:0;overflow:hidden;margin-bottom:16px;background:#fff}.stage .head{padding:18px 20px;margin:0;border-bottom:1px solid #eee8e0;align-items:center;background:#fffefd}.stage .no{width:34px;height:34px;border-radius:9px;font-size:14px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:20px;margin-right:20px}.stage>.row:last-of-type{margin-bottom:20px}.stage>.notice{margin-bottom:14px}.stage .head h2{font-size:16px}.stage .head p{font-size:12px;max-width:780px}.notice{border-left-width:3px;border-radius:7px;background:#f7fbf8;color:#526259}.result{background:#fff;border-radius:10px}.btn{border-radius:8px;min-height:32px}.primary{box-shadow:0 4px 11px -6px rgba(133,1,3,.65)}.crop-pages{padding-bottom:20px}.crop-page{border-radius:10px}.stats{padding:0}
+  @media(max-width:920px){.app-shell{display:block}.sidebar{display:none}main{padding:22px 18px}.operation-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace-head{display:block}.system-state{display:inline-flex;margin-top:12px}}@media(max-width:560px){.header-actions{display:none}.topbar{padding:0 16px}.operation-grid{grid-template-columns:1fr 1fr;gap:8px}.operation-card{padding:12px}.workspace-head h2{font-size:22px}main{padding:18px 12px}.stage .head{padding:15px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:15px;margin-right:15px}}
+  /* 茲茲系統共用的極簡工作頁視覺：品牌置中、單一任務面板、保留充足留白。 */
+  body{background:#fff;color:#17233a}.topbar{display:none}.app-shell{display:block;min-height:100vh}.sidebar{display:none}main{max-width:900px;margin:0 auto;padding:72px 22px 64px}.workspace-head{display:block;text-align:center;margin:0 0 34px}.workspace-head>div:first-child:before{content:"ϟ";display:grid;place-items:center;margin:0 auto 9px;width:48px;height:48px;font-family:Georgia,serif;font-size:35px;line-height:1;color:#b19968;background:linear-gradient(135deg,#fff 0%,#f7f1e5 100%);border-radius:14px;box-shadow:0 4px 15px -10px rgba(112,85,35,.6)}.breadcrumb{font-size:10px;letter-spacing:2px;color:#91a3bf;margin:0 0 6px;font-weight:700}.workspace-head h2{font-size:25px;letter-spacing:.2px;color:#1d2a42}.workspace-head p{font-size:12px;color:#8ea0b9;margin:7px 0 0}.system-state{display:none}.dashboard-hero,.operation-grid{display:none}.intro{display:none}.stage{border:1px solid #dbe3ed;border-radius:13px;box-shadow:0 2px 5px rgba(21,38,63,.07);overflow:hidden;margin-bottom:16px;background:#fff}.stage .head{padding:23px 31px 18px;background:#fff;border:0;align-items:flex-start}.stage .head .no{width:25px;height:25px;border-radius:7px;background:#fff;color:#9d0000;border:1.5px solid #a60000;font-family:Georgia,serif;font-size:12px;box-shadow:none;margin-top:1px}.stage .head h2{font-size:16px;color:#1c2a43;letter-spacing:.1px}.stage .head p{font-size:12px;line-height:1.7;color:#8ca0bc;margin-top:4px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:31px;margin-right:31px}.stage>.row{border-top:1px solid #edf1f5;margin-top:0;padding-top:16px;margin-bottom:0;padding-bottom:17px}.stage>.notice{margin-top:0;margin-bottom:18px;border-left:0;border-radius:8px;background:#fff9e9;color:#a96900;padding:10px 12px;font-size:11.5px}.stage>.notice b{color:#945d00}.btn{border-radius:8px;min-height:38px;padding:0 16px;font-size:12px;border-color:#d7e0eb;box-shadow:none;background:#fff;color:#42536d}.btn:hover{background:#f7f9fc;border-color:#c3d0df;color:#850103;box-shadow:none}.primary{background:#a90000;border-color:#a90000;color:#fff;box-shadow:0 3px 8px -5px rgba(122,0,0,.5)}.primary:hover{background:#8e0000;border-color:#8e0000;color:#fff}.green{background:#b68a33;border-color:#b68a33;color:#fff}.green:hover{background:#9e7425;border-color:#9e7425;color:#fff}input[type=file]{padding:0;font-size:12px;color:#72849e}input[type=file]::file-selector-button{margin-right:9px;border:1px solid #d6e0ec;border-radius:7px;background:#f8fafc;color:#40516a;padding:8px 11px;font:600 11px inherit;cursor:pointer}input[type=file]::file-selector-button:hover{background:#f1f5f9}.status{font-size:11.5px;color:#8394aa}.result{border-color:#e0e7ef;box-shadow:none}.crop-pages{padding-bottom:24px}.ocr-page{border-color:#e0e7ef;box-shadow:none}.ocr-q{border-radius:8px}.stats .stat{border-color:#e0e7ef;background:#fafcff}.stats .stat .v{color:#1d2a43}.flow{display:none}footer{font-size:10px;color:#9babc0;padding:8px 20px 38px}@media(max-width:560px){main{padding:48px 14px}.workspace-head{margin-bottom:25px}.stage .head{padding:19px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:19px;margin-right:19px}}
+  /* OCR 工作區：一次只開啟一個任務，避免多段表單搶奪注意力。 */
+  body{background:#f8f7f4}.topbar{display:flex;position:relative;height:64px;padding:0 max(24px,calc((100vw - 1160px)/2));background:#fff;border-bottom:1px solid #ebe5dc;box-shadow:none}.brand-logo{border:0;padding:0;width:32px;color:#850103;font-size:23px}.brand-head{gap:9px}.brand-head h1{font-size:15px;color:#2d3038}.brand-head .sub{font-size:9px;color:#af9a6b;letter-spacing:1.1px}.app-shell{display:block}.workspace-head{display:none}main{max-width:1120px;padding:34px 24px 64px}.workflow-shell{background:#fff;border:1px solid #e5dfd5;border-radius:16px;box-shadow:0 12px 34px -26px rgba(70,43,25,.35);overflow:hidden}.workflow-top{padding:27px 32px 20px;border-bottom:1px solid #efeae2;display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.workflow-kicker{font-size:10px;letter-spacing:1.35px;font-weight:800;color:#af9a6b;margin-bottom:6px}.workflow-title{font-size:21px;font-weight:800;color:#2d3038;letter-spacing:.1px}.workflow-copy{font-size:12px;color:#887f74;line-height:1.65;margin:6px 0 0}.workflow-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:0 20px;border-bottom:1px solid #efeae2;background:#fffdf9}.workflow-tab{position:relative;display:flex;align-items:center;gap:9px;padding:15px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:#958b7f;font:700 12px inherit;cursor:pointer;white-space:nowrap}.workflow-tab:hover{color:#850103}.workflow-tab.active{color:#850103;border-bottom-color:#850103}.workflow-tab .tab-no{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#f1eee8;color:#8c8174;font:700 10px Georgia,serif}.workflow-tab.active .tab-no{background:#850103;color:#fff}.stage{display:none;border:0;border-radius:0;box-shadow:none;margin:0;background:#fff;overflow:visible}.stage.active{display:block}.stage .head{padding:28px 32px 19px;border:0;background:transparent}.stage .head .no{width:29px;height:29px;color:#850103;border-color:#cfa4a4;font-size:12px}.stage .head h2{font-size:17px}.stage .head p{max-width:720px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:32px;margin-right:32px}.stage>.row{border-top:0;padding-top:0;margin-top:0}.stage>.notice{margin-top:0;background:#fff8e9;color:#936307}.task-foot{padding:18px 32px;background:#fffdf9;border-top:1px solid #efeae2;color:#988d80;font-size:11px;line-height:1.5}.task-foot b{color:#685d52}.workflow-empty{padding:26px 32px 32px;color:#988d80;font-size:12px}.status{font-size:12px}.intro{display:none}footer{padding-top:24px}@media(max-width:720px){.topbar{padding:0 16px}.header-actions{display:none}main{padding:18px 12px}.workflow-top{padding:22px 20px}.workflow-tabs{overflow-x:auto;padding:0 10px;display:flex}.workflow-tab{min-width:135px}.stage .head{padding:23px 20px 16px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:20px;margin-right:20px}.task-foot{padding:15px 20px}}
 </style>
 </head>
 <body>
-<header>
-  <div class="brand-head"><div class="brand-logo">茲</div><div><h1>茲茲文教｜考卷 AI 處理（本機）</h1><div class="sub">TZUTZU SCIENCE QBANK · LOCAL AI PROCESSING</div></div></div>
+<header class="topbar">
+  <div class="brand-head"><div class="brand-logo">茲</div><div><h1>茲茲 OCR 系統</h1><div class="sub">TZUTZU DOCUMENT INTELLIGENCE · LOCAL PROCESSING</div></div></div>
   <div class="header-actions"><a class="btn" id="qbankTop" href="https://science-qbank.vercel.app/raw.html" target="_blank" rel="noopener">題庫系統 ↗</a><span class="btn" id="engineBadge" style="cursor:default">引擎：讀取中…</span></div>
 </header>
-<main>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="side-label">OCR WORKSPACE</div>
+    <nav class="side-nav">
+      <a class="active" href="#overview"><span class="side-icon">◎</span>處理總覽</a>
+      <a href="#ingestion"><span class="side-icon">Ⅰ</span>文件匯入</a>
+      <a href="#preflight"><span class="side-icon">Ⅱ</span>OCR 預檢</a>
+      <a href="#reconstruction"><span class="side-icon">Ⅲ</span>結構化重建</a>
+      <a href="#solution"><span class="side-icon">Ⅳ</span>詳解與校驗</a>
+    </nav>
+    <hr class="side-rule">
+    <div class="side-label">SYSTEM HEALTH</div>
+    <div class="side-status"><b><span class="status-dot"></span>本機處理節點</b>OCR 與文件處理均於受控本機環境執行。</div>
+  </aside>
+  <main>
+  <div class="workflow-shell">
+    <div class="workflow-top"><div><div class="workflow-kicker">TZUTZU DOCUMENT INTELLIGENCE</div><div class="workflow-title">茲茲 OCR 系統</div><p class="workflow-copy">選擇一個作業模組開始處理；每次僅顯示目前任務需要的工具與資料。</p></div></div>
+    <nav class="workflow-tabs" aria-label="文件處理流程">
+      <button class="workflow-tab active" type="button" data-target="ingestion"><span class="tab-no">1</span>文件擷取</button>
+      <button class="workflow-tab" type="button" data-target="preflight"><span class="tab-no">2</span>OCR 預檢</button>
+      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">3</span>文件重建</button>
+      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">4</span>詳解生成</button>
+    </nav>
+  <div class="workspace-head" id="overview"><div><div class="breadcrumb">TZUTZU DOCUMENT INTELLIGENCE</div><h2>茲茲 OCR 系統</h2><p>試卷文件辨識、結構化處理與題目資料資產管理平台。</p></div><div class="system-state"><span class="status-dot"></span>處理服務正常</div></div>
   <div class="intro">
-    <h2>三步驟，一份考卷從掃描到入庫</h2>
-    <p>用 Claude 引擎在本機處理掃描考卷。分三階段、一階段一階段做：先截圖並確認可讀，再產出乾淨考卷與題庫 CSV，最後製作詳解。</p>
-    <div class="flow"><span>① 匯入與截圖</span><span>② 乾淨考卷 ＋ 題庫 CSV</span><span>③ 詳解</span></div>
+    <div class="dashboard-hero"><h2>茲茲 OCR 系統</h2><p>針對掃描試卷執行文件匯入、影像區域擷取、OCR 預檢、結構化重建與詳解生成。低信心資料保留於覆核佇列，確保輸出品質與處理歷程可追溯。</p><div class="flow"><span>① 文件匯入與影像擷取</span><span>② OCR 預檢與品質覆核</span><span>③ 結構化重建與資料匯出</span><span>④ 詳解生成與答案校驗</span></div></div>
+    <div class="operation-grid"><div class="operation-card"><span class="mini-dot"></span><div class="label">DOCUMENT PIPELINE</div><div class="metric">Ready</div><div class="detail">等待文件匯入</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">LOCAL OCR</div><div class="metric">Local</div><div class="detail">本機優先處理</div></div><div class="operation-card warn"><span class="mini-dot"></span><div class="label">REVIEW QUEUE</div><div class="metric">0</div><div class="detail">待人工覆核項目</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">EXPORT TARGET</div><div class="metric">DOCX</div><div class="detail">Word 與題庫 CSV</div></div></div>
   </div>
 
   <!-- 拼圖一 -->
-  <section class="stage">
-    <div class="head"><div class="no">Ⅰ</div><div><h2>匯入與截圖</h2><p>上傳掃描考卷 → 頁面直接渲染（判斷清不清楚）→ 拖框把圖截下來，存成 <code>Q題號.png</code>。</p></div></div>
+  <section class="stage active" id="ingestion">
+    <div class="head"><div class="no">Ⅰ</div><div><h2>文件匯入與影像擷取</h2><p>載入掃描 PDF，於瀏覽器端完成頁面渲染與區域擷取；可建立題目圖像資產與題組共用圖，原始檔不會上傳至外部服務。</p></div></div>
     <div class="row"><input class="" type="file" id="cropPdf" accept=".pdf"><span class="status" id="cropStatus"></span></div>
-    <div class="notice">操作：在頁面上按住滑鼠<b>拖出一個框</b> → 放開 → 輸入題號（題組共用圖在題號前加 <code>g</code>，例 <code>g24</code>）→ 下載。可一次打包成 ZIP。純在你的瀏覽器裁切，不上傳。</div>
+    <div class="notice"><b>操作規格：</b>於頁面上拖曳定義擷取區域，指定題號後輸出為 <code>Q題號.png</code>；題組共用圖以 <code>g</code> 前綴標記（例如 <code>g24</code>）。支援批次 ZIP 匯出，擷取作業全程於瀏覽器本機執行。</div>
     <div id="cropPagesWrap" class="crop-pages hidden"></div>
     <div id="cropList" class="hidden" style="margin-top:14px"></div>
   </section>
 
+  <section class="stage" id="preflight">
+    <div class="head"><div class="no">Ⅱ</div><div><h2>OCR 預檢與品質覆核</h2><p>以本機 OCR 建立印刷文字、題號錨點與題目候選區。手寫作答與批改資訊不納入資料；系統依辨識信心將需覆核項目列入工作佇列。</p></div></div>
+    <div class="row"><input type="file" id="ocrFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="ocrBtn">執行本機 OCR 預檢</button><span class="status" id="ocrStatus"></span></div>
+    <div class="notice"><b>覆核準則：</b>核對頁數、題號序列、題目影像與文字轉錄內容。可直接修訂單題文字並確認入庫；修訂僅更新該題資料，不觸發整卷重新辨識。</div>
+    <div class="result hide" id="ocrResult"></div>
+  </section>
+
   <!-- 拼圖二 -->
-  <section class="stage">
-    <div class="head"><div class="no">Ⅱ</div><div><h2>乾淨考卷 Word ＋ 題庫 23 欄 CSV</h2><p>上傳同一份掃描考卷，一次 Claude 讀圖同時產出「乾淨 Word（人類閱讀）」和「題庫 23 欄 CSV（直接匯入）」。約 4–5 分鐘。</p></div></div>
+  <section class="stage" id="reconstruction">
+    <div class="head"><div class="no">Ⅲ</div><div><h2>結構化重建與資料匯出</h2><p>將試卷影像解析為可編輯的 Word 文件與 23 欄題庫 CSV。此階段針對文件結構、題幹、選項與圖表建立可供後續系統使用的標準化資料。</p></div></div>
     <div class="row"><input type="file" id="pkgFile" accept=".pdf,.png,.jpg,.jpeg"><span class="status" id="pkgStatus"></span></div>
     <div class="help">圖的位置先留〔含圖〕；拼圖三之後會把你在 Ⅰ 截好的圖直接 in-line 插進該題下方。</div>
-    <div class="row"><button class="btn primary" id="pkgBtn">一鍵產出 Word ＋ CSV</button></div>
+    <div class="row"><button class="btn primary" id="pkgBtn">啟動文件重建與匯出</button></div>
     <div class="status" id="pkgRunStatus"></div>
     <div class="result hide" id="pkgResult"></div>
     <div class="notice" style="border-left-color:var(--orange);background:#fff8ee">
-      <b>已經跑過、只是要 Word？</b>把上次下載的那份 23 欄 CSV 丟回來，直接產 Word，<b>不花 token、不重跑 AI</b>。
-      <div class="row" style="margin-top:8px"><input type="file" id="csv2wFile" accept=".csv,.txt"><button class="btn green" id="csv2wBtn">由 CSV 產生 Word</button><span class="status" id="csv2wStatus" style="margin-top:0"></span></div>
+      <b>既有結構化資料匯出：</b>若已有 23 欄 CSV，可直接產生 Word 文件；此作業不重新執行辨識或模型處理。
+      <div class="row" style="margin-top:8px"><input type="file" id="csv2wFile" accept=".csv,.txt"><button class="btn green" id="csv2wBtn">由 CSV 建立 Word 文件</button><span class="status" id="csv2wStatus" style="margin-top:0"></span></div>
     </div>
   </section>
 
   <!-- 拼圖三 -->
-  <section class="stage">
-    <div class="head"><div class="no">Ⅲ</div><div><h2>製作詳解</h2><p>把乾淨考卷（貼上文字、或上傳 PDF/Word/拍照）交給 Claude，產出逐題詳解；可對官方答案核對命中率，再輸出 Word。</p></div></div>
+  <section class="stage" id="solution">
+    <div class="head"><div class="no">Ⅳ</div><div><h2>詳解生成與答案校驗</h2><p>匯入已確認的題目資料、文字型文件或影像，生成逐題詳解；可與官方答案鍵進行一致性校驗，並輸出標準 Word 文件。</p></div></div>
     <div class="field"><label for="examFile">上傳考卷（PDF / Word / 拍照），或直接貼文字</label>
       <div class="row" style="margin:6px 0 8px"><input type="file" id="examFile" accept=".pdf,.docx,.txt,.md,image/*" multiple><span class="status" id="uploadStatus"></span></div>
       <textarea id="exam" placeholder="上傳後文字會出現在這裡供你確認，也可直接貼：&#10;1.（　）下列……(A)…(B)…(C)…(D)…"></textarea>
@@ -108,11 +150,14 @@
   </section>
 
   <div class="intro" style="background:linear-gradient(135deg,#fffdf8,#fbf3ee)">
-    <h2>省 token 用法</h2>
-    <p>① 做考卷用這個網頁（一次一份，最省）；只有要改功能才找 Claude 對話。<br>② 圖自己在 Ⅰ 框選截圖 → 0 token。<br>③ 少貼大截圖給 AI；換主題開新對話。引擎走 Claude 訂閱額度，訂閱制下跑考卷不按量計費。</p>
+    <h2>運算資源治理</h2>
+    <p>版面渲染、圖像擷取與初步 OCR 均由本機執行。僅對低信心文字、複雜圖表或結構異常區塊啟用 AI 輔助，以降低模型用量並保留完整的人工覆核軌跡。</p>
+  </div>
+  <div class="task-foot"><b>資料處理原則：</b>頁面渲染、影像擷取與 OCR 預檢優先於本機執行；僅在低信心區塊需要時啟用 AI 輔助。</div>
   </div>
 </main>
-<footer>茲茲文教・自然科考卷 AI 處理（本機）</footer>
+</div>
+<footer>茲茲 OCR 系統・試卷文件辨識與結構化處理平台</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -125,6 +170,16 @@ function extOf(n){return (n.split(".").pop()||"").toLowerCase();}
 function isImage(f){return /^image\//.test(f.type)||["jpg","jpeg","png","webp","gif","heic"].indexOf(extOf(f.name))>-1;}
 function esc(t){return String(t==null?"":t).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
 function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++){var c=s[i];if(c>="A"&&c<="D")o.push(c);}return o;}
+
+/* 工作區導覽：一次聚焦一個流程模組，保留既有資料與操作狀態。 */
+(function(){
+  var tabs=Array.prototype.slice.call(document.querySelectorAll('.workflow-tab'));
+  function activate(id){
+    tabs.forEach(function(tab){tab.classList.toggle('active',tab.getAttribute('data-target')===id);});
+    Array.prototype.forEach.call(document.querySelectorAll('.stage'),function(stage){stage.classList.toggle('active',stage.id===id);});
+  }
+  tabs.forEach(function(tab){tab.addEventListener('click',function(){activate(tab.getAttribute('data-target'));});});
+})();
 
 /* ===== 拼圖一：截圖工具（pdf.js 渲染 + canvas 裁切）===== */
 (function(){
@@ -182,11 +237,39 @@ function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++
   };
 })();
 
+/* ===== 拼圖二：本機 OCR 試跑與可追溯覆核 ===== */
+var ocrJob=null,ocrReport=null;
+function ocrPill(status){return status==="ok"?'<span class="pill good">已核可</span>':status==="review"?'<span class="pill warn">待覆核</span>':'<span class="pill bad">異常待處理</span>';}
+function renderOcrReport(){
+  var box=$("#ocrResult"); if(!ocrReport)return;
+  var s=ocrReport.summary, pages=ocrReport.pages||[];
+  var html='<div class="stats"><div class="stat hero"><div class="k">掃描頁數</div><div class="v">'+s.pageCount+'</div></div><div class="stat"><div class="k">題目候選</div><div class="v">'+s.questionCandidates+'</div></div><div class="stat warn"><div class="k">覆核佇列</div><div class="v">'+s.reviewCount+'</div></div><div class="stat"><div class="k">處理模式</div><div class="v" style="font-size:14px">本機 OCR</div></div></div>';
+  html+='<p class="help">請優先處理標示「待覆核」或「異常待處理」的項目。原始影像與轉錄內容可於同一工作區逐題比對與修訂。</p>';
+  pages.forEach(function(p){
+    var qs=(p.questions||[]).map(function(q){var value=q.correctedText!=null?q.correctedText:q.text;return '<div class="ocr-q '+q.status+'" id="ocr-'+esc(q.id)+'"><div class="ocr-q-head"><span>第 '+esc(q.no)+' 題</span>'+ocrPill(q.status)+'<span class="ocr-meta">OCR 信心 '+esc(q.confidence)+'% ・頁 '+esc(p.page)+'</span></div><textarea id="ocrtext-'+esc(q.id)+'">'+esc(value)+'</textarea><div class="ocr-actions"><button class="btn green" onclick="saveOcrQuestion(\''+esc(q.id)+'\')">核可並儲存</button><span class="status" id="ocrstatus-'+esc(q.id)+'"></span></div></div>';}).join("");
+    var img='/api/ocr-page?job='+encodeURIComponent(ocrJob)+'&image='+encodeURIComponent((p.image||'').split('/').pop());
+    html+='<details class="ocr-page" open><summary>第 '+p.page+' 頁 ・ '+p.wordCount+' 個文字區塊 ・整頁信心 '+p.confidence+'% '+ocrPill(p.status)+'</summary><img src="'+img+'" alt="第 '+p.page+' 頁原始掃描">'+(qs||'<p class="status err">此頁未找到可用文字或題號；請改用較清楚原檔，或交由 AI 逐頁處理。</p>')+'</details>';
+  });
+  box.innerHTML=html;box.classList.remove("hide");
+}
+window.saveOcrQuestion=async function(id){
+  if(!ocrJob||!ocrReport)return;var input=$("#ocrtext-"+id),st=$("#ocrstatus-"+id);st.className="status";st.textContent="儲存中…";
+  try{var res=await fetch('/api/ocr-review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({job:ocrJob,questionId:id,text:input.value,status:'ok'})}),j=await res.json();if(!j.ok)throw new Error(j.error||'儲存失敗');
+    var q=ocrReport.questions.find(function(x){return x.id===id;});if(q){q.correctedText=input.value;q.status='ok';}ocrReport.pages.forEach(function(p){var a=(p.questions||[]).find(function(x){return x.id===id;});if(a){a.correctedText=input.value;a.status='ok';}});ocrReport.summary.reviewCount=j.reviewCount;renderOcrReport();
+  }catch(e){st.className='status err';st.textContent='錯誤：'+e.message;}
+};
+$("#ocrBtn").addEventListener("click",async function(){
+  var f=$("#ocrFile").files[0],st=$("#ocrStatus");if(!f){st.className='status err';st.textContent='請先選擇掃描 PDF 或圖片。';return;}
+  st.className='status';st.textContent='本機轉頁、OCR 與題號定位中…不會呼叫 AI。';$("#ocrBtn").disabled=true;$("#ocrResult").classList.add('hide');
+  try{var data=await readAsDataURL(f);data=data.split(',')[1]||'';var res=await fetch('/api/ocr-preflight',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:f.name,dataBase64:data})}),j=await res.json();if(!j.ok)throw new Error(j.error||'預檢失敗');ocrJob=j.job;ocrReport=j.report;st.className='status ok';st.textContent='OCR 預檢完成；請完成覆核佇列後再進行下游處理。';renderOcrReport();
+  }catch(e){st.className='status err';st.textContent='錯誤：'+e.message+'。請確認主機已安裝 Tesseract（chi_tra）與 Poppler pdftoppm。';}finally{$("#ocrBtn").disabled=false;}
+});
+
 /* ===== 拼圖二：一鍵包（乾淨 Word + 題庫 CSV）===== */
 $("#pkgBtn").addEventListener("click",async function(){
   var f=$("#pkgFile").files[0],st=$("#pkgRunStatus"),box=$("#pkgResult");
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
-  st.className="status";st.textContent="一次讀圖產出中…約 4–5 分鐘。趁現在到 Ⅰ 把圖框選截圖。請勿關閉此頁。";box.classList.add("hide");$("#pkgBtn").disabled=true;
+  st.className="status";st.textContent="文件結構化重建執行中，預計約 4–5 分鐘。處理期間請維持此頁面開啟。";box.classList.add("hide");$("#pkgBtn").disabled=true;
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
     var res=await fetch("/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");

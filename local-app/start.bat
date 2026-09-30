@@ -27,6 +27,14 @@ if not defined CLAUDE_BIN if exist "%APPDATA%\npm\node_modules\@anthropic-ai\cla
 REM 若要改用 API，把上面那行註解拿掉、填入金鑰，並把下面 npm start 前加 set：
 REM set ENGINE=api
 REM set ANTHROPIC_API_KEY=sk-ant-...
+REM 若主機已安裝並登入 Codex CLI，改用：
+REM set ENGINE=codex
+REM 若 codex 不在 PATH，可加：set CODEX_BIN=C:\完整\路徑\codex.cmd
+
+REM 本機 OCR 試跑需要 Tesseract 與 Poppler 的 pdftoppm；有標準安裝位置時自動使用。
+if not defined TESSERACT_BIN if exist "C:\Program Files\Tesseract-OCR\tesseract.exe" set "TESSERACT_BIN=C:\Program Files\Tesseract-OCR\tesseract.exe"
+if not defined PDFTOPPM_BIN if exist "C:\ocr-tools\poppler\Library\bin\pdftoppm.exe" set "PDFTOPPM_BIN=C:\ocr-tools\poppler\Library\bin\pdftoppm.exe"
+REM Poppler 若解壓到不同位置，請把上面的 PDFTOPPM_BIN 改為實際 pdftoppm.exe 路徑。
 
 call npm start
 pause

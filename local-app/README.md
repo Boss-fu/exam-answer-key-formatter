@@ -38,6 +38,11 @@ npm start            # 啟動，預設 http://localhost:8787
   ENGINE=api ANTHROPIC_API_KEY=sk-ant-... npm start
   # 可選：ANTHROPIC_MODEL=claude-sonnet-4-5
   ```
+- **`codex`** — 呼叫主機已登入的 Codex CLI。可處理文字、拍照詳解與掃描考卷 Word／CSV 工作流；Codex 會在每次工作建立的隔離資料夾內讀寫產物。
+  ```bash
+  ENGINE=codex npm start
+  # 若 codex 指令不在 PATH：CODEX_BIN=/完整/路徑/codex npm start
+  ```
 
 ## 產出規則
 
@@ -57,7 +62,7 @@ npm start            # 啟動，預設 http://localhost:8787
 ## 檔案
 
 - `server.js` — 本機 HTTP 伺服器（`/api/generate` 產詳解、`/api/render` 產 Word）
-- `engine.js` — 解題引擎抽象層（claude-code / api）
+- `engine.js` — 解題引擎抽象層（claude-code / codex / api）
 - `public/index.html` — 前端頁面
 - `output/` — 產出的 .docx（自動建立，已被 .gitignore 忽略）
 - 共用產檔邏輯在 `../code/render.js`（包裝 `../code/lib3.js`）
