@@ -85,6 +85,9 @@ def build(in_csv, out_docx, repl):
             sep = "\t" if tabbed else "　"
             C.append(p_q(stem + ("\n" + sep.join(opts) if opts else "")))
     finish(C, out_docx, repl)
+    import shutil
+    for d in (out_docx + ".build", out_docx + ".figs"):
+        shutil.rmtree(d, ignore_errors=True)
 
 def _opts_para(t):
     return ('<w:p><w:pPr><w:adjustRightInd w:val="0"/><w:snapToGrid w:val="0"/>'
