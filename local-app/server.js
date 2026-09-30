@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
-const { buildDocxBuffer, checkAnswers } = require("../code/render");
+const { buildDocxBuffer, checkAnswers, buildCleanExamBuffer } = require("../code/render");
 
 const PORT = process.env.PORT || 8787;
 const PUBLIC = path.join(__dirname, "public");
@@ -79,6 +79,22 @@ const server = http.createServer(async (req, res) => {
       const result = await generateDirtyExam({ sourcePath: source, workDir, outputDir: resultDir });
       fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify({ ...result, outputFile: path.basename(result.outputFile) }, null, 2));
       return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems, downloadUrl: `/api/dirty-exam/download?job=${job}` });
+    }
+
+    // --- 由現有 23 欄 CSV 直接產乾淨 Word（不花 token，給「已經跑過、只是要 Word」用）---
+    if (req.method === "POST" && url.pathname === "/api/csv-to-word") {
+      const { csvText, filename } = JSON.parse(await readBody(req, 16 * 1024 * 1024) || "{}");
+      if (!csvText || !csvText.trim()) return sendJson(res, 400, { ok: false, error: "缺少 CSV 內容" });
+      const buf = await buildCleanExamBuffer(csvText);
+      const name = safeName((filename || "乾淨考卷").replace(/\.(csv|xlsx?|txt)$/i, "")) + "-乾淨考卷.docx";
+      const outPath = path.join(OUTPUT, name);
+      fs.writeFileSync(outPath, buf);
+      res.writeHead(200, {
+        "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "content-disposition": `attachment; filename="doc.docx"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        "x-saved-path": encodeURIComponent(outPath),
+      });
+      return res.end(buf);
     }
 
     // --- 一鍵包：掃描 PDF/圖片 → 一次 Claude → 乾淨 Word ＋ 題庫 23 欄 CSV ---

@@ -80,6 +80,10 @@
     <div class="row"><button class="btn primary" id="pkgBtn">一鍵產出 Word ＋ CSV</button></div>
     <div class="status" id="pkgRunStatus"></div>
     <div class="result hide" id="pkgResult"></div>
+    <div class="notice" style="border-left-color:var(--orange);background:#fff8ee">
+      <b>已經跑過、只是要 Word？</b>把上次下載的那份 23 欄 CSV 丟回來，直接產 Word，<b>不花 token、不重跑 AI</b>。
+      <div class="row" style="margin-top:8px"><input type="file" id="csv2wFile" accept=".csv,.txt"><button class="btn green" id="csv2wBtn">由 CSV 產生 Word</button><span class="status" id="csv2wStatus" style="margin-top:0"></span></div>
+    </div>
   </section>
 
   <!-- 拼圖三 -->
@@ -191,6 +195,21 @@ $("#pkgBtn").addEventListener("click",async function(){
     var review=(j.reviewItems||[]).length?("<div style=\"margin-top:8px\"><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")+"</div>"):"";
     box.innerHTML='<div class="row">'+links+'</div><div class="help">Word 貼截圖到〔含圖〕；CSV 用 Excel 開或直接匯題庫。</div>'+review;box.classList.remove("hide");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pkgBtn").disabled=false;}
+});
+
+/* ===== 由現有 CSV 直接產 Word（0 token）===== */
+$("#csv2wBtn").addEventListener("click",async function(){
+  var f=$("#csv2wFile").files[0],st=$("#csv2wStatus");
+  if(!f){st.className="status err";st.textContent="請先選 CSV 檔。";return;}
+  st.className="status";st.textContent="產生中…";$("#csv2wBtn").disabled=true;
+  try{
+    var txt=await readAsText(f);
+    var res=await fetch("/api/csv-to-word",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({csvText:txt,filename:f.name})});
+    if(!res.ok){var j=await res.json();throw new Error(j.error||"產生失敗");}
+    var blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;
+    var cd=res.headers.get("content-disposition")||"",m=cd.match(/filename\*=UTF-8''([^;]+)/);a.download=m?decodeURIComponent(m[1]):"乾淨考卷.docx";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+    st.className="status ok";st.textContent="已產出並下載（0 token）。";
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#csv2wBtn").disabled=false;}
 });
 
 /* ===== 拼圖三：詳解 ===== */
