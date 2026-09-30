@@ -228,7 +228,7 @@ function generateExamPackage({ sourcePath, workDir, outputDir }) {
     let err = "";
     child.stderr.on("data", (d) => { err += d; });
     child.on("error", (e) => reject(new Error(`無法啟動 Claude Code（${bin}）：${e.message}`)));
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       if (code !== 0) return reject(new Error(`考卷處理失敗（結束碼 ${code}）：${err.slice(0, 500)}`));
       try {
         let summary = "已完成", reviewItems = [];
@@ -236,11 +236,14 @@ function generateExamPackage({ sourcePath, workDir, outputDir }) {
         if (!fs.existsSync(csvPath)) throw new Error("引擎沒有產出 CSV");
         // 補上 UTF-8 BOM，讓 Excel 直接開中文不亂碼
         try { const buf = fs.readFileSync(csvPath); if (!(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF)) fs.writeFileSync(csvPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buf])); } catch (e) {}
-        // 由同一份 CSV 直接生乾淨 Word（不再讓 AI 讀第二次）
-        const repl = JSON.stringify([["<w:t>國七生物</w:t>", "<w:t>國中自然</w:t>"], ["Ch1(全)", ""], ["【112.百齡】", ""]]);
-        const py = require("child_process").spawnSync("python3", [path.join(REPO, "local-app", "csv_to_word.py"), csvPath, docxPath, repl], { encoding: "utf8" });
-        const wordOk = py.status === 0 && fs.existsSync(docxPath);
-        if (!wordOk) reviewItems.push("乾淨 Word 產生失敗（CSV 仍可用）：" + String(py.stderr || "").slice(0, 200));
+        // 由同一份 CSV 直接生乾淨 Word（docx-js，純 Node，不需 Python）
+        let wordOk = false;
+        try {
+          const { buildCleanExamBuffer } = require("../code/render");
+          const buf = await buildCleanExamBuffer(fs.readFileSync(csvPath, "utf8"));
+          fs.writeFileSync(docxPath, buf);
+          wordOk = fs.existsSync(docxPath);
+        } catch (e) { reviewItems.push("乾淨 Word 產生失敗（CSV 仍可用）：" + String(e.message).slice(0, 200)); }
         resolve({ summary, reviewItems, csvPath, docxPath: wordOk ? docxPath : null });
       } catch (e) { reject(new Error(`讀取考卷處理結果失敗：${e.message}`)); }
     });
