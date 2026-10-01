@@ -61,7 +61,9 @@
   /* 茲茲系統共用的極簡工作頁視覺：品牌置中、單一任務面板、保留充足留白。 */
   body{background:#fff;color:#17233a}.topbar{display:none}.app-shell{display:block;min-height:100vh}.sidebar{display:none}main{max-width:900px;margin:0 auto;padding:72px 22px 64px}.workspace-head{display:block;text-align:center;margin:0 0 34px}.workspace-head>div:first-child:before{content:"ϟ";display:grid;place-items:center;margin:0 auto 9px;width:48px;height:48px;font-family:Georgia,serif;font-size:35px;line-height:1;color:#b19968;background:linear-gradient(135deg,#fff 0%,#f7f1e5 100%);border-radius:14px;box-shadow:0 4px 15px -10px rgba(112,85,35,.6)}.breadcrumb{font-size:10px;letter-spacing:2px;color:#91a3bf;margin:0 0 6px;font-weight:700}.workspace-head h2{font-size:25px;letter-spacing:.2px;color:#1d2a42}.workspace-head p{font-size:12px;color:#8ea0b9;margin:7px 0 0}.system-state{display:none}.dashboard-hero,.operation-grid{display:none}.intro{display:none}.stage{border:1px solid #dbe3ed;border-radius:13px;box-shadow:0 2px 5px rgba(21,38,63,.07);overflow:hidden;margin-bottom:16px;background:#fff}.stage .head{padding:23px 31px 18px;background:#fff;border:0;align-items:flex-start}.stage .head .no{width:25px;height:25px;border-radius:7px;background:#fff;color:#9d0000;border:1.5px solid #a60000;font-family:Georgia,serif;font-size:12px;box-shadow:none;margin-top:1px}.stage .head h2{font-size:16px;color:#1c2a43;letter-spacing:.1px}.stage .head p{font-size:12px;line-height:1.7;color:#8ca0bc;margin-top:4px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:31px;margin-right:31px}.stage>.row{border-top:1px solid #edf1f5;margin-top:0;padding-top:16px;margin-bottom:0;padding-bottom:17px}.stage>.notice{margin-top:0;margin-bottom:18px;border-left:0;border-radius:8px;background:#fff9e9;color:#a96900;padding:10px 12px;font-size:11.5px}.stage>.notice b{color:#945d00}.btn{border-radius:8px;min-height:38px;padding:0 16px;font-size:12px;border-color:#d7e0eb;box-shadow:none;background:#fff;color:#42536d}.btn:hover{background:#f7f9fc;border-color:#c3d0df;color:#850103;box-shadow:none}.primary{background:#a90000;border-color:#a90000;color:#fff;box-shadow:0 3px 8px -5px rgba(122,0,0,.5)}.primary:hover{background:#8e0000;border-color:#8e0000;color:#fff}.green{background:#b68a33;border-color:#b68a33;color:#fff}.green:hover{background:#9e7425;border-color:#9e7425;color:#fff}input[type=file]{padding:0;font-size:12px;color:#72849e}input[type=file]::file-selector-button{margin-right:9px;border:1px solid #d6e0ec;border-radius:7px;background:#f8fafc;color:#40516a;padding:8px 11px;font:600 11px inherit;cursor:pointer}input[type=file]::file-selector-button:hover{background:#f1f5f9}.status{font-size:11.5px;color:#8394aa}.result{border-color:#e0e7ef;box-shadow:none}.crop-pages{padding-bottom:24px}.ocr-page{border-color:#e0e7ef;box-shadow:none}.ocr-q{border-radius:8px}.stats .stat{border-color:#e0e7ef;background:#fafcff}.stats .stat .v{color:#1d2a43}.flow{display:none}footer{font-size:10px;color:#9babc0;padding:8px 20px 38px}@media(max-width:560px){main{padding:48px 14px}.workspace-head{margin-bottom:25px}.stage .head{padding:19px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:19px;margin-right:19px}}
   /* OCR 工作區：一次只開啟一個任務，避免多段表單搶奪注意力。 */
-  body{background:#f8f7f4}.topbar{display:flex;position:relative;height:64px;padding:0 max(24px,calc((100vw - 1160px)/2));background:#fff;border-bottom:1px solid #ebe5dc;box-shadow:none}.brand-logo{border:0;padding:0;width:32px;color:#850103;font-size:23px}.brand-head{gap:9px}.brand-head h1{font-size:15px;color:#2d3038}.brand-head .sub{font-size:9px;color:#af9a6b;letter-spacing:1.1px}.app-shell{display:block}.workspace-head{display:none}main{max-width:1120px;padding:34px 24px 64px}.workflow-shell{background:#fff;border:1px solid #e5dfd5;border-radius:16px;box-shadow:0 12px 34px -26px rgba(70,43,25,.35);overflow:hidden}.workflow-top{padding:27px 32px 20px;border-bottom:1px solid #efeae2;display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.workflow-kicker{font-size:10px;letter-spacing:1.35px;font-weight:800;color:#af9a6b;margin-bottom:6px}.workflow-title{font-size:21px;font-weight:800;color:#2d3038;letter-spacing:.1px}.workflow-copy{font-size:12px;color:#887f74;line-height:1.65;margin:6px 0 0}.workflow-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:0 20px;border-bottom:1px solid #efeae2;background:#fffdf9}.workflow-tab{position:relative;display:flex;align-items:center;gap:9px;padding:15px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:#958b7f;font:700 12px inherit;cursor:pointer;white-space:nowrap}.workflow-tab:hover{color:#850103}.workflow-tab.active{color:#850103;border-bottom-color:#850103}.workflow-tab .tab-no{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#f1eee8;color:#8c8174;font:700 10px Georgia,serif}.workflow-tab.active .tab-no{background:#850103;color:#fff}.stage{display:none;border:0;border-radius:0;box-shadow:none;margin:0;background:#fff;overflow:visible}.stage.active{display:block}.stage .head{padding:28px 32px 19px;border:0;background:transparent}.stage .head .no{width:29px;height:29px;color:#850103;border-color:#cfa4a4;font-size:12px}.stage .head h2{font-size:17px}.stage .head p{max-width:720px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:32px;margin-right:32px}.stage>.row{border-top:0;padding-top:0;margin-top:0}.stage>.notice{margin-top:0;background:#fff8e9;color:#936307}.task-foot{padding:18px 32px;background:#fffdf9;border-top:1px solid #efeae2;color:#988d80;font-size:11px;line-height:1.5}.task-foot b{color:#685d52}.workflow-empty{padding:26px 32px 32px;color:#988d80;font-size:12px}.status{font-size:12px}.intro{display:none}footer{padding-top:24px}@media(max-width:720px){.topbar{padding:0 16px}.header-actions{display:none}main{padding:18px 12px}.workflow-top{padding:22px 20px}.workflow-tabs{overflow-x:auto;padding:0 10px;display:flex}.workflow-tab{min-width:135px}.stage .head{padding:23px 20px 16px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:20px;margin-right:20px}.task-foot{padding:15px 20px}}
+  body{background:#f8f7f4}.topbar{display:flex;position:relative;height:64px;padding:0 max(24px,calc((100vw - 1160px)/2));background:#fff;border-bottom:1px solid #ebe5dc;box-shadow:none}.brand-logo{border:0;padding:0;width:32px;color:#850103;font-size:23px}.brand-head{gap:9px}.brand-head h1{font-size:15px;color:#2d3038}.brand-head .sub{font-size:9px;color:#af9a6b;letter-spacing:1.1px}.app-shell{display:block}.workspace-head{display:none}main{max-width:1120px;padding:34px 24px 64px}.workflow-shell{background:#fff;border:1px solid #e5dfd5;border-radius:16px;box-shadow:0 12px 34px -26px rgba(70,43,25,.35);overflow:hidden}.workflow-top{padding:27px 32px 20px;border-bottom:1px solid #efeae2;display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.workflow-kicker{font-size:10px;letter-spacing:1.35px;font-weight:800;color:#af9a6b;margin-bottom:6px}.workflow-title{font-size:21px;font-weight:800;color:#2d3038;letter-spacing:.1px}.workflow-copy{font-size:12px;color:#887f74;line-height:1.65;margin:6px 0 0}.workflow-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:0;padding:0 20px;border-bottom:1px solid #efeae2;background:#fffdf9}
+  .ai-badge{display:inline-block;margin-left:6px;font-size:9px;font-weight:800;letter-spacing:.4px;color:#9a6b19;background:#f8efd9;border:1px solid #ecd9a6;border-radius:6px;padding:1px 5px;vertical-align:middle}
+  .local-badge{display:inline-block;margin-left:6px;font-size:9px;font-weight:800;letter-spacing:.4px;color:#1f6f5c;background:#e3f0ea;border:1px solid #bfe0d2;border-radius:6px;padding:1px 5px;vertical-align:middle}.workflow-tab{position:relative;display:flex;align-items:center;gap:9px;padding:15px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:#958b7f;font:700 12px inherit;cursor:pointer;white-space:nowrap}.workflow-tab:hover{color:#850103}.workflow-tab.active{color:#850103;border-bottom-color:#850103}.workflow-tab .tab-no{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#f1eee8;color:#8c8174;font:700 10px Georgia,serif}.workflow-tab.active .tab-no{background:#850103;color:#fff}.stage{display:none;border:0;border-radius:0;box-shadow:none;margin:0;background:#fff;overflow:visible}.stage.active{display:block}.stage .head{padding:28px 32px 19px;border:0;background:transparent}.stage .head .no{width:29px;height:29px;color:#850103;border-color:#cfa4a4;font-size:12px}.stage .head h2{font-size:17px}.stage .head p{max-width:720px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:32px;margin-right:32px}.stage>.row{border-top:0;padding-top:0;margin-top:0}.stage>.notice{margin-top:0;background:#fff8e9;color:#936307}.task-foot{padding:18px 32px;background:#fffdf9;border-top:1px solid #efeae2;color:#988d80;font-size:11px;line-height:1.5}.task-foot b{color:#685d52}.workflow-empty{padding:26px 32px 32px;color:#988d80;font-size:12px}.status{font-size:12px}.intro{display:none}footer{padding-top:24px}@media(max-width:720px){.topbar{padding:0 16px}.header-actions{display:none}main{padding:18px 12px}.workflow-top{padding:22px 20px}.workflow-tabs{overflow-x:auto;padding:0 10px;display:flex}.workflow-tab{min-width:135px}.stage .head{padding:23px 20px 16px}.stage>.row,.stage>.field,.stage>.notice,.stage>.status,.stage>.result,.stage>#cropPagesWrap,.stage>#cropList{margin-left:20px;margin-right:20px}.task-foot{padding:15px 20px}}
   @media(max-width:720px){.header-actions{display:flex}#qbankTop,#engineBadge{display:none}.header-actions label{padding:0 8px;font-size:11px}.topbar{gap:8px}.brand-head .sub{display:none}}
 </style>
 </head>
@@ -95,20 +97,30 @@
   <div class="workflow-shell">
     <div class="workflow-top"><div><div class="workflow-kicker">TZUTZU DOCUMENT INTELLIGENCE</div><div class="workflow-title">茲茲 OCR 系統</div><p class="workflow-copy">選擇一個作業模組開始處理；每次僅顯示目前任務需要的工具與資料。</p></div></div>
     <nav class="workflow-tabs" aria-label="文件處理流程">
-      <button class="workflow-tab active" type="button" data-target="ingestion"><span class="tab-no">1</span>文件擷取</button>
-      <button class="workflow-tab" type="button" data-target="preflight"><span class="tab-no">2</span>OCR 預檢</button>
-      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">3</span>文件重建</button>
-      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">4</span>詳解生成</button>
+      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span>本地轉檔<span class="local-badge">本地</span></button>
+      <button class="workflow-tab" type="button" data-target="ingestion"><span class="tab-no">2</span>框選截圖</button>
+      <button class="workflow-tab" type="button" data-target="preflight"><span class="tab-no">3</span>OCR 預檢</button>
+      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">4</span>結構化重建<span class="ai-badge">AI</span></button>
+      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">5</span>詳解生成<span class="ai-badge">AI</span></button>
     </nav>
   <div class="workspace-head" id="overview"><div><div class="breadcrumb">TZUTZU DOCUMENT INTELLIGENCE</div><h2>茲茲 OCR 系統</h2><p>試卷文件辨識、結構化處理與題目資料資產管理平台。</p></div><div class="system-state"><span class="status-dot"></span>處理服務正常</div></div>
   <div class="intro">
-    <div class="dashboard-hero"><h2>茲茲 OCR 系統</h2><p>針對掃描試卷執行文件匯入、影像區域擷取、OCR 預檢、結構化重建與詳解生成。低信心資料保留於覆核佇列，確保輸出品質與處理歷程可追溯。</p><div class="flow"><span>① 文件匯入與影像擷取</span><span>② OCR 預檢與品質覆核</span><span>③ 結構化重建與資料匯出</span><span>④ 詳解生成與答案校驗</span></div></div>
-    <div class="operation-grid"><div class="operation-card"><span class="mini-dot"></span><div class="label">DOCUMENT PIPELINE</div><div class="metric">Ready</div><div class="detail">等待文件匯入</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">LOCAL OCR</div><div class="metric">Local</div><div class="detail">本機優先處理</div></div><div class="operation-card warn"><span class="mini-dot"></span><div class="label">REVIEW QUEUE</div><div class="metric">0</div><div class="detail">待人工覆核項目</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">EXPORT TARGET</div><div class="metric">DOCX</div><div class="detail">Word 與題庫 CSV</div></div></div>
+    <div class="dashboard-hero"><h2>茲茲 OCR 系統</h2><p>掃描試卷 → <b>本機 PP-OCRv5 辨識</b> → 乾淨 Word。文字辨識、切雙欄、裁圖全在自己主機上跑，<b>不呼叫任何外部 AI、考卷不出公司、零 token</b>。需要「看懂題目」的詳解生成另有獨立模組（會用 AI，已標示）。</p><div class="flow"><span>① 本地 OCR 轉乾淨 Word</span><span>② 框選截圖</span><span>③ OCR 預檢與覆核</span><span>④ 結構化重建（AI）</span><span>⑤ 詳解生成（AI）</span></div></div>
+    <div class="operation-grid"><div class="operation-card"><span class="mini-dot"></span><div class="label">OCR 引擎</div><div class="metric">PP-OCRv5</div><div class="detail">本機 ONNX／CPU</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">外部 API</div><div class="metric">0</div><div class="detail">辨識全本地、零 token</div></div><div class="operation-card warn"><span class="mini-dot"></span><div class="label">覆核佇列</div><div class="metric">0</div><div class="detail">低信心行自動標記</div></div><div class="operation-card"><span class="mini-dot"></span><div class="label">輸出</div><div class="metric">DOCX</div><div class="detail">乾淨 Word＋裁圖</div></div></div>
   </div>
 
-  <!-- 拼圖一 -->
-  <section class="stage active" id="ingestion">
-    <div class="head"><div class="no">Ⅰ</div><div><h2>文件匯入與影像擷取</h2><p>載入掃描 PDF，於瀏覽器端完成頁面渲染與區域擷取；可建立題目圖像資產與題組共用圖，原始檔不會上傳至外部服務。</p></div></div>
+  <!-- 本地轉檔（主流程，純本地 PP-OCRv5）-->
+  <section class="stage active" id="localocr">
+    <div class="head"><div class="no">Ⅰ</div><div><h2>本地轉檔：掃描卷 → 乾淨 Word<span class="local-badge">本地．0 token</span></h2><p>上傳掃描 PDF／圖片，主機用 <b>PP-OCRv5（ONNX／CPU）</b> 直接辨識：自動切雙欄、裁圖、低信心行標記，輸出乾淨文字草稿 Word。<b>不呼叫任何外部 AI，考卷不離開主機。</b></p></div></div>
+    <div class="row"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始本地辨識</button><span class="status" id="pyStatus"></span></div>
+    <div class="notice"><b>辨識後：</b>文字會出現在下方可編輯框，公式／表格請對照原卷校對（標 <code>⚠需確認</code> 的行優先）。圖已自動裁成 <code>*_fig*.png</code>；更精準的圖請用第 2 步「框選截圖」。數位 PDF（有文字層）準確度近乎完美；糊掉的掃描卷以此作打字初稿最快。</div>
+    <div class="result hide" id="pyResult"></div>
+    <div class="help" style="margin-top:8px">※ 需主機已安裝 Python 套件與 OCR 模型（<code>pip install -r ocr/requirements.txt</code> + <code>python3 ocr/get_models.py</code>）；未安裝時此功能會提示，不影響其他模組。</div>
+  </section>
+
+  <!-- 框選截圖 -->
+  <section class="stage" id="ingestion">
+    <div class="head"><div class="no">Ⅱ</div><div><h2>框選截圖（題目附圖）<span class="local-badge">本地</span></h2><p>載入掃描 PDF，於瀏覽器端完成頁面渲染與區域擷取；可建立題目圖像資產與題組共用圖，原始檔不會上傳至外部服務。</p></div></div>
     <div class="row"><input class="" type="file" id="cropPdf" accept=".pdf"><span class="status" id="cropStatus"></span></div>
     <div class="notice"><b>操作規格：</b>於頁面上拖曳定義擷取區域，指定題號後輸出為 <code>Q題號.png</code>；題組共用圖以 <code>g</code> 前綴標記（例如 <code>g24</code>）。支援批次 ZIP 匯出，擷取作業全程於瀏覽器本機執行。</div>
     <div id="cropPagesWrap" class="crop-pages hidden"></div>
@@ -116,7 +128,7 @@
   </section>
 
   <section class="stage" id="preflight">
-    <div class="head"><div class="no">Ⅱ</div><div><h2>OCR 預檢與品質覆核</h2><p>以本機 OCR 建立印刷文字、題號錨點與題目候選區。手寫作答與批改資訊不納入資料；系統依辨識信心將需覆核項目列入工作佇列。</p></div></div>
+    <div class="head"><div class="no">Ⅲ</div><div><h2>OCR 預檢與品質覆核<span class="local-badge">本地</span></h2><p>以本機 OCR 建立印刷文字、題號錨點與題目候選區。手寫作答與批改資訊不納入資料；系統依辨識信心將需覆核項目列入工作佇列。</p></div></div>
     <div class="row"><input type="file" id="ocrFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="ocrBtn">執行本機 OCR 預檢</button><span class="status" id="ocrStatus"></span></div>
     <div class="notice"><b>覆核準則：</b>核對頁數、題號序列、題目影像與文字轉錄內容。可直接修訂單題文字並確認入庫；修訂僅更新該題資料，不觸發整卷重新辨識。</div>
     <div class="result hide" id="ocrResult"></div>
@@ -124,7 +136,7 @@
 
   <!-- 拼圖二 -->
   <section class="stage" id="reconstruction">
-    <div class="head"><div class="no">Ⅲ</div><div><h2>結構化重建與資料匯出</h2><p>將試卷影像解析為可編輯的 Word 文件與 23 欄題庫 CSV。此階段針對文件結構、題幹、選項與圖表建立可供後續系統使用的標準化資料。</p></div></div>
+    <div class="head"><div class="no">Ⅳ</div><div><h2>結構化重建與資料匯出<span class="ai-badge">此模組會用 AI</span></h2><p>將試卷影像解析為可編輯的 Word 文件與 23 欄題庫 CSV。此階段需「看懂題目」判斷題型／單元，<b>會呼叫 AI</b>；只要本地乾淨 Word 的話請用第 1 步「本地轉檔」。</p></div></div>
     <div class="row"><input type="file" id="pkgFile" accept=".pdf,.png,.jpg,.jpeg"><span class="status" id="pkgStatus"></span></div>
     <div class="help">圖的位置先留〔含圖〕；拼圖三之後會把你在 Ⅰ 截好的圖直接 in-line 插進該題下方。</div>
     <div class="row"><button class="btn primary" id="pkgBtn">啟動文件重建與匯出</button></div>
@@ -134,16 +146,11 @@
       <b>既有結構化資料匯出：</b>若已有 23 欄 CSV，可直接產生 Word 文件；此作業不重新執行辨識或模型處理。
       <div class="row" style="margin-top:8px"><input type="file" id="csv2wFile" accept=".csv,.txt"><button class="btn green" id="csv2wBtn">由 CSV 建立 Word 文件</button><span class="status" id="csv2wStatus" style="margin-top:0"></span></div>
     </div>
-    <div class="notice" style="border-left-color:#1f6f5c;background:#f2faf5">
-      <b>純 Python 快速草稿（0 token，不經 AI）：</b>用本機 PyMuPDF＋OpenCV＋Tesseract 直接抽文字、切雙欄、自動裁圖，產出文字草稿 Word。數位 PDF 近乎完美；糊掉的掃描卷公式／表格會有誤，當「打字初稿」校對較快。需主機已安裝 Python 套件。
-      <div class="row" style="margin-top:8px"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn green" id="pyBtn">純 Python OCR 草稿</button><span class="status" id="pyStatus" style="margin-top:0"></span></div>
-      <div class="result hide" id="pyResult" style="margin-top:10px"></div>
-    </div>
   </section>
 
   <!-- 拼圖三 -->
   <section class="stage" id="solution">
-    <div class="head"><div class="no">Ⅳ</div><div><h2>詳解生成與答案校驗</h2><p>匯入已確認的題目資料、文字型文件或影像，生成逐題詳解；可與官方答案鍵進行一致性校驗，並輸出標準 Word 文件。</p></div></div>
+    <div class="head"><div class="no">Ⅴ</div><div><h2>詳解生成與答案校驗<span class="ai-badge">此模組會用 AI</span></h2><p>匯入已確認的題目資料、文字型文件或影像，生成逐題詳解；可與官方答案鍵進行一致性校驗，並輸出標準 Word 文件。詳解需「看懂題目」，<b>會呼叫 AI</b>。</p></div></div>
     <div class="field"><label for="examFile">上傳考卷（PDF / Word / 拍照），或直接貼文字</label>
       <div class="row" style="margin:6px 0 8px"><input type="file" id="examFile" accept=".pdf,.docx,.txt,.md,image/*" multiple><span class="status" id="uploadStatus"></span></div>
       <textarea id="exam" placeholder="上傳後文字會出現在這裡供你確認，也可直接貼：&#10;1.（　）下列……(A)…(B)…(C)…(D)…"></textarea>
@@ -163,10 +170,10 @@
   </section>
 
   <div class="intro" style="background:linear-gradient(135deg,#fffdf8,#fbf3ee)">
-    <h2>運算資源治理</h2>
-    <p>版面渲染、圖像擷取與初步 OCR 均由本機執行。僅對低信心文字、複雜圖表或結構異常區塊啟用 AI 輔助，以降低模型用量並保留完整的人工覆核軌跡。</p>
+    <h2>資料治理原則</h2>
+    <p><b>辨識轉檔全程本地</b>：頁面渲染、框選截圖、PP-OCRv5 文字辨識與覆核都在自己主機上跑，考卷不離開公司、不呼叫外部 API、零 token。只有標「AI」的模組（結構化重建、詳解生成）因需「看懂題目」才會用到 AI，且清楚標示、保留人工覆核軌跡。</p>
   </div>
-  <div class="task-foot"><b>資料處理原則：</b>頁面渲染、影像擷取與 OCR 預檢優先於本機執行；僅在低信心區塊需要時啟用 AI 輔助。</div>
+  <div class="task-foot"><b>資料處理原則：</b>辨識與轉檔（第 1–3 步）全本地、零 token；第 4–5 步需 AI 判斷題意，已標示。</div>
   </div>
 </main>
 </div>
