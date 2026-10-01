@@ -31,3 +31,4 @@ ocr/models/*.onnx
 ocr/testset/*.pdf
 ocr/testset/*.png
 ocr/testset/*.jpg
+ocr/testset/*.gt.json
