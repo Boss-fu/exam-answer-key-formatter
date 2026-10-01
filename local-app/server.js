@@ -70,6 +70,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && ["/api-client.js", "/server-config.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
+    if (req.method === "GET" && url.pathname === "/logo.png") {
+      return send(res, 200, "image/png", fs.readFileSync(path.join(PUBLIC, "logo.png")));
+    }
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
