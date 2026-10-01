@@ -25,3 +25,9 @@ ocr/results/
 
 # Vercel 只部署 local-app/public，不包含主機工作檔
 .vercel/
+
+# OCR 模型（大檔，本地放 ocr/models/，不進 git）
+ocr/models/*.onnx
+ocr/testset/*.pdf
+ocr/testset/*.png
+ocr/testset/*.jpg
