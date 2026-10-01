@@ -4,19 +4,32 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { generate, generateDirtyExam, generateFromImages } = require("./engine");
+const { applyCors } = require("./cors");
+const portalConfig = require("./public/server-config");
+const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
-const { buildDocxBuffer, checkAnswers } = require("../code/render");
+const { preflight } = require("./ocr-preflight");
+// Word 相關套件只在需要輸出時載入，避免新版 Node 啟動服務時被舊套件阻塞。
+function renderer() { return require("../code/render"); }
 
 const PORT = process.env.PORT || 8787;
+const HOST = process.env.HOST || undefined;
 const PUBLIC = path.join(__dirname, "public");
 const OUTPUT = path.join(__dirname, "output");
 const DIRTY_OUTPUT = path.join(OUTPUT, "dirty-exams");
+const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
+const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
+const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
+let revision = "unknown";
+try { revision = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 2000 }).trim(); } catch {}
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.mkdirSync(DIRTY_OUTPUT, { recursive: true });
+fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
+fs.mkdirSync(PKG_OUTPUT, { recursive: true });
+fs.mkdirSync(OCR_OUTPUT, { recursive: true });
 
 function send(res, code, type, body) {
-  res.writeHead(code, { "content-type": type });
+  res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
   res.end(body);
 }
 function sendJson(res, code, obj) { send(res, code, "application/json; charset=utf-8", JSON.stringify(obj)); }
@@ -41,12 +54,23 @@ function safeJobId(id) { return /^[a-f0-9]{24}$/i.test(String(id || "")) ? Strin
 function safeSourceName(name) { return safeName(name).replace(/\.+$/g, "") || "source"; }
 
 const server = http.createServer(async (req, res) => {
+  if (!applyCors(req, res)) return;
+  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
 
     // --- 靜態首頁 ---
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
+    }
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js"].includes(url.pathname)) {
+      return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
+    }
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
+        host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
+        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word"] });
     }
 
     // --- 上傳 PDF/Word/文字檔 → 取出純文字（給前端放進考卷欄位確認後再產詳解）---
@@ -56,6 +80,46 @@ const server = http.createServer(async (req, res) => {
       const buffer = Buffer.from(dataBase64, "base64");
       const text = await extractText(filename || "", buffer);
       return sendJson(res, 200, { ok: true, filename, chars: text.length, text });
+    }
+
+    // --- 本機 OCR 試跑：先回傳題目候選區與信心，讓使用者覆核後再匯出 ---
+    if (req.method === "POST" && url.pathname === "/api/ocr-preflight") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "OCR 試跑只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(OCR_OUTPUT, job);
+      fs.mkdirSync(jobDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const report = preflight({ sourcePath: source, jobDir });
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, job, report });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/ocr-review") {
+      const { job, questionId, text, status } = JSON.parse(await readBody(req) || "{}");
+      if (!safeJobId(job) || !questionId) return sendJson(res, 400, { ok: false, error: "缺少工作或題目編號" });
+      const reportPath = path.join(OCR_OUTPUT, job, "report.json");
+      const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+      const question = report.questions.find((q) => q.id === questionId);
+      if (!question) return sendJson(res, 404, { ok: false, error: "找不到這一題" });
+      question.correctedText = String(text || "");
+      question.status = status === "ok" ? "ok" : "review";
+      report.corrections[questionId] = { text: question.correctedText, status: question.status, updatedAt: new Date().toISOString() };
+      report.summary.reviewCount = report.questions.filter((q) => q.status !== "ok").length;
+      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, question, reviewCount: report.summary.reviewCount });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ocr-page") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const image = path.basename(url.searchParams.get("image") || "");
+      if (!job || !/\.(png|jpe?g)$/i.test(image)) return send(res, 400, "text/plain; charset=utf-8", "Invalid request");
+      const file = path.join(OCR_OUTPUT, job, "pages", image);
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      return fs.createReadStream(file).pipe(res);
     }
 
     // --- 髒考卷：掃描 PDF / 圖片 → Claude Code 重建茲茲格式 Word ---
@@ -77,6 +141,90 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems, downloadUrl: `/api/dirty-exam/download?job=${job}` });
     }
 
+    // --- 由現有 23 欄 CSV 直接產乾淨 Word（不花 token，給「已經跑過、只是要 Word」用）---
+    if (req.method === "POST" && url.pathname === "/api/csv-to-word") {
+      const { csvText, filename } = JSON.parse(await readBody(req, 16 * 1024 * 1024) || "{}");
+      if (!csvText || !csvText.trim()) return sendJson(res, 400, { ok: false, error: "缺少 CSV 內容" });
+      const buf = await renderer().buildCleanExamBuffer(csvText);
+      const name = safeName((filename || "乾淨考卷").replace(/\.(csv|xlsx?|txt)$/i, "")) + "-乾淨考卷.docx";
+      const outPath = path.join(OUTPUT, name);
+      fs.writeFileSync(outPath, buf);
+      res.writeHead(200, {
+        "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "content-disposition": `attachment; filename="doc.docx"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        "x-saved-path": encodeURIComponent(outPath),
+      });
+      return res.end(buf);
+    }
+
+    // --- 一鍵包：掃描 PDF/圖片 → 一次 Claude → 乾淨 Word ＋ 題庫 23 欄 CSV ---
+    if (req.method === "POST" && url.pathname === "/api/exam-package") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(PKG_OUTPUT, job);
+      const workDir = path.join(jobDir, "work");
+      const resultDir = path.join(jobDir, "result");
+      fs.mkdirSync(workDir, { recursive: true });
+      fs.mkdirSync(resultDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const result = await generateExamPackage({ sourcePath: source, workDir, outputDir: resultDir });
+      const report = { summary: result.summary, reviewItems: result.reviewItems,
+        csv: result.csvPath ? path.basename(result.csvPath) : null,
+        docx: result.docxPath ? path.basename(result.docxPath) : null };
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems,
+        csvUrl: report.csv ? `/api/exam-package/download?job=${job}&kind=csv` : null,
+        docxUrl: report.docx ? `/api/exam-package/download?job=${job}&kind=docx` : null });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/exam-package/download") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const kind = url.searchParams.get("kind") === "csv" ? "csv" : "docx";
+      if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
+      const report = JSON.parse(fs.readFileSync(path.join(PKG_OUTPUT, job, "report.json"), "utf8"));
+      const fname = kind === "csv" ? report.csv : report.docx;
+      if (!fname) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const file = path.join(PKG_OUTPUT, job, "result", path.basename(fname));
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const ct = kind === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
+      return fs.createReadStream(file).pipe(res);
+    }
+
+    // --- 快速乾淨考卷（純文字）：掃描 PDF / 圖片 → Claude Code 只重打文字與表格、圖用〔含圖〕佔位 ---
+    if (req.method === "POST" && url.pathname === "/api/clean-exam") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "快速乾淨考卷只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(CLEAN_OUTPUT, job);
+      const workDir = path.join(jobDir, "work");
+      const resultDir = path.join(jobDir, "result");
+      fs.mkdirSync(workDir, { recursive: true });
+      fs.mkdirSync(resultDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const result = await generateCleanExam({ sourcePath: source, workDir, outputDir: resultDir });
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify({ ...result, outputFile: path.basename(result.outputFile) }, null, 2));
+      return sendJson(res, 200, { ok: true, job, summary: result.summary, reviewItems: result.reviewItems, downloadUrl: `/api/clean-exam/download?job=${job}` });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/clean-exam/download") {
+      const job = safeJobId(url.searchParams.get("job"));
+      if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
+      const jobDir = path.join(CLEAN_OUTPUT, job);
+      const report = JSON.parse(fs.readFileSync(path.join(jobDir, "report.json"), "utf8"));
+      const file = path.join(jobDir, "result", path.basename(report.outputFile || ""));
+      if (!file.endsWith(".docx") || !fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
+      return fs.createReadStream(file).pipe(res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/dirty-exam/download") {
       const job = safeJobId(url.searchParams.get("job"));
       if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
@@ -92,7 +240,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/generate") {
       const { examText, images } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       const data = (images && images.length) ? await generateFromImages(images) : await generate(examText);
-      const mismatches = checkAnswers(data.questions);
+      const mismatches = renderer().checkAnswers(data.questions);
       return sendJson(res, 200, { ok: true, data, mismatches });
     }
 
@@ -100,7 +248,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/render") {
       const { data, filename } = JSON.parse(await readBody(req) || "{}");
       if (!data || !Array.isArray(data.questions)) return sendJson(res, 400, { ok: false, error: "缺少 questions" });
-      const buf = await buildDocxBuffer(data);
+      const buf = await renderer().buildDocxBuffer(data);
       const name = safeName(filename || data.summaryLabel) + ".docx";
       const outPath = path.join(OUTPUT, name);
       fs.writeFileSync(outPath, buf);
@@ -118,8 +266,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+if (require.main === module) server.listen(PORT, HOST, () => {
+  require("./tailnet-https").ensurePrivateHttps(PORT);
   console.log(`\n  詳解本機應用已啟動 →  http://localhost:${PORT}`);
-  console.log(`  引擎：${process.env.ENGINE || "claude-code"}（用 ENGINE=api 可切換到 Anthropic API）`);
+  if (HOST) console.log(`  網路監聽位址：${HOST}:${PORT}`);
+  console.log(`  引擎：${process.env.ENGINE || "claude-code"}（可用 ENGINE=codex 或 ENGINE=api 切換）`);
   console.log(`  產出的 Word 會存到：${OUTPUT}\n`);
 });
+
+module.exports = server;

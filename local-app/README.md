@@ -1,5 +1,8 @@
 # 詳解產生器（本機應用）
 
+> 2026-10-02：共用操作入口已改為 https://tzutzu-ocr.vercel.app/，同一頁可選 Mac 或公司運算主機。
+> 部署、HTTPS、背景服務與版本檢查以 [PORTAL-SETUP.md](PORTAL-SETUP.md) 為準；下方保留原本機使用說明。
+
 在**你自己的電腦**上跑的小網頁工具：丟考卷文字 → 產生詳解 → 產出 Word(.docx) 並存到本機。
 因為是本機伺服器，才有權限讀寫你的檔案；claude.ai 上的 artifact 是沙箱網頁，碰不到本機，做不到這件事。
 
@@ -38,6 +41,11 @@ npm start            # 啟動，預設 http://localhost:8787
   ENGINE=api ANTHROPIC_API_KEY=sk-ant-... npm start
   # 可選：ANTHROPIC_MODEL=claude-sonnet-4-5
   ```
+- **`codex`** — 呼叫主機已登入的 Codex CLI。可處理文字、拍照詳解與掃描考卷 Word／CSV 工作流；Codex 會在每次工作建立的隔離資料夾內讀寫產物。
+  ```bash
+  ENGINE=codex npm start
+  # 若 codex 指令不在 PATH：CODEX_BIN=/完整/路徑/codex npm start
+  ```
 
 ## 產出規則
 
@@ -57,7 +65,23 @@ npm start            # 啟動，預設 http://localhost:8787
 ## 檔案
 
 - `server.js` — 本機 HTTP 伺服器（`/api/generate` 產詳解、`/api/render` 產 Word）
-- `engine.js` — 解題引擎抽象層（claude-code / api）
+- `engine.js` — 解題引擎抽象層（claude-code / codex / api）
 - `public/index.html` — 前端頁面
 - `output/` — 產出的 .docx（自動建立，已被 .gitignore 忽略）
 - 共用產檔邏輯在 `../code/render.js`（包裝 `../code/lib3.js`）
+
+## 省 token / 省成本的用法
+
+分清楚兩條路，成本差很多：
+
+| 做什麼 | 走哪 | 為什麼 |
+|---|---|---|
+| 日常做考卷（純文字乾淨考卷、詳解生成） | **這個網頁 app** | 每份是一次乾淨、聚焦的呼叫，最省 |
+| 改功能／修程式 | 找 Claude 對話 | 只在必要時；長對話會累積上下文，越後面越貴 |
+
+其他省法：
+
+- **圖片自己在題庫系統框選截圖貼上** → 完全不花 token（純文字模式的〔含圖：…〕就是貼圖定位點）。
+- **少貼大截圖給 AI**（圖片很吃 token）；能用文字描述就打字，非貼不可就裁小、只留關鍵區域。
+- **換主題就開新對話**；別在同一條長對話裡一直接不同的事。
+- 引擎走 `claude-code`、用的是 Claude 訂閱額度。**訂閱制（Pro/Max）下用這網頁跑考卷不是按 token 計費**，只要別短時間狂跑撞到用量上限即可。

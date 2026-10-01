@@ -184,8 +184,9 @@ New-NetFirewallRule -DisplayName "詳解本機應用 8787" -Direction Inbound -P
 
 ## 附錄：如果想讓「產詳解」也改用 Codex／OpenAI
 
-目前 `local-app/engine.js` 只支援兩種引擎：
+目前 `local-app/engine.js` 支援三種引擎：
 - `claude-code`（預設，呼叫主機上的 `claude -p`）
 - `api`（Anthropic API 金鑰）
+- `codex`（主機上的 `codex exec --full-auto`）
 
-要改用 Codex CLI 或 OpenAI API 當解題引擎，必須修改 `engine.js`：新增一個 `ENGINE=codex` 分支，呼叫 `codex exec`，並保留「只輸出 JSON」的解析。改完照第二部分流程推上 main 即可，主機會自動更新。
+若要改用 Codex CLI，主機先安裝並登入 Codex CLI，然後在 `local-app\start.bat` 的 `call npm start` 前加入 `set ENGINE=codex`。若 `codex` 不在 PATH，另設 `CODEX_BIN` 為其完整路徑。Codex 模式支援文字詳解、拍照詳解與掃描考卷的 Word／CSV 工作流。
