@@ -51,6 +51,14 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    // --- CORS：允許從別頁（Vercel 工具頁或另一台主機）跨來源呼叫本機 API ---
+    // 本服務只在 Tailscale 私網內，放寬跨來源可接受。預檢(OPTIONS)直接回 204。
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "content-type");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+
     // --- 靜態首頁 ---
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));

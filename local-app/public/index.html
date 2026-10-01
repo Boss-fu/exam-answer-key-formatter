@@ -67,7 +67,7 @@
 <body>
 <header class="topbar">
   <div class="brand-head"><div class="brand-logo">茲</div><div><h1>茲茲 OCR 系統</h1><div class="sub">TZUTZU DOCUMENT INTELLIGENCE · LOCAL PROCESSING</div></div></div>
-  <div class="header-actions"><a class="btn" id="qbankTop" href="https://science-qbank.vercel.app/raw.html" target="_blank" rel="noopener">題庫系統 ↗</a><span class="btn" id="engineBadge" style="cursor:default">引擎：讀取中…</span></div>
+  <div class="header-actions"><label for="srvSel" style="font:700 11px inherit;color:#887f74">伺服器</label><select id="srvSel" class="btn" style="min-width:150px;cursor:pointer"><option value="">本機（這台）</option><option value="http://ljm2222.tail3d3c18.ts.net:8787">ljm2222（Windows）</option><option value="__custom">自訂…</option></select><a class="btn" id="qbankTop" href="https://science-qbank.vercel.app/raw.html" target="_blank" rel="noopener">題庫系統 ↗</a><span class="btn" id="engineBadge" style="cursor:default">引擎：讀取中…</span></div>
 </header>
 <div class="app-shell">
   <aside class="sidebar">
@@ -163,6 +163,26 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 var $=function(s){return document.querySelector(s);};
+/* ===== 伺服器選擇：所有 API 呼叫都走 SRV（空字串＝本機同源）===== */
+var SRV="";
+(function(){
+  try{ var v=localStorage.getItem("srvBase"); if(v!=null) SRV=v; }catch(e){}
+  var sel=$("#srvSel"); if(!sel) return;
+  var opts=Array.prototype.map.call(sel.options,function(o){return o.value;});
+  if(SRV && opts.indexOf(SRV)===-1){ var o=document.createElement("option"); o.value=SRV; o.textContent="自訂："+SRV.replace(/^https?:\/\//,""); sel.insertBefore(o,sel.lastChild); }
+  sel.value = (opts.indexOf(SRV)>-1||SRV) ? SRV : "";
+  sel.addEventListener("change",function(){
+    if(this.value==="__custom"){
+      var u=prompt("輸入伺服器網址（例 http://主機名.tailxxxx.ts.net:8787）",SRV||"");
+      if(!u){ this.value=SRV; return; }
+      u=u.replace(/\/+$/,""); SRV=u;
+      var ex=Array.prototype.filter.call(this.options,function(o){return o.value===u;})[0];
+      if(!ex){ var o=document.createElement("option"); o.value=u; o.textContent="自訂："+u.replace(/^https?:\/\//,""); this.insertBefore(o,this.lastChild); }
+      this.value=u;
+    } else { SRV=this.value; }
+    try{ localStorage.setItem("srvBase",SRV); }catch(e){}
+  });
+})();
 var currentData=null, keyArr=[], pendingImages=[];
 function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsDataURL(f);});}
 function readAsText(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsText(f);});}
@@ -254,14 +274,14 @@ function renderOcrReport(){
 }
 window.saveOcrQuestion=async function(id){
   if(!ocrJob||!ocrReport)return;var input=$("#ocrtext-"+id),st=$("#ocrstatus-"+id);st.className="status";st.textContent="儲存中…";
-  try{var res=await fetch('/api/ocr-review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({job:ocrJob,questionId:id,text:input.value,status:'ok'})}),j=await res.json();if(!j.ok)throw new Error(j.error||'儲存失敗');
+  try{var res=await fetch(SRV+'/api/ocr-review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({job:ocrJob,questionId:id,text:input.value,status:'ok'})}),j=await res.json();if(!j.ok)throw new Error(j.error||'儲存失敗');
     var q=ocrReport.questions.find(function(x){return x.id===id;});if(q){q.correctedText=input.value;q.status='ok';}ocrReport.pages.forEach(function(p){var a=(p.questions||[]).find(function(x){return x.id===id;});if(a){a.correctedText=input.value;a.status='ok';}});ocrReport.summary.reviewCount=j.reviewCount;renderOcrReport();
   }catch(e){st.className='status err';st.textContent='錯誤：'+e.message;}
 };
 $("#ocrBtn").addEventListener("click",async function(){
   var f=$("#ocrFile").files[0],st=$("#ocrStatus");if(!f){st.className='status err';st.textContent='請先選擇掃描 PDF 或圖片。';return;}
   st.className='status';st.textContent='本機轉頁、OCR 與題號定位中…不會呼叫 AI。';$("#ocrBtn").disabled=true;$("#ocrResult").classList.add('hide');
-  try{var data=await readAsDataURL(f);data=data.split(',')[1]||'';var res=await fetch('/api/ocr-preflight',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:f.name,dataBase64:data})}),j=await res.json();if(!j.ok)throw new Error(j.error||'預檢失敗');ocrJob=j.job;ocrReport=j.report;st.className='status ok';st.textContent='OCR 預檢完成；請完成覆核佇列後再進行下游處理。';renderOcrReport();
+  try{var data=await readAsDataURL(f);data=data.split(',')[1]||'';var res=await fetch(SRV+'/api/ocr-preflight',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:f.name,dataBase64:data})}),j=await res.json();if(!j.ok)throw new Error(j.error||'預檢失敗');ocrJob=j.job;ocrReport=j.report;st.className='status ok';st.textContent='OCR 預檢完成；請完成覆核佇列後再進行下游處理。';renderOcrReport();
   }catch(e){st.className='status err';st.textContent='錯誤：'+e.message+'。請確認主機已安裝 Tesseract（chi_tra）與 Poppler pdftoppm。';}finally{$("#ocrBtn").disabled=false;}
 });
 
@@ -271,10 +291,10 @@ $("#pkgBtn").addEventListener("click",async function(){
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
   st.className="status";st.textContent="文件結構化重建執行中，預計約 4–5 分鐘。處理期間請維持此頁面開啟。";box.classList.add("hide");$("#pkgBtn").disabled=true;
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
-    var res=await fetch("/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});
+    var res=await fetch(SRV+"/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})});
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
     st.className="status ok";st.textContent="已完成："+(j.summary||"考卷已處理");
-    var links="";if(j.docxUrl)links+='<a class="btn primary" href="'+esc(j.docxUrl)+'">⬇ 乾淨考卷 Word</a> ';if(j.csvUrl)links+='<a class="btn green" href="'+esc(j.csvUrl)+'">⬇ 題庫 23欄 CSV</a>';
+    var links="";if(j.docxUrl)links+='<a class="btn primary" href="'+esc(SRV+j.docxUrl)+'">⬇ 乾淨考卷 Word</a> ';if(j.csvUrl)links+='<a class="btn green" href="'+esc(SRV+j.csvUrl)+'">⬇ 題庫 23欄 CSV</a>';
     var review=(j.reviewItems||[]).length?("<div style=\"margin-top:8px\"><b>需人工確認：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")+"</div>"):"";
     box.innerHTML='<div class="row">'+links+'</div><div class="help">Word 貼截圖到〔含圖〕；CSV 用 Excel 開或直接匯題庫。</div>'+review;box.classList.remove("hide");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pkgBtn").disabled=false;}
@@ -287,7 +307,7 @@ $("#csv2wBtn").addEventListener("click",async function(){
   st.className="status";st.textContent="產生中…";$("#csv2wBtn").disabled=true;
   try{
     var txt=await readAsText(f);
-    var res=await fetch("/api/csv-to-word",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({csvText:txt,filename:f.name})});
+    var res=await fetch(SRV+"/api/csv-to-word",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({csvText:txt,filename:f.name})});
     if(!res.ok){var j=await res.json();throw new Error(j.error||"產生失敗");}
     var blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;
     var cd=res.headers.get("content-disposition")||"",m=cd.match(/filename\*=UTF-8''([^;]+)/);a.download=m?decodeURIComponent(m[1]):"乾淨考卷.docx";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
@@ -308,7 +328,7 @@ $("#examFile").addEventListener("change",async function(e){
     if(ext==="txt"||ext==="md"){ $("#exam").value=await readAsText(f); st.className="status ok"; st.textContent="已讀取 "+f.name; return; }
     st.className="status"; st.textContent="讀取 "+f.name+" 中…";
     var d=await readAsDataURL(f);
-    var res=await fetch("/api/extract",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:(d.split(",")[1]||"")})});
+    var res=await fetch(SRV+"/api/extract",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:(d.split(",")[1]||"")})});
     var j=await res.json(); if(!j.ok)throw new Error(j.error||"讀取失敗");
     $("#exam").value=j.text; st.className="status ok"; st.textContent="已從 "+f.name+" 讀取 "+j.chars+" 字，確認後按「產生詳解」。";
   }catch(err){ st.className="status err"; st.textContent="錯誤："+err.message; }
@@ -320,7 +340,7 @@ $("#genBtn").addEventListener("click",async function(){
   st.className="status";st.textContent=hasImg?("Claude 讀圖產生中…（"+pendingImages.length+" 張）"):"產生中…";$("#genBtn").disabled=true;
   try{
     var payload=hasImg?{images:pendingImages}:{examText:exam};
-    var res=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+    var res=await fetch(SRV+"/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
     var j=await res.json(); if(!j.ok)throw new Error(j.error||"產生失敗");
     currentData=j.data; st.className="status ok"; st.textContent="已產生 "+(j.data.questions||[]).length+" 題。"+(j.mismatches&&j.mismatches.length?("　⚠ 內部不一致："+j.mismatches.join(", ")):"");
     $("#resultCard").classList.remove("hide"); render(); $("#resultCard").scrollIntoView({behavior:"smooth"});
@@ -348,7 +368,7 @@ function render(){
 $("#renderBtn").addEventListener("click",async function(){
   if(!currentData)return; var st=$("#renderStatus"); st.className="status"; st.textContent="產出中…"; $("#renderBtn").disabled=true;
   try{
-    var res=await fetch("/api/render",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:currentData,filename:$("#fname").value.trim()})});
+    var res=await fetch(SRV+"/api/render",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:currentData,filename:$("#fname").value.trim()})});
     if(!res.ok){var j=await res.json();throw new Error(j.error||"產出失敗");}
     var saved=decodeURIComponent(res.headers.get("x-saved-path")||""),blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;
     var cd=res.headers.get("content-disposition")||"",m=cd.match(/filename\*=UTF-8''([^;]+)/);a.download=m?decodeURIComponent(m[1]):"詳解.docx";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
