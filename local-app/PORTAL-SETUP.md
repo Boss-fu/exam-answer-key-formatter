@@ -76,8 +76,8 @@ CLI 產生的 `.vercel/` 與 `.env*` 已排除。CLI 部署與 Git push 是兩�
 
 `node --test local-app/test/api-client.test.js`：兩主機路由、工作歸屬、CORS、錯誤訊息與 HTTPS 設定保護。
 
-`node local-app/test/portal-smoke.cjs <測試.pdf> mac`（或 `company`）：在真正的 Vercel 頁面上傳、顯示影像、
-切換主機後仍儲存原工作。需要 Playwright／Chrome；可指定 `NODE_PATH` 與 `BROWSER_BIN`。
+`node local-app/test/portal-smoke.cjs <測試.pdf> mac`（或 `company`）：在真正的 Vercel 頁面用第 1 步轉檔、
+確認附圖與下載連結，切換主機後仍能從原主機下載。需要 Playwright／Chrome；可指定 `NODE_PATH` 與 `BROWSER_BIN`。
 此測試會在選定主機新增測試工作，不呼叫雲端 AI。
 
 網站路由驗收與 OCR 品質驗收分開：能上傳並顯示結果，不代表題號、圖表或 Word 已符合需求。

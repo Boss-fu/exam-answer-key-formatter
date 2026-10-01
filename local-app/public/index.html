@@ -48,7 +48,7 @@
   .section-head{display:flex;align-items:baseline;gap:12px;padding:22px 26px 0}
   .section-head h2{margin:0;font-size:18px;letter-spacing:1px}
   .section-head p{margin:0;font-size:13px;color:var(--muted)}
-  .workflow-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:16px 26px 22px;border-bottom:1px solid var(--line-soft)}
+  .workflow-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:16px 26px 22px;border-bottom:1px solid var(--line-soft)}
   .workflow-tab{display:flex;align-items:center;gap:9px;min-height:52px;padding:8px 12px;border:1px solid #e6ded3;border-radius:11px;background:#fff;color:var(--ink);font:700 13px var(--ui);text-align:left;cursor:pointer;transition:.15s}
   .workflow-tab:hover{border-color:#bb8a83;box-shadow:0 7px 18px -14px rgba(133,1,3,.45)}
   .workflow-tab.active{border-color:var(--red);background:var(--red-soft);color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
@@ -107,6 +107,12 @@
   .row .status{margin:0}
   .result{padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.7}
   .hide,.hidden{display:none!important}
+  .manual-crop{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 16px}
+  .manual-crop>summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--ink);list-style:none}
+  .manual-crop>summary::-webkit-details-marker{display:none}
+  .manual-crop>summary:before{content:"▸";display:inline-block;margin-right:7px;color:var(--red);transition:transform .15s}
+  .manual-crop[open]>summary:before{transform:rotate(90deg)}
+  .manual-crop>*+*{margin-top:12px}
   .setup-hint{font-size:12px;color:var(--faint)}
   .setup-hint summary{cursor:pointer;width:max-content;list-style:none}
   .setup-hint summary::-webkit-details-marker{display:none}
@@ -123,10 +129,6 @@
   .crop-page .pgno{position:absolute;top:8px;left:10px;background:rgba(45,48,56,.72);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:7px;pointer-events:none;z-index:3;line-height:1.7}
   .crop-item{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:8px;margin-top:8px;background:#fff}
   .crop-item img{width:96px;height:64px;object-fit:contain;background:#f5f4f1;border-radius:7px}.crop-item .fn{font-size:12.5px;font-weight:700;word-break:break-all}
-  /* OCR 預檢與覆核 */
-  .ocr-page{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;background:#fff}.ocr-page summary{cursor:pointer;font-weight:700;font-size:13px}.ocr-page img{display:block;width:100%;max-height:420px;object-fit:contain;object-position:top;background:#f5f4f1;border-radius:9px;margin-top:10px}
-  .ocr-q{border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:10px 12px;margin-top:9px;background:#fff}.ocr-q.review{border-left-color:#c9962a}.ocr-q.attention{border-left-color:#b33a36}
-  .ocr-q-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700}.ocr-q textarea{min-height:74px;margin-top:8px}.ocr-meta{font-size:11px;color:var(--muted);margin-left:auto;font-weight:500}.ocr-actions{display:flex;gap:8px;align-items:center;margin-top:8px}.ocr-actions .status{margin:0}
   /* 詳解核對 */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 14px}.stat{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 13px}.stat .k{font-size:11.5px;color:var(--muted)}.stat .v{font-size:22px;font-weight:800}.stat.bad .v{color:#b33a36}.stat.warn .v{color:#a3721e}.stat.hero .v{color:var(--red)}
   .q{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;overflow:hidden;background:#fff}.q.miss{border-left:4px solid #b33a36}.q.incons{border-left:4px solid #c9962a}.q.ok{border-left:4px solid var(--green)}
@@ -166,7 +168,7 @@
     <div class="kicker">OCR WORKSPACE</div>
     <h1>考卷 OCR 工作台</h1>
     <p>把掃描考卷變成可以修改的 Word。從下面選要做的事，照步驟操作即可，每一步都寫好完成後會拿到什麼。</p>
-    <div class="principles"><span class="principle"><b>第 1–3 步</b>在自己的電腦處理，考卷不外流</span><span class="principle"><b>第 4–5 步</b>會用 AI 讀懂題目</span></div>
+    <div class="principles"><span class="principle"><b>第 1 步</b>在自己的電腦處理，考卷不外流</span><span class="principle"><b>第 2–3 步</b>會用 AI 讀懂題目</span></div>
     <p class="host-line" id="connectionMeta" role="status"></p>
   </section>
 
@@ -181,10 +183,8 @@
     <div class="section-head"><h2>你要做什麼？</h2><p>一次做一件事；切換時已上傳的資料會保留</p></div>
     <nav class="workflow-tabs" aria-label="選擇要做的事">
       <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">掃描卷轉 Word<span class="tab-tag local">不用 AI</span></span></button>
-      <button class="workflow-tab" type="button" data-target="ingestion"><span class="tab-no">2</span><span class="tab-text">截取題目附圖<span class="tab-tag local">不用 AI</span></span></button>
-      <button class="workflow-tab" type="button" data-target="preflight"><span class="tab-no">3</span><span class="tab-text">逐題校對文字<span class="tab-tag local">不用 AI</span></span></button>
-      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">4</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
-      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">5</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
+      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">2</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
+      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">3</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
     </nav>
 
   <!-- 1 掃描卷轉 Word（本機辨識，不用 AI）-->
@@ -196,7 +196,13 @@
       <div class="notice done"><b>完成後你會拿到</b><ul><li>Word 草稿檔和純文字檔</li><li>自動裁出的附圖（點圖可另存）</li><li>畫面上可直接修改的文字</li></ul></div>
     </div>
     <div class="result hide" id="pyResult"></div>
-    <p class="help">小提醒：標「⚠需確認」的行最可能出錯，先看這些。電子檔 PDF 幾乎全對；模糊的掃描卷當打字初稿用。附圖不準可用第 2 步重截。</p>
+    <details class="manual-crop" id="manualCrop"><summary>圖裁得不準？手動截圖</summary>
+      <p class="help">選擇同一份 PDF，用滑鼠框住要的圖並輸入題號（例：12；多題共用的圖在題號前加 g，例：g24）。圖會存成 Q12.png，可單張下載或一次打包 ZIP；只在你的瀏覽器裡處理。</p>
+      <div class="row drop-row"><input type="file" id="cropPdf" accept=".pdf"><span class="status" id="cropStatus"></span></div>
+      <div id="cropList" class="hidden"></div>
+      <div id="cropPagesWrap" class="crop-pages hidden"></div>
+    </details>
+    <p class="help">小提醒：標「⚠需確認」的行最可能出錯，先看這些。電子檔 PDF 幾乎全對；模糊的掃描卷當打字初稿用。附圖不準請用上方「手動截圖」。</p>
     <details class="setup-hint"><summary>按了出現錯誤，說還沒安裝？</summary>
       <p>代表這台電腦還沒裝好轉檔功能，請聯絡管理員安裝；其他步驟不受影響。管理員在主機的專案資料夾執行：</p>
       <pre>pip install -r ocr/requirements.txt
@@ -204,36 +210,13 @@ python3 ocr/get_models.py</pre>
     </details>
   </div>
 
-  <!-- 2 截取題目附圖 -->
-  <div class="stage" id="ingestion">
-    <div class="stage-head"><div class="stage-no">2</div><div><h2>截取題目附圖<span class="badge local">不用 AI</span></h2><p>打開 PDF 後用滑鼠框住題目的圖，就能存成圖片；檔案只在你的瀏覽器裡處理。</p></div></div>
-    <div class="row drop-row"><input type="file" id="cropPdf" accept=".pdf"><span class="status" id="cropStatus"></span></div>
-    <div class="guide">
-      <div class="notice plain"><b>怎麼做</b><ol><li>選擇 PDF，每一頁會顯示在下方</li><li>用滑鼠框住要的圖，輸入題號（例：12）</li><li>多題共用的圖，題號前加 g（例：g24）</li><li>全部框完，按「下載全部（ZIP）」</li></ol></div>
-      <div class="notice done"><b>完成後你會拿到</b><ul><li>每題一張圖，自動命名為 Q12.png</li><li>題組共用圖命名為「題組第24題.png」</li><li>可單張下載，或一次打包成 ZIP</li></ul></div>
-    </div>
-    <div id="cropPagesWrap" class="crop-pages hidden"></div>
-    <div id="cropList" class="hidden"></div>
-  </div>
-
-  <!-- 3 逐題校對文字 -->
-  <div class="stage" id="preflight">
-    <div class="stage-head"><div class="stage-no">3</div><div><h2>逐題校對文字<span class="badge local">不用 AI</span></h2><p>系統會把每一題的文字列出來，旁邊附原卷圖片，讓你一題一題檢查、修改。學生的手寫作答不會被收進來。</p></div></div>
-    <div class="row drop-row"><input type="file" id="ocrFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="ocrBtn">開始辨識</button><span class="status" id="ocrStatus"></span></div>
-    <div class="guide">
-      <div class="notice plain"><b>怎麼做</b><ol><li>選擇考卷，按「開始辨識」</li><li>先看標「待確認」和「需處理」的題目</li><li>對照原卷圖片修改文字，按「確認並儲存」</li></ol></div>
-      <div class="notice done"><b>完成後你會拿到</b><ul><li>每題核對過的正確文字</li><li>修改只影響該題，不用整份重跑</li><li>結果保存在處理的那台電腦上</li></ul></div>
-    </div>
-    <div class="result hide" id="ocrResult"></div>
-  </div>
-
-  <!-- 4 產生題庫檔 -->
+  <!-- 2 產生題庫檔 -->
   <div class="stage" id="reconstruction">
-    <div class="stage-head"><div class="stage-no">4</div><div><h2>產生題庫檔<span class="badge ai">會用 AI</span></h2><p>上傳考卷，AI 會讀懂每一題並分好題型、單元，做成排版好的 Word 和可匯入題庫的 CSV。只需要乾淨 Word 的話，用第 1 步就好。</p></div></div>
+    <div class="stage-head"><div class="stage-no">2</div><div><h2>產生題庫檔<span class="badge ai">會用 AI</span></h2><p>上傳考卷，AI 會讀懂每一題並分好題型、單元，做成排版好的 Word 和可匯入題庫的 CSV。只需要乾淨 Word 的話，用第 1 步就好。</p></div></div>
     <div class="row drop-row"><input type="file" id="pkgFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pkgBtn">開始產生</button><span class="status" id="pkgStatus"></span></div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>選擇考卷，按「開始產生」</li><li>等約 4–5 分鐘，期間不要關閉此頁</li><li>下載 Word 和 CSV，看「需人工確認」的題目</li></ol></div>
-      <div class="notice done"><b>完成後你會拿到</b><ul><li>乾淨考卷 Word（有圖的位置標〔含圖〕，把第 2 步截的圖貼進去）</li><li>題庫 CSV（23 欄，可用 Excel 開或直接匯入題庫）</li><li>需要人工確認的題目清單</li></ul></div>
+      <div class="notice done"><b>完成後你會拿到</b><ul><li>乾淨考卷 Word（有圖的位置標〔含圖〕，把第 1 步「手動截圖」的圖貼進去）</li><li>題庫 CSV（23 欄，可用 Excel 開或直接匯入題庫）</li><li>需要人工確認的題目清單</li></ul></div>
     </div>
     <div class="status" id="pkgRunStatus"></div>
     <div class="result hide" id="pkgResult"></div>
@@ -243,9 +226,9 @@ python3 ocr/get_models.py</pre>
     </div>
   </div>
 
-  <!-- 5 產生詳解 -->
+  <!-- 3 產生詳解 -->
   <div class="stage" id="solution">
-    <div class="stage-head"><div class="stage-no">5</div><div><h2>產生詳解<span class="badge ai">會用 AI</span></h2><p>上傳考卷或貼上題目，AI 會逐題寫詳解；填入官方答案就能自動比對哪幾題答案不同。</p></div></div>
+    <div class="stage-head"><div class="stage-no">3</div><div><h2>產生詳解<span class="badge ai">會用 AI</span></h2><p>上傳考卷或貼上題目，AI 會逐題寫詳解；填入官方答案就能自動比對哪幾題答案不同。</p></div></div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>上傳考卷（PDF、Word、照片），或在下方直接貼題目</li><li>按「產生詳解」</li><li>（選填）輸入官方答案，檢查答案不同的題目</li><li>按「下載 Word」</li></ol></div>
       <div class="notice done"><b>完成後你會拿到</b><ul><li>每題的答案和詳解，可點開逐題檢查</li><li>和官方答案的比對結果</li><li>排版好的詳解 Word</li></ul></div>
@@ -321,7 +304,7 @@ $("#serverSelect").addEventListener("change",function(){
   checkSelectedServer();
 });
 if(location.protocol==="file:"){
-  ["ocrBtn","pkgBtn","csv2wBtn","pyBtn","genBtn","renderBtn"].forEach(function(id){$("#"+id).disabled=true;});
+  ["pkgBtn","csv2wBtn","pyBtn","genBtn","renderBtn"].forEach(function(id){$("#"+id).disabled=true;});
 }
 checkSelectedServer();
 function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsDataURL(f);});}
@@ -341,7 +324,7 @@ function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++
   tabs.forEach(function(tab){tab.addEventListener('click',function(){activate(tab.getAttribute('data-target'));});});
 })();
 
-/* ===== 拼圖一：截圖工具（pdf.js 渲染 + canvas 裁切）===== */
+/* ===== 第 1 步：手動截圖（pdf.js 渲染 + canvas 裁切）===== */
 (function(){
   var crops=[]; var pdfReady=(typeof pdfjsLib!=="undefined");
   if(pdfReady){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }catch(e){} }
@@ -397,38 +380,7 @@ function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++
   };
 })();
 
-/* ===== 拼圖二：本機 OCR 試跑與可追溯覆核 ===== */
-var ocrJob=null,ocrReport=null,ocrServer=null;
-function ocrPill(status){return status==="ok"?'<span class="pill good">已確認</span>':status==="review"?'<span class="pill warn">待確認</span>':'<span class="pill bad">需處理</span>';}
-function renderOcrReport(){
-  var box=$("#ocrResult"); if(!ocrReport)return;
-  var s=ocrReport.summary, pages=ocrReport.pages||[];
-  var html='<p class="help">由「'+esc(ocrServer.label)+'」處理，修改會存在這台電腦上；切換電腦只影響之後的新工作。</p><div class="stats"><div class="stat hero"><div class="k">頁數</div><div class="v">'+s.pageCount+'</div></div><div class="stat"><div class="k">找到題目</div><div class="v">'+s.questionCandidates+'</div></div><div class="stat warn"><div class="k">待確認</div><div class="v">'+s.reviewCount+'</div></div></div>';
-  html+='<p class="help">先處理標「待確認」和「需處理」的題目：對照原卷圖片修改文字，再按「確認並儲存」。</p>';
-  pages.forEach(function(p){
-    var qs=(p.questions||[]).map(function(q){var value=q.correctedText!=null?q.correctedText:q.text;return '<div class="ocr-q '+q.status+'" id="ocr-'+esc(q.id)+'"><div class="ocr-q-head"><span>第 '+esc(q.no)+' 題</span>'+ocrPill(q.status)+'<span class="ocr-meta">辨識把握度 '+esc(q.confidence)+'% ・第 '+esc(p.page)+' 頁</span></div><textarea id="ocrtext-'+esc(q.id)+'">'+esc(value)+'</textarea><div class="ocr-actions"><button class="btn green" onclick="saveOcrQuestion(\''+esc(q.id)+'\')">確認並儲存</button><span class="status" id="ocrstatus-'+esc(q.id)+'"></span></div></div>';}).join("");
-    var img=apiUrl('/api/ocr-page?job='+encodeURIComponent(ocrJob)+'&image='+encodeURIComponent((p.image||'').split('/').pop()),ocrServer);
-    html+='<details class="ocr-page" open><summary>第 '+p.page+' 頁 ・辨識把握度 '+p.confidence+'% '+ocrPill(p.status)+'</summary><img src="'+img+'" alt="第 '+p.page+' 頁原始掃描">'+(qs||'<p class="status err">這一頁沒找到題目；請換清楚一點的檔案，或改用第 4 步（AI）處理。</p>')+'</details>';
-  });
-  box.innerHTML=html;box.classList.remove("hide");
-}
-window.saveOcrQuestion=async function(id){
-  if(!ocrJob||!ocrReport)return;var input=$("#ocrtext-"+id),st=$("#ocrstatus-"+id);st.className="status";st.textContent="儲存中…";
-  var report=ocrReport;
-  try{var res=await apiFetch('/api/ocr-review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({job:ocrJob,questionId:id,text:input.value,status:'ok'})},ocrServer),j=await res.json();if(!j.ok)throw new Error(j.error||'儲存失敗');
-    if(ocrReport!==report)return;
-    var q=ocrReport.questions.find(function(x){return x.id===id;});if(q){q.correctedText=input.value;q.status='ok';}ocrReport.pages.forEach(function(p){var a=(p.questions||[]).find(function(x){return x.id===id;});if(a){a.correctedText=input.value;a.status='ok';}});ocrReport.summary.reviewCount=j.reviewCount;renderOcrReport();
-  }catch(e){st.className='status err';st.textContent='錯誤：'+e.message;}
-};
-$("#ocrBtn").addEventListener("click",async function(){
-  var f=$("#ocrFile").files[0],st=$("#ocrStatus");if(!f){st.className='status err';st.textContent='請先選擇掃描 PDF 或圖片。';return;}
-  var server=getTarget();
-  st.className='status';st.textContent='「'+server.label+'」辨識中，請稍候，不要關閉此頁…';$("#ocrBtn").disabled=true;$("#serverSelect").disabled=true;$("#ocrResult").classList.add('hide');ocrJob=null;ocrReport=null;
-  try{var data=await readAsDataURL(f);data=data.split(',')[1]||'';var res=await apiFetch('/api/ocr-preflight',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:f.name,dataBase64:data})},server),j=await res.json();if(!j.ok)throw new Error(j.error||'預檢失敗');ocrJob=j.job;ocrReport=j.report;ocrServer=server;st.className='status ok';st.textContent='OCR 預檢完成：請先處理下方標「待確認」的題目。';renderOcrReport();
-  }catch(e){st.className='status err';st.textContent='預檢未完成：'+e.message;}finally{$("#ocrBtn").disabled=location.protocol==="file:";$("#serverSelect").disabled=false;}
-});
-
-/* ===== 拼圖二：一鍵包（乾淨 Word + 題庫 CSV）===== */
+/* ===== 第 2 步：產生題庫檔（乾淨 Word + 題庫 CSV）===== */
 $("#pkgBtn").addEventListener("click",async function(){
   var f=$("#pkgFile").files[0],st=$("#pkgRunStatus"),box=$("#pkgResult"),server=getTarget();
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
@@ -439,7 +391,7 @@ $("#pkgBtn").addEventListener("click",async function(){
     st.className="status ok";st.textContent="已完成："+(j.summary||"考卷已處理");
     var links="";if(j.docxUrl)links+='<a class="btn primary" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載考卷 Word</a> ';if(j.csvUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.csvUrl,server))+'">⬇ 下載題庫 CSV</a>';
     var review=(j.reviewItems||[]).length?("<div style=\"margin-top:8px\"><b>請人工確認這些題目：</b><br>"+(j.reviewItems||[]).map(esc).join("<br>")+"</div>"):"";
-    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成</p><div class="row">'+links+'</div><div class="help">Word 裡標〔含圖〕的地方，貼上第 2 步截的圖；CSV 可用 Excel 開，或直接匯入題庫。</div>'+review;box.classList.remove("hide");
+    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成</p><div class="row">'+links+'</div><div class="help">Word 裡標〔含圖〕的地方，貼上第 1 步「手動截圖」的圖；CSV 可用 Excel 開，或直接匯入題庫。</div>'+review;box.classList.remove("hide");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pkgBtn").disabled=false;}
 });
 
@@ -469,12 +421,12 @@ $("#pyBtn").addEventListener("click",async function(){
     st.className="status ok";st.textContent="完成！請在下方下載 Word，並對照原卷校對公式與表格。";
     var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載 Word</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 下載純文字</a>';
     var figs=(j.figures||[]).map(function(g){return '<a href="'+esc(apiUrl(g.url,server))+'" target="_blank" rel="noopener" title="'+esc(g.name)+'"><img src="'+esc(apiUrl(g.url,server))+'" style="width:92px;height:62px;object-fit:contain;background:#f5f4f1;border:1px solid #e0e7ef;border-radius:6px"></a>';}).join("");
-    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+'<textarea style="margin-top:10px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea><div class="help">上方文字可直接修改；公式、表格可能有誤，請對照原卷。附圖不準可用第 2 步重截。</div>';
+    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+'<textarea style="margin-top:10px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea><div class="help">上方文字可直接修改；公式、表格可能有誤，請對照原卷。附圖不準請用下方「手動截圖」。</div>';
     box.classList.remove("hide");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pyBtn").disabled=location.protocol==="file:";}
 });
 
-/* ===== 拼圖三：詳解 ===== */
+/* ===== 第 3 步：詳解 ===== */
 $("#examFile").addEventListener("change",async function(e){
   var files=Array.prototype.slice.call(e.target.files||[]); if(!files.length)return;
   var st=$("#uploadStatus"),server=getTarget(); pendingImages=[];
