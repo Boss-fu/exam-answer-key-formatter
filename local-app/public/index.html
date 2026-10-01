@@ -134,6 +134,11 @@
       <b>既有結構化資料匯出：</b>若已有 23 欄 CSV，可直接產生 Word 文件；此作業不重新執行辨識或模型處理。
       <div class="row" style="margin-top:8px"><input type="file" id="csv2wFile" accept=".csv,.txt"><button class="btn green" id="csv2wBtn">由 CSV 建立 Word 文件</button><span class="status" id="csv2wStatus" style="margin-top:0"></span></div>
     </div>
+    <div class="notice" style="border-left-color:#1f6f5c;background:#f2faf5">
+      <b>純 Python 快速草稿（0 token，不經 AI）：</b>用本機 PyMuPDF＋OpenCV＋Tesseract 直接抽文字、切雙欄、自動裁圖，產出文字草稿 Word。數位 PDF 近乎完美；糊掉的掃描卷公式／表格會有誤，當「打字初稿」校對較快。需主機已安裝 Python 套件。
+      <div class="row" style="margin-top:8px"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn green" id="pyBtn">純 Python OCR 草稿</button><span class="status" id="pyStatus" style="margin-top:0"></span></div>
+      <div class="result hide" id="pyResult" style="margin-top:10px"></div>
+    </div>
   </section>
 
   <!-- 拼圖三 -->
@@ -218,7 +223,7 @@ $("#serverSelect").addEventListener("change",function(){
   checkSelectedServer();
 });
 if(location.protocol==="file:"){
-  ["ocrBtn","pkgBtn","csv2wBtn","genBtn","renderBtn"].forEach(function(id){$("#"+id).disabled=true;});
+  ["ocrBtn","pkgBtn","csv2wBtn","pyBtn","genBtn","renderBtn"].forEach(function(id){$("#"+id).disabled=true;});
 }
 checkSelectedServer();
 function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onerror=function(){rej(new Error("檔案讀取失敗"));};r.onload=function(){res(String(r.result));};r.readAsDataURL(f);});}
@@ -353,6 +358,22 @@ $("#csv2wBtn").addEventListener("click",async function(){
     var cd=res.headers.get("content-disposition")||"",m=cd.match(/filename\*=UTF-8''([^;]+)/);a.download=m?decodeURIComponent(m[1]):"乾淨考卷.docx";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
     st.className="status ok";st.textContent="已產出並下載（0 token）。";
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#csv2wBtn").disabled=false;}
+});
+
+/* ===== 純 Python OCR 草稿（0 token，不經 AI）===== */
+$("#pyBtn").addEventListener("click",async function(){
+  var f=$("#pyFile").files[0],st=$("#pyStatus"),box=$("#pyResult"),server=getTarget();
+  if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
+  st.className="status";st.textContent=server.label+"：本機 Python 抽文字、切雙欄、裁圖中…不呼叫任何 AI。";box.classList.add("hide");$("#pyBtn").disabled=true;
+  try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
+    var res=await apiFetch("/api/py-ocr",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
+    var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
+    st.className="status ok";st.textContent="已完成（0 token）；文字為草稿，請校對公式與表格。";
+    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 文字草稿 Word</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 純文字 .txt</a>';
+    var figs=(j.figures||[]).map(function(g){return '<a href="'+esc(apiUrl(g.url,server))+'" target="_blank" rel="noopener" title="'+esc(g.name)+'"><img src="'+esc(apiUrl(g.url,server))+'" style="width:92px;height:62px;object-fit:contain;background:#f5f4f1;border:1px solid #e0e7ef;border-radius:6px"></a>';}).join("");
+    box.innerHTML='<p class="help">處理主機：'+esc(server.label)+(figs?' ・自動裁出 '+(j.figures||[]).length+' 張圖（點開可存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+'<textarea style="margin-top:10px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea><div class="help">公式／表格可能有誤，當打字初稿校對。圖另在拼圖一手動截圖較準。</div>';
+    box.classList.remove("hide");
+  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pyBtn").disabled=location.protocol==="file:";}
 });
 
 /* ===== 拼圖三：詳解 ===== */

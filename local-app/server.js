@@ -9,6 +9,7 @@ const portalConfig = require("./public/server-config");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
 const { preflight } = require("./ocr-preflight");
+const { runPyOcr } = require("./py-ocr");
 // Word 相關套件只在需要輸出時載入，避免新版 Node 啟動服務時被舊套件阻塞。
 function renderer() { return require("../code/render"); }
 
@@ -20,6 +21,7 @@ const DIRTY_OUTPUT = path.join(OUTPUT, "dirty-exams");
 const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
 const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
 const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
+const PYOCR_OUTPUT = path.join(OUTPUT, "py-ocr");
 let revision = "unknown";
 try { revision = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 2000 }).trim(); } catch {}
 fs.mkdirSync(OUTPUT, { recursive: true });
@@ -27,6 +29,7 @@ fs.mkdirSync(DIRTY_OUTPUT, { recursive: true });
 fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
 fs.mkdirSync(PKG_OUTPUT, { recursive: true });
 fs.mkdirSync(OCR_OUTPUT, { recursive: true });
+fs.mkdirSync(PYOCR_OUTPUT, { recursive: true });
 
 function send(res, code, type, body) {
   res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
@@ -70,7 +73,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
-        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word"] });
+        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word", "py-ocr"] });
     }
 
     // --- 上傳 PDF/Word/文字檔 → 取出純文字（給前端放進考卷欄位確認後再產詳解）---
@@ -192,6 +195,51 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
       const ct = kind === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
       res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
+      return fs.createReadStream(file).pipe(res);
+    }
+
+    // --- 純 Python OCR（0 token）：PDF/圖 → PyMuPDF+OpenCV+Tesseract → 文字 + Word 草稿 + 裁圖 ---
+    if (req.method === "POST" && url.pathname === "/api/py-ocr") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "純 Python OCR 只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const jobDir = path.join(PYOCR_OUTPUT, job);
+      const resultDir = path.join(jobDir, "result");
+      fs.mkdirSync(resultDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      const result = await runPyOcr({ sourcePath: source, outDir: resultDir });
+      const report = { txt: result.txtFile, docx: result.docxFile, figures: result.figures };
+      fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      return sendJson(res, 200, { ok: true, job, text: result.text, log: result.log,
+        figures: result.figures.map((name) => ({ name, url: `/api/py-ocr/figure?job=${job}&name=${encodeURIComponent(name)}` })),
+        txtUrl: result.txtFile ? `/api/py-ocr/download?job=${job}&kind=txt` : null,
+        docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/download") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const kind = url.searchParams.get("kind") === "txt" ? "txt" : "docx";
+      if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
+      const report = JSON.parse(fs.readFileSync(path.join(PYOCR_OUTPUT, job, "report.json"), "utf8"));
+      const fname = kind === "txt" ? report.txt : report.docx;
+      if (!fname) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const file = path.join(PYOCR_OUTPUT, job, "result", path.basename(fname));
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const ct = kind === "txt" ? "text/plain; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
+      return fs.createReadStream(file).pipe(res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/figure") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const name = path.basename(url.searchParams.get("name") || "");
+      if (!job || !/_fig\d+\.png$/i.test(name)) return send(res, 400, "text/plain; charset=utf-8", "Invalid request");
+      const file = path.join(PYOCR_OUTPUT, job, "result", name);
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
       return fs.createReadStream(file).pipe(res);
     }
 
