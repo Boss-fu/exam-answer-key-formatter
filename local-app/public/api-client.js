@@ -25,9 +25,9 @@
       response = await env.fetch(url, Object.assign({ credentials: "omit", cache: "no-store" }, options));
     } catch (error) {
       if (error.name === "TimeoutError" || error.name === "AbortError") {
-        throw new Error(target.label + "回應逾時；可能正在處理工作或已離線。請確認原工作狀態，避免重複送出。");
+        throw new Error(target.label + "太久沒回應，可能還在處理上一份工作或已離線。請稍等再按「重新連線」，不要重複送出。");
       }
-      throw new Error("無法連線至" + target.label + "（" + target.baseUrl + "）。請確認 Tailscale、主機服務及 HTTPS 入口；若瀏覽器詢問區域網路權限，請允許。也可能是主機尚未允許此頁面的跨來源連線。");
+      throw new Error("無法連線至" + target.label + "。請確認那台電腦已開機並啟動 OCR 服務、你的電腦已登入 Tailscale；若瀏覽器詢問「區域網路存取」，請按允許。");
     }
     var type = response.headers.get("content-type") || "";
     if (!response.ok) {
@@ -36,11 +36,11 @@
         var data = await response.json().catch(function () { return {}; });
         detail = data.error || "";
       }
-      if (!detail && response.status === 404) detail = "所選主機尚未提供此功能，請確認主機程式版本與 API 路徑。";
-      throw new Error("HTTP " + response.status + "：" + (detail || "伺服器未能完成請求，請查看主機終端機紀錄。"));
+      if (!detail && response.status === 404) detail = "這台電腦的程式版本太舊，還沒有這個功能；請重新啟動它的 OCR 服務以更新。";
+      throw new Error("HTTP " + response.status + "：" + (detail || "處理失敗，請稍後再試；一直失敗請聯絡管理員。"));
     }
     if (type.indexOf("text/html") !== -1) {
-      throw new Error("伺服器回傳網頁而非處理結果，請確認目前網址是 OCR 網站服務。");
+      throw new Error("主機回傳網頁而不是處理結果，請確認選的是正確的 OCR 主機。");
     }
     return response;
   }
