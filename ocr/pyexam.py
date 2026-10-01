@@ -71,6 +71,58 @@ def page_to_bgr(page, dpi):
     return arr
 
 
+def remove_color_ink(bgr):
+    """老師批改、學生作答的紅筆／藍筆塗白（印刷是黑色，彩色的幾乎都是筆跡）。
+    不清的話，題號旁的紅色勾勾會讓「7.」被認成「入」、紅筆寫的答案「A」跑進內文。
+    門檻依實際掃描卷量測：紅筆色相 0~10／160~179、飽和度中位數約 85；淡掉的筆畫邊緣再往外擴 2px 一起清。
+    灰階掃描（沒有彩色）時什麼都不會動。回傳 (清過的影像, 被清掉的像素比例)。"""
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    ink = (s >= 45) & (v >= 60) & ((h <= 10) | (h >= 160) | ((h >= 95) & (h <= 135)))
+    if not ink.any():
+        return bgr, 0.0
+    mask = cv2.dilate(ink.astype(np.uint8), np.ones((5, 5), np.uint8))
+    out = bgr.copy()
+    out[mask > 0] = 255
+    return out, float(ink.mean())
+
+
+_ROT = {90: "ROTATE_90_CLOCKWISE", 180: "ROTATE_180", 270: "ROTATE_90_COUNTERCLOCKWISE"}
+
+
+def fix_orientation(bgr):
+    """掃描時整頁放反（上下顛倒）或轉 90 度：縮小後各方向試認一次，取「認得出的字」最多的方向。
+    1. 先看文字偵測框是「橫的」還是「直的」：直框居多＝整頁轉了 90°，候選改成 90°／270°。
+    2. 兩個候選方向各認一次，分數＝信心 ≥ 0.8 的字數；倒過來的字 PP-OCR 會吐低信心亂碼，差距很明顯。
+    回傳 (轉正後的影像, 角度)。"""
+    s = 1600.0 / max(bgr.shape[:2])
+    small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else bgr
+
+    def score(img):
+        return sum(len(it["text"]) for it in ppocr_engine.ocr_lines(img) if it["conf"] >= 0.8)
+
+    def rot(img, deg):
+        return cv2.rotate(img, getattr(cv2, _ROT[deg])) if deg else img
+
+    wide = tall = 0
+    for b in ppocr_engine.det_boxes(small):
+        w = max(p[0] for p in b) - min(p[0] for p in b)
+        h = max(p[1] for p in b) - min(p[1] for p in b)
+        wide += w > 2 * h
+        tall += h > 2 * w
+    if wide + tall < 5:                                  # 幾乎空白的頁，不動
+        return bgr, 0
+    if tall > wide:
+        scores = {90: score(rot(small, 90)), 270: score(rot(small, 270))}
+        scores[0] = 0
+    else:
+        scores = {0: score(small), 180: score(rot(small, 180))}
+    best = max(scores, key=scores.get)
+    if best and scores[best] > 1.5 * max(1, scores[0]):
+        return rot(bgr, best), best
+    return bgr, 0
+
+
 # ---------- 圖片偵測（OpenCV 輪廓）----------
 def detect_figures(binimg, page_h, min_area_ratio=0.02, max_area_ratio=0.45):
     """找出像「圖／表」的矩形區塊（大片連通、非整行文字）。回傳 bbox 清單（原圖座標比例）。"""
@@ -112,6 +164,92 @@ def find_column_split(binimg):
     return lo + int(np.median(gutter))
 
 
+def text_column_splits(bgr):
+    """用 PP-OCR 文字「偵測框」的位置找欄界（不看墨水，所以不怕中間被打勾、寫字弄髒，也抓得到很窄的欄距）。
+    做法：偵測框在 x 方向疊起來成「覆蓋數」曲線，在候選區間找最低點；最低點要遠低於左右兩欄
+    （< 兩側中位數的 35%）才算欄界——用相對值，所以學生跨過欄距的幾筆手寫不會讓判斷失敗。
+    直式頁只在 35%~65% 找一刀（雙欄）；橫式頁（A3 一張印兩頁）中央必切，左右兩半再各找一刀（最多四欄）。
+    回傳欄界 x 清單（原圖座標）；字框太少就回傳 []，交給墨水投影法。"""
+    return text_layout(bgr)["cuts"]
+
+
+def text_layout(bgr):
+    """text_column_splits 的完整版：回傳 {"cuts": 欄界, "hard": 必切的欄界（橫式頁中線）, "header": 頁首底線 y}。
+    頁首＝頁面上方 30% 內「跨過欄界」的字框（校名、考試名稱、作答說明）：這一帶要整行讀，不能被欄界切成兩半。"""
+    import cv2
+    H, W = bgr.shape[:2]
+    none = {"cuts": [], "hard": [], "header": 0}
+    s = min(1.0, 2480.0 / max(H, W))                    # 約 150~200dpi 偵測就夠判斷版面，一頁不到 1 秒
+    small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else bgr
+    boxes = []
+    for b in ppocr_engine.det_boxes(small):
+        xs = [p[0] / s for p in b]
+        ys = [p[1] / s for p in b]
+        boxes.append((max(0, int(min(xs))), min(W, int(max(xs))), int(min(ys)), int(max(ys))))
+    hs = sorted(y1 - y0 for x0, x1, y0, y1 in boxes if x1 - x0 > 2 * (y1 - y0))
+    hmed = hs[len(hs) // 2] if hs else 0
+    # 只用「印刷字高度」的橫向字框：跨全頁的大標題、比印刷字高很多或矮很多的（多半是手寫）都不算
+    spans = [(x0, x1) for x0, x1, y0, y1 in boxes
+             if x1 - x0 < 0.6 * W and y1 - y0 < 0.05 * H
+             and (not hmed or 0.6 * hmed <= y1 - y0 <= 1.6 * hmed)]
+    if len(spans) < 20:
+        return none
+    cov = np.zeros(W, float)
+    for x0, x1 in spans:
+        cov[x0:x1] += 1
+    k = max(3, int(0.004 * W))
+    cov = np.convolve(cov, np.ones(k) / k, "same")      # 抹平：單一像素的縫不算欄距
+
+    def cut_in(a, b, force=False):
+        a, b = int(a * W), int(b * W)
+        c = a + int(np.argmin(cov[a:b]))
+        w = int(0.18 * W)
+        left = np.median(cov[max(0, c - w):max(1, c - k * 3)])
+        right = np.median(cov[min(W - 1, c + k * 3):min(W, c + w)])
+        side = min(left, right)
+        if force or (side >= 4 and cov[c] < 0.35 * side):
+            return c
+        # 一邊幾乎空白（例如右欄只放了一張表）但中間有完全乾淨的直條：仍是雙欄
+        if cov[c] <= 1 and max(left, right) >= 8 and side >= 1:
+            return c
+        return None
+
+    hard = []
+    if W > 1.2 * H:
+        mid = cut_in(0.42, 0.58, force=True)
+        hard = [mid]
+        cuts = [cut_in(0.15, 0.35), mid, cut_in(0.65, 0.85)]
+    else:
+        cuts = [cut_in(0.35, 0.65)]
+    cuts = sorted(c for c in cuts if c is not None)
+    soft = [c for c in cuts if c not in hard]
+    pad = int(0.01 * W)
+    crossing = [y1 for x0, x1, y0, y1 in boxes
+                if y1 < 0.3 * H and any(x0 < c - pad and x1 > c + pad for c in soft)]
+    return {"cuts": cuts, "hard": hard, "header": max(crossing) + int(0.004 * H) if crossing else 0}
+
+
+def find_column_splits(binimg):
+    """回傳所有欄界 x（由左到右，可能是空清單）。
+    橫式頁（A3/B4 一張印兩頁）先在正中央對切成左右兩半，每半再各自找雙欄 → 最多四欄。
+    中央切線取 45%~55% 之間墨點最少的位置；找不到乾淨留白就直接切正中間（兩半本來就是兩頁）。"""
+    H, W = binimg.shape[:2]
+    if W <= 1.2 * H:
+        s = find_column_split(binimg)
+        return [s] if s else []
+    ink = (binimg < 128).sum(axis=0).astype(float)
+    lo, hi = int(W * 0.45), int(W * 0.55)
+    mid = lo + int(np.argmin(np.convolve(ink[lo:hi], np.ones(15), "same")))
+    splits = []
+    for x0, x1 in ((0, mid), (mid, W)):
+        s = find_column_split(binimg[:, x0:x1])
+        if s:
+            splits.append(x0 + s)
+        if x1 < W:
+            splits.append(mid)
+    return splits
+
+
 # ---------- OCR 一頁（自動雙欄切割）----------
 LOW_CONF = 0.8                  # 行信心低於此值 → 行尾標「需確認」
 LOW_CONF_MARK = "　⚠需確認"
@@ -134,6 +272,110 @@ def resolve_engine(engine="auto"):
 
 
 # ---------- 圖區偵測（連通域）＋圖內文字過濾 ----------
+def _line_positions(profile, thresh, gap=8):
+    """投影值超過門檻的座標，相鄰的併成一條線，回傳每條線的中心"""
+    pos = np.where(profile > thresh)[0]
+    out, start, prev = [], None, None
+    for p in pos:
+        if start is None:
+            start = prev = p
+        elif p - prev <= gap:
+            prev = p
+        else:
+            out.append((start + prev) // 2)
+            start = prev = p
+    if start is not None:
+        out.append((start + prev) // 2)
+    return out
+
+
+def detect_tables(bgr, dpi=300):
+    """有框線的表格：形態學取出長橫線／長直線 → 外框 → 列線、欄線 → 儲存格（同列缺直線＝左右合併）。
+    回傳 [{"box":(x0,y0,x1,y1), "ys":[列線], "xs":[欄線], "spans":[[每列各格跨幾欄]]}]。
+    只認「四邊都有框、至少 2 列 2 欄」的；座標圖的方格紙要靠後面「多數格子有字」再濾掉。"""
+    if cv2 is None:
+        return []
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    H, W = ink.shape
+    horiz = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(40, int(0.25 * dpi)), 1)))
+    vert = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(50, int(0.2 * dpi)))))
+    grid = cv2.dilate(horiz | vert, np.ones((3, 3), np.uint8))
+    n, _, st, _ = cv2.connectedComponentsWithStats(grid, connectivity=8)
+    tables = []
+    for i in range(1, n):
+        x, y, w, h, _ = st[i]
+        if w < 0.6 * dpi or h < 0.25 * dpi or w * h > 0.5 * W * H:
+            continue
+        hb, vb = horiz[y:y + h, x:x + w] > 0, vert[y:y + h, x:x + w] > 0
+        # 掃描微歪時一條橫線會跨好幾個像素列：投影前先上下（直線則左右）加粗 3px，才算得到完整長度
+        hs = cv2.dilate(hb.astype(np.uint8), np.ones((7, 1), np.uint8)) > 0
+        vs = cv2.dilate(vb.astype(np.uint8), np.ones((1, 7), np.uint8)) > 0
+        ys = _line_positions(hs.sum(axis=1), 0.6 * w)
+        xs = _line_positions(vs.sum(axis=0), 0.25 * h)
+        if len(ys) < 3 or len(xs) < 2 or ys[0] > 0.1 * h or ys[-1] < 0.9 * h or xs[0] > 0.1 * w or xs[-1] < 0.9 * w:
+            continue
+        spans = []
+        for r0, r1 in zip(ys, ys[1:]):
+            a, b = r0 + 8, r1 - 8
+            row, run = [], 1
+            for c in xs[1:-1]:
+                seg = vs[a:b, max(0, c - 4):c + 5].any(axis=1) if b > a else np.array([True])
+                if seg.mean() > 0.6:
+                    row.append(run)
+                    run = 1
+                else:
+                    run += 1
+            row.append(run)
+            spans.append(row)
+        tables.append({"box": (int(x), int(y), int(x + w), int(y + h)),
+                       "ys": [int(y + v) for v in ys], "xs": [int(x + v) for v in xs], "spans": spans})
+    return tables
+
+
+def _ocr_cell(bgr, x0, y0, x1, y1):
+    """空白儲存格補認：只有一個字（甲、乙…）的格子偵測器常常框不到，裁出格子內部直接辨識。
+    格子裡沒有墨跡就回傳空字串。單獨一個 z／Z 幾乎都是「乙」被認錯。"""
+    m = 10
+    crop = bgr[y0 + m:y1 - m, x0 + m:x1 - m]
+    if crop.size == 0:
+        return ""
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    ink = (gray < 128).astype(np.uint8)
+    n, _, st, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    keep = [st[i] for i in range(1, n) if st[i][4] >= 30]          # 濾掉掃描雜點，否則裁切範圍被撐大
+    if not keep:
+        return ""
+    x0_ = min(k[0] for k in keep); y0_ = min(k[1] for k in keep)
+    x1_ = max(k[0] + k[2] for k in keep); y1_ = max(k[1] + k[3] for k in keep)
+    crop = crop[max(0, y0_ - 6):y1_ + 7, max(0, x0_ - 6):x1_ + 7]
+    crop = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    text, conf = ppocr_engine.rec_only(crop)          # 字已經裁好，跳過偵測直接辨識
+    if conf < 0.5:
+        return ""
+    return {"z": "乙", "Z": "乙", "2": "乙"}.get(text, text) if len(text) == 1 else text
+
+
+def fill_table(t, items, bgr=None):
+    """把落在表格裡的 OCR 框分到儲存格，回傳 rows=[[[文字, 跨欄數], …], …]（buildlib.tbl 吃的格式）"""
+    ys, xs = t["ys"], t["xs"]
+    rows = []
+    for r, (r0, r1) in enumerate(zip(ys, ys[1:])):
+        row, ci = [], 0
+        for span in t["spans"][r]:
+            c0, c1 = xs[ci], xs[ci + span]
+            cell = [it for it in items if c0 <= _center(it)[0] < c1 and r0 <= _center(it)[1] < r1]
+            text = "".join(l["text"] for l in group_into_lines(cell))
+            if text.strip() in ("z", "Z"):
+                text = "乙"
+            if not text and bgr is not None:
+                text = _ocr_cell(bgr, c0, r0, c1, r1)
+            row.append([postprocess_line(text) if text else "", span])
+            ci += span
+        rows.append(row)
+    return rows
+
+
 def figure_candidates(bgr, dpi=300, merge_gap=60):
     """用墨跡連通域找「圖」候選（座標圖、示意圖、尺／紙帶照片…）。
     文字筆畫的連通域都很小；圖的線條彼此相連，bbox 大。回傳 [(x0,y0,x1,y1)] 像素座標。
@@ -188,7 +430,7 @@ def _inter_ratio(it, fig):
 
 
 def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
-    """依 OCR 框決定哪些候選才是真的圖（框內中文字 ≤ max_cjk_in_figure；表格／標題框內中文多，不是圖），
+    """依 OCR 框決定哪些候選才是真的圖（框內「成句」的中文字 ≤ max_cjk_in_figure；表格／標題框內是句子，不是圖），
     並把圖內文字框分出來。回傳 (figs, body_items, partial_items)：
       body_items    不受圖影響的文字框
       partial_items [(item, fig)] 只有一部分壓到圖，要遮掉圖再重辨
@@ -196,20 +438,40 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
     figs = []
     for c in cands:
         inside = [it for it in items if c[0] <= _center(it)[0] <= c[2] and c[1] <= _center(it)[1] <= c[3]]
-        if sum(len(RE_CJK.findall(it["text"])) for it in inside) <= max_cjk_in_figure:
+        # 地圖、示意圖上常有一堆短標籤（新竹、澎湖、鵝鑾鼻、甲乙丙丁），總字數多但都是 1~3 字；
+        # 表格、標題框裡則是成句的字。所以只數「4 字以上的字框」裡的中文字。
+        sentence_cjk = sum(n for n in (len(RE_CJK.findall(it["text"])) for it in inside) if n >= 4)
+        # 學生用筆圈起來的一段題文：框裡大部分面積是高信心的印刷字 → 是圈圈不是圖（裁掉會讓題文消失）
+        area = max(1, (c[2] - c[0]) * (c[3] - c[1]))
+        text_area = sum((_center(it)[4] - _center(it)[2]) * (_center(it)[5] - _center(it)[3])
+                        for it in inside if it["conf"] >= 0.8)
+        if text_area / area > 0.3 and any(len(RE_CJK.findall(it["text"])) >= 3 for it in inside):
+            continue
+        if sentence_cjk <= max_cjk_in_figure:
             figs.append(c)
     body, partial = [], []
+    labels = {i: [] for i in range(len(figs))}
     for it in items:
         cx, cy, *_ = _center(it)
         text = it["text"]
-        short = len(RE_CJK.findall(text)) <= 2 and len(text) <= 16
+        n_cjk = len(RE_CJK.findall(text))
+        short = n_cjk <= 2 and len(text) <= 16
+        # 軸名、刻度串（「降雨量（毫米）」「120150E180150W」「586266707478」）：不像句子、而且水平位置落在圖的範圍內
+        axis_like = n_cjk <= 6 and not re.search(r"[，。？?：:、；]", text) and (
+            n_cjk == 0 or len(text) <= 10)
         drop, part = False, None
-        for f in figs:
+        for i, f in enumerate(figs):
             r = _inter_ratio(it, f)
             if r >= 0.6 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]):
                 drop = True
+                labels[i].append(it)
             elif short and (f[0] - pad <= cx <= f[2] + pad and f[1] - pad <= cy <= f[3] + pad):
                 drop = True
+                labels[i].append(it)
+            elif axis_like and (f[0] - pad // 2 <= _center(it)[2] and _center(it)[4] <= f[2] + pad // 2
+                                and f[1] - pad <= cy <= f[3] + pad):
+                drop = True
+                labels[i].append(it)
             elif r >= 0.12:
                 part = f
         if drop:
@@ -218,7 +480,7 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             partial.append((it, part))
         else:
             body.append(it)
-    return figs, body, partial
+    return figs, body, partial, labels
 
 
 def _reocr_masked(bgr, it, fig):
@@ -348,30 +610,69 @@ def postprocess_line(text, conf=1.0, low_conf=LOW_CONF):
     return text
 
 
-def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None):
+def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=()):
     """PP-OCRv5 一頁：整欄辨識 → 圖內文字過濾 → 重組成行 → 後處理。
     回傳 (records, figs)。record = {text, conf, kind('text'|'fig'|'sep'), x0,y0,x1,y1}，
-    已依閱讀順序排好（雙欄：先左欄、再右欄，中間一筆 sep）；fig 是「〔含圖 k〕」佔位行。
-    figs = [(x0,y0,x1,y1)] 像素座標，編號 k 即為清單順序（由上到下）。"""
+    已依閱讀順序排好（多欄：由左到右逐欄，欄與欄之間一筆 sep）；fig 是「〔含圖 k〕」佔位行。
+    figs = [(x0,y0,x1,y1)] 像素座標，編號 k 即為清單順序（由上到下）。
+    split_x：單一欄界（舊用法）或欄界清單（find_column_splits 的結果，橫式四欄）。
+    header／hard（text_layout 的結果）：y < header 的頁首整行讀（只在 hard 欄界＝橫式頁中線切開），
+    閱讀順序變成「每一頁：頁首 → 各欄」。"""
     H, W = bgr.shape[:2]
     items = []
-    spans = [(0, split_x), (split_x, W)] if split_x else [(0, W)]
-    for x0, x1 in spans:
-        for it in ppocr_engine.ocr_lines(bgr[:, x0:x1]):
-            it["box"] = [[x + x0, y] for x, y in it["box"]]
+    cuts = sorted(split_x) if isinstance(split_x, (list, tuple)) else ([split_x] if split_x else [])
+    header = header if cuts else 0
+    edges = [0] + cuts + [W]
+    spans = list(zip(edges, edges[1:]))
+    pedges = [0] + sorted(hard) + [W]
+    pages = list(zip(pedges, pedges[1:]))           # 橫式頁的左右兩頁；直式頁就是整頁
+    regions = [(x0, x1, 0, header, "h") for x0, x1 in pages] if header else []
+    regions += [(x0, x1, header, H, "c") for x0, x1 in spans]
+    for x0, x1, y0, y1, zone in regions:
+        for it in ppocr_engine.ocr_lines(bgr[y0:y1, x0:x1]):
+            it["box"] = [[x + x0, y + y0] for x, y in it["box"]]
+            it["zone"] = zone
             items.append(it)
-    cands = figure_candidates(bgr, dpi=dpi)
-    figs, body, partial = split_figure_text(items, cands, pad=int(0.23 * dpi))
+    # 有框線的表格：裡面的字改放進儲存格，不進正文；多數格子有字才算表格（座標圖的方格紙不算）
+    tables = []
+    for t in detect_tables(bgr, dpi):
+        bx0, by0, bx1, by1 = t["box"]
+        inside = [it for it in items if bx0 <= _center(it)[0] <= bx1 and by0 <= _center(it)[1] <= by1]
+        rows = fill_table(t, inside, bgr)
+        cells = [c for r in rows for c in r]
+        if not cells or sum(1 for c in cells if c[0]) < 0.5 * len(cells):
+            continue
+        t["rows"] = rows
+        t["widths"] = [b - a for a, b in zip(t["xs"], t["xs"][1:])]
+        tables.append(t)
+        ids = {id(it) for it in inside}
+        items = [it for it in items if id(it) not in ids]
+    tab_boxes = [t["box"] for t in tables]
+    cands = [c for c in figure_candidates(bgr, dpi=dpi)
+             if not any(c[0] >= b[0] - 10 and c[1] >= b[1] - 10 and c[2] <= b[2] + 10 and c[3] <= b[3] + 10
+                        for b in tab_boxes)]
+    figs, body, partial, labels = split_figure_text(items, cands, pad=int(0.23 * dpi))
+    for i, f in enumerate(figs):                     # 裁切範圍＝圖本體＋它吸收的標籤
+        bs = [_center(it)[2:] for it in labels[i]]
+        figs[i] = (min([f[0]] + [b[0] for b in bs]), min([f[1]] + [b[1] for b in bs]),
+                   max([f[2]] + [b[2] for b in bs]), max([f[3]] + [b[3] for b in bs]))
+    figs = [tuple(int(v) for v in f) for f in figs]
     for it, fig in partial:
-        body.extend(_reocr_masked(bgr, it, fig))
+        body.extend(dict(r, zone=it.get("zone")) for r in _reocr_masked(bgr, it, fig))
 
     def render(col_items, col_figs):
         lines = group_into_lines(col_items)
         for l in lines:
             l["kind"] = "text"
         for k, f in col_figs:
+            # 用圖的垂直中心排序：放在題目右邊的圖，上緣常比題號還高，用上緣排會掛到上一題
+            cy = (f[1] + f[3]) // 2
             lines.append({"text": f"〔含圖 {k}〕", "conf": 1.0, "kind": "fig",
-                          "y0": f[1], "y1": f[1], "x0": f[0], "x1": f[2]})
+                          "y0": cy, "y1": cy, "x0": f[0], "x1": f[2]})
+        for k, t in col_tabs(col_figs, col_items):
+            b = t["box"]
+            lines.append({"text": f"〔表格 {k}〕", "conf": 1.0, "kind": "table",
+                          "y0": b[1], "y1": b[1], "x0": b[0], "x1": b[2]})
         lines.sort(key=lambda l: (l["y0"] + l["y1"]) / 2)
         for l in lines:
             if l["kind"] == "text":
@@ -379,40 +680,99 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
         return lines
 
     numbered = list(enumerate(figs, 1))
+    tab_numbered = list(enumerate(tables, 1))
+    _zone = {}                                       # 目前 render 的範圍（x0,x1,是否頁首），給 col_tabs 用
+
+    def col_tabs(col_figs, col_items):
+        x0, x1, head = _zone.get("now", (0, W, False))
+        return [(k, t) for k, t in tab_numbered
+                if x0 <= (t["box"][0] + t["box"][2]) / 2 < x1 and (((t["box"][1] + t["box"][3]) / 2 < header) == head)]
+
     recs = []
-    if split_x:
-        for side, (x0, x1) in enumerate(spans):
-            col_items = [it for it in body if x0 <= _center(it)[0] < x1]
-            col_figs = [(k, f) for k, f in numbered if x0 <= (f[0] + f[2]) / 2 < x1]
-            col = render(col_items, col_figs)
-            if side == 1 and col and recs:
-                recs.append({"text": "─── (右欄) ───", "conf": 1.0, "kind": "sep", "x0": 0, "y0": 0, "x1": 0, "y1": 0})
-            recs.extend(col)
+    if cuts:
+        is_head = lambda it: it.get("zone") == "h"
+        side = 0
+        for px0, px1 in pages:
+            inside = lambda x: px0 <= x < px1
+            head = [it for it in body if is_head(it) and inside(_center(it)[0])]
+            head_figs = [(k, f) for k, f in numbered if (f[1] + f[3]) / 2 < header and inside((f[0] + f[2]) / 2)]
+            _zone["now"] = (px0, px1, True)
+            recs.extend(render(head, head_figs))
+            for x0, x1 in spans:
+                if not (px0 <= x0 and x1 <= px1):
+                    continue
+                col_items = [it for it in body if not is_head(it) and x0 <= _center(it)[0] < x1]
+                col_figs = [(k, f) for k, f in numbered
+                            if x0 <= (f[0] + f[2]) / 2 < x1 and (f[1] + f[3]) / 2 >= header]
+                _zone["now"] = (x0, x1, False)
+                col = render(col_items, col_figs)
+                if side >= 1 and col and recs:
+                    label = "右欄" if len(spans) == 2 else f"第 {side + 1} 欄"
+                    recs.append({"text": f"─── ({label}) ───", "conf": 1.0, "kind": "sep",
+                                 "x0": 0, "y0": 0, "x1": 0, "y1": 0})
+                recs.extend(col)
+                side += 1
     else:
+        _zone["now"] = (0, W, False)
         recs = render(body, numbered)
     # 補回被吞掉括號的題號（需看上一題號，故在整頁排好序後處理）
     idx = [i for i, r in enumerate(recs) if r["kind"] == "text"]
     new_t, _ = restore_bare_qnos([recs[i]["text"] for i in idx], prev_qno)
     for i, t in zip(idx, new_t):
         recs[i]["text"] = t
-    return recs, figs
+    return recs, figs, [tuple(int(v) for v in _center(it)[2:]) for it in body], tables
 
 
-def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None):
-    """同上，但回傳 (行文字清單, 圖框清單)；欄分隔線前後各留一個空行。"""
-    recs, figs = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno)
+def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=()):
+    """同上，但回傳 (行文字清單, 圖框清單, 正文字框清單, 表格清單)；欄分隔線前後各留一個空行。
+    表格在文字裡以「〔表格 k〕」佔位，內容（rows／widths）在表格清單第 k 個。"""
+    recs, figs, body_boxes, tables = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno, header, hard)
     lines = []
     for r in recs:
         if r["kind"] == "sep":
             lines += ["", r["text"], ""]
         else:
             lines.append(r["text"])
-    return lines, figs
+    return lines, figs, body_boxes, tables, line_geometry(recs, bgr)
+
+
+def line_geometry(recs, bgr=None):
+    """每一行文字的版面位置：第幾欄、離該欄左緣縮排幾個字高、行高。
+    題號印在欄的最左邊，題幹與選項都會縮排——切題時比只看文字可靠（題號被手寫蓋掉也還有位置可看）。"""
+    cols, col = [], []
+    for r in recs:
+        if r["kind"] == "sep":
+            cols.append(col)
+            col = []
+        elif r["kind"] == "text":
+            col.append(r)
+    cols.append(col)
+    out = []
+    for ci, col in enumerate(cols):
+        if not col:
+            continue
+        xs = sorted(r["x0"] for r in col)
+        margin = xs[max(0, len(xs) // 10)]
+        hs = sorted(r["y1"] - r["y0"] for r in col)
+        ch = max(1.0, hs[len(hs) // 2])
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr is not None and cv2 is not None else None
+        for r in col:
+            indent = (r["x0"] - margin) / ch
+            ink = 0.0
+            # 題號位置有沒有墨跡：欄左緣到這行文字開頭之間（題號、作答括號、蓋在上面的手寫都算）
+            if gray is not None and indent >= 1.0:
+                y0, y1 = int(r["y0"]), int(r["y1"])
+                x0, x1 = int(max(0, margin - 0.3 * ch)), int(r["x0"] - 0.25 * ch)
+                if x1 > x0 and y1 > y0:
+                    ink = float((gray[y0:y1, x0:x1] < 128).mean())
+            out.append({"col": ci, "text": r["text"], "indent": round(indent, 2),
+                        "h": round((r["y1"] - r["y0"]) / ch, 2), "y": int(r["y0"]), "margin_ink": round(ink, 3)})
+    return out
 
 
 def ocr_page_ppocr(bgr, split_x=None, dpi=300, low_conf=LOW_CONF):
     """PP-OCRv5 吃原圖（BGR，不二值化）。split_x 為原圖座標的欄界。回傳純文字。"""
-    lines, _ = ocr_page_ppocr_lines(bgr, split_x, dpi, low_conf)
+    lines, *_ = ocr_page_ppocr_lines(bgr, split_x, dpi, low_conf)
     return "\n".join(lines)
 
 
@@ -442,8 +802,23 @@ def ocr_page(binimg, lang="chi_tra+eng", split_columns=True, bgr=None, upscale=1
 
 
 # ---------- 文字清理 ----------
+# 卷頭「班級／座號／姓名」後面是學生手寫的資料：只留欄位名稱（不輸出學生個資，也不是考題內容）
+_RE_STUDENT = re.compile(r"(班級|座號|姓名)\s*[:：]\s*[^\s班座姓]{0,8}")
+
+
+_RE_STUDENT_GRID = re.compile(r"(班級|座號|姓名)\s*[:：]?\s*[^\s班座姓]{0,8}")
+
+
+def _strip_student(ln):
+    """有冒號的「姓名：王小明」；表格式卷頭（同一行有兩個以上欄位名、沒有冒號）也清掉欄位後面的字"""
+    ln = _RE_STUDENT.sub(r"\1：", ln)
+    if sum(k in ln for k in ("班級", "座號", "姓名")) >= 2:
+        ln = _RE_STUDENT_GRID.sub(r"\1：", ln)
+    return ln
+
+
 def tidy_text(txt):
-    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in txt.splitlines()]
+    lines = [_strip_student(re.sub(r"[ \t]+", " ", ln)).strip() for ln in txt.splitlines()]
     out, blank = [], 0
     for ln in lines:
         if not ln:
@@ -461,7 +836,7 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
     os.makedirs(out_dir, exist_ok=True)
     doc = pymupdf.open(pdf_path)
     base = os.path.splitext(os.path.basename(pdf_path))[0]
-    all_text, report = [], []
+    all_text, report, all_tables, all_geo = [], [], {}, []
     eng_name = resolve_engine(engine)
     prev_q = None
     for i, page in enumerate(doc):
@@ -475,30 +850,56 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
             continue
         # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
         bgr = page_to_bgr(page, dpi)
+        t0 = time.time()
+        turned, inked = 0, 0.0
+        if eng_name == "ppocr":
+            bgr, turned = fix_orientation(bgr)
+            bgr, inked = remove_color_ink(bgr)
         binimg = preprocess(bgr, upscale=upscale)
         H, W = bgr.shape[:2]
-        t0 = time.time()
         if eng_name == "ppocr":
-            split = find_column_split(binimg)
-            split_x = int(round(split / upscale)) if split else None
-            lines, fig_px = ocr_page_ppocr_lines(bgr, split_x, dpi, prev_qno=prev_q)
+            lay = text_layout(bgr)
+            if not lay["cuts"]:
+                lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
+            lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
+                                                 header=lay["header"], hard=lay["hard"])
             prev_q = next((q for q in (qno_of_line(l) for l in reversed(lines)) if q is not None), prev_q)
             txt = tidy_text("\n".join(lines))
-            pad = int(0.17 * dpi)
+            pad = int(0.05 * dpi)                    # 圖框已含標籤，只留一點白邊
             figs = [(max(0, x0 - pad) / W, max(0, y0 - pad) / H, min(W, x1 + pad) / W, min(H, y1 + pad) / H)
                     for x0, y0, x1, y1 in fig_px]
         else:
             figs = detect_figures(binimg, page.rect.height)
+            body_px, tables, geo = [], [], []
             txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
         dt = time.time() - t0
         for k, (x0, y0, x1, y1) in enumerate(figs, 1):
-            crop = bgr[int(y0 * H):int(y1 * H), int(x0 * W):int(x1 * W)]
+            cx0, cy0, cx1, cy1 = int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H)
+            crop = bgr[cy0:cy1, cx0:cx1].copy()
+            for bx0, by0, bx1, by1 in body_px:       # 白邊夾到的正文（半截題目、選項）塗白
+                if bx1 > cx0 and bx0 < cx1 and by1 > cy0 and by0 < cy1:
+                    crop[max(0, by0 - cy0 - 3):max(0, by1 - cy0 + 3), max(0, bx0 - cx0 - 3):max(0, bx1 - cx0 + 3)] = 255
             if cv2 is not None and crop.size:
                 cv2.imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
         fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
+        for k, t in enumerate(tables, 1):
+            all_tables[f"p{n}_t{k}"] = {"rows": t["rows"], "widths": t["widths"]}
+        for g in geo:
+            g["page"] = n
+            all_geo.append(g)
         all_text.append(f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}")
-        report.append(f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s")
+        report.append(f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
+                      + (f"，已自動轉正 {turned}°" if turned else "")
+                      + (f"，已清除紅藍筆跡 {inked:.2%}" if inked >= 0.0001 else ""))
     full = "\n".join(all_text).strip()
+    if all_geo:                                      # 每行的版面位置（給切題用）
+        import json
+        with open(os.path.join(out_dir, f"{base}_lines.json"), "w", encoding="utf-8") as f:
+            json.dump(all_geo, f, ensure_ascii=False)
+    if all_tables:                                   # 〔表格 k〕的內容：{"p頁_tk": {"rows", "widths"(像素)}}
+        import json
+        with open(os.path.join(out_dir, f"{base}_tables.json"), "w", encoding="utf-8") as f:
+            json.dump(all_tables, f, ensure_ascii=False)
     txt_path = os.path.join(out_dir, f"{base}.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(full)

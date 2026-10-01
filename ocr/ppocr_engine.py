@@ -15,6 +15,8 @@
     而丟掉（實測整題 18 因此消失），關掉也比較快。
 """
 import os
+
+import numpy as np
 import threading
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -75,12 +77,47 @@ def _get_cc():
 
 
 def to_traditional(text):
+    """只轉「Big5 字集沒有」的字（真正的簡體，如 发、镜）；本來就合法的繁體字一律不動。
+    整句丟給 OpenCC 會把正確的繁體改錯：干擾→幹擾、游離→遊離、准→準。"""
     cc = _get_cc()
-    return cc.convert(text) if cc else text
+    if not cc:
+        return text
+    out = []
+    for ch in text:
+        if ord(ch) > 0x2E80:
+            try:
+                ch.encode("cp950")
+            except UnicodeEncodeError:
+                t = cc.convert(ch)
+                try:
+                    t.encode("cp950")
+                    ch = t
+                except UnicodeEncodeError:
+                    pass
+        out.append(ch)
+    return "".join(out)
+
+
+def det_boxes(img):
+    """只跑文字偵測、不辨識（快）：回傳四點框清單 [[[x,y]*4], ...]。給版面分析（找欄界）用。"""
+    img = np.ascontiguousarray(img)          # 欄位切片在記憶體裡不連續，直接丟進 onnxruntime 會 segfault（A3 四欄卷重現）
+    result, _ = _get_engine()(img, use_det=True, use_cls=False, use_rec=False)
+    return result or []
+
+
+def rec_only(img):
+    """不做偵測、整張圖當成一行直接辨識（給已裁好的小區塊，例如只有一個字的表格儲存格）。回傳 (文字, 信心)。"""
+    img = np.ascontiguousarray(img)
+    result, _ = _get_engine()(img, use_det=False, use_cls=False, use_rec=True)
+    if not result:
+        return "", 0.0
+    text, conf = result[0][0], result[0][1]
+    return to_traditional(str(text)).strip(), float(conf)
 
 
 def ocr_lines(img):
     """整張（或整欄）影像 → 文字框清單。text 已轉繁體（s2tw：只轉字形，不做用語替換）。"""
+    img = np.ascontiguousarray(img)          # 欄位切片在記憶體裡不連續，直接丟進 onnxruntime 會 segfault（A3 四欄卷重現）
     result, _ = _get_engine()(img, use_cls=False, text_score=TEXT_SCORE)
     if not result:
         return []
