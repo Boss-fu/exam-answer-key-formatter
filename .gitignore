@@ -18,3 +18,10 @@ Thumbs.db
 
 # OCR 評測產出
 ocr/results/
+
+# 本機考卷資料與驗證暫存；避免誤推私人考卷或辨識內容
+/output/
+/tmp/
+
+# Vercel 只部署 local-app/public，不包含主機工作檔
+.vercel/

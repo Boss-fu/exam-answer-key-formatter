@@ -4,18 +4,24 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { applyCors } = require("./cors");
+const portalConfig = require("./public/server-config");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
 const { preflight } = require("./ocr-preflight");
-const { buildDocxBuffer, checkAnswers, buildCleanExamBuffer } = require("../code/render");
+// Word 相關套件只在需要輸出時載入，避免新版 Node 啟動服務時被舊套件阻塞。
+function renderer() { return require("../code/render"); }
 
 const PORT = process.env.PORT || 8787;
+const HOST = process.env.HOST || undefined;
 const PUBLIC = path.join(__dirname, "public");
 const OUTPUT = path.join(__dirname, "output");
 const DIRTY_OUTPUT = path.join(OUTPUT, "dirty-exams");
 const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
 const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
 const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
+let revision = "unknown";
+try { revision = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 2000 }).trim(); } catch {}
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.mkdirSync(DIRTY_OUTPUT, { recursive: true });
 fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
@@ -23,7 +29,7 @@ fs.mkdirSync(PKG_OUTPUT, { recursive: true });
 fs.mkdirSync(OCR_OUTPUT, { recursive: true });
 
 function send(res, code, type, body) {
-  res.writeHead(code, { "content-type": type });
+  res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
   res.end(body);
 }
 function sendJson(res, code, obj) { send(res, code, "application/json; charset=utf-8", JSON.stringify(obj)); }
@@ -48,20 +54,23 @@ function safeJobId(id) { return /^[a-f0-9]{24}$/i.test(String(id || "")) ? Strin
 function safeSourceName(name) { return safeName(name).replace(/\.+$/g, "") || "source"; }
 
 const server = http.createServer(async (req, res) => {
+  if (!applyCors(req, res)) return;
+  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // --- CORS：允許從別頁（Vercel 工具頁或另一台主機）跨來源呼叫本機 API ---
-    // 本服務只在 Tailscale 私網內，放寬跨來源可接受。預檢(OPTIONS)直接回 204。
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "content-type");
-    res.setHeader("Access-Control-Max-Age", "86400");
-    if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
 
     // --- 靜態首頁 ---
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
+    }
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js"].includes(url.pathname)) {
+      return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
+    }
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
+        host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
+        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word"] });
     }
 
     // --- 上傳 PDF/Word/文字檔 → 取出純文字（給前端放進考卷欄位確認後再產詳解）---
@@ -136,7 +145,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/csv-to-word") {
       const { csvText, filename } = JSON.parse(await readBody(req, 16 * 1024 * 1024) || "{}");
       if (!csvText || !csvText.trim()) return sendJson(res, 400, { ok: false, error: "缺少 CSV 內容" });
-      const buf = await buildCleanExamBuffer(csvText);
+      const buf = await renderer().buildCleanExamBuffer(csvText);
       const name = safeName((filename || "乾淨考卷").replace(/\.(csv|xlsx?|txt)$/i, "")) + "-乾淨考卷.docx";
       const outPath = path.join(OUTPUT, name);
       fs.writeFileSync(outPath, buf);
@@ -231,7 +240,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/generate") {
       const { examText, images } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       const data = (images && images.length) ? await generateFromImages(images) : await generate(examText);
-      const mismatches = checkAnswers(data.questions);
+      const mismatches = renderer().checkAnswers(data.questions);
       return sendJson(res, 200, { ok: true, data, mismatches });
     }
 
@@ -239,7 +248,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/render") {
       const { data, filename } = JSON.parse(await readBody(req) || "{}");
       if (!data || !Array.isArray(data.questions)) return sendJson(res, 400, { ok: false, error: "缺少 questions" });
-      const buf = await buildDocxBuffer(data);
+      const buf = await renderer().buildDocxBuffer(data);
       const name = safeName(filename || data.summaryLabel) + ".docx";
       const outPath = path.join(OUTPUT, name);
       fs.writeFileSync(outPath, buf);
@@ -257,8 +266,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+if (require.main === module) server.listen(PORT, HOST, () => {
+  require("./tailnet-https").ensurePrivateHttps(PORT);
   console.log(`\n  詳解本機應用已啟動 →  http://localhost:${PORT}`);
+  if (HOST) console.log(`  網路監聽位址：${HOST}:${PORT}`);
   console.log(`  引擎：${process.env.ENGINE || "claude-code"}（可用 ENGINE=codex 或 ENGINE=api 切換）`);
   console.log(`  產出的 Word 會存到：${OUTPUT}\n`);
 });
+
+module.exports = server;

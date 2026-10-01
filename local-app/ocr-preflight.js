@@ -75,7 +75,8 @@ function preflight({ sourcePath, jobDir }) {
   if (!images.length) throw new Error("PDF 沒有成功轉成頁面圖片");
   const pages = images.map((name, index) => {
     const image = path.join(pagesDir, name);
-    const tsv = run(tesseract, [image, "stdout", "-l", "chi_tra+eng", "--psm", "3", "tsv"], `第 ${index + 1} 頁 OCR`);
+    // macOS 的 /tmp 是指向 /private/tmp 的連結；Leptonica 在部分版本無法以連結路徑開圖。
+    const tsv = run(tesseract, [fs.realpathSync(image), "stdout", "-l", "chi_tra+eng", "--psm", "3", "tsv"], `第 ${index + 1} 頁 OCR`);
     const rows = parseTsv(tsv); const page = rows.find((r) => r.level === 1) || {};
     const words = rows.filter((r) => r.level === 5 && r.text);
     const width = page.width || 1, height = page.height || 1;
@@ -94,3 +95,21 @@ function preflight({ sourcePath, jobDir }) {
 }
 
 module.exports = { preflight };
+
+if (require.main === module) {
+  const [sourcePath, jobDir] = process.argv.slice(2);
+  if (!sourcePath || !jobDir) {
+    console.error("用法：node local-app/ocr-preflight.js <考卷.pdf> <輸出資料夾>");
+    process.exitCode = 2;
+  } else {
+    try {
+      const report = preflight({ sourcePath: path.resolve(sourcePath), jobDir: path.resolve(jobDir) });
+      const reportPath = path.join(path.resolve(jobDir), "report.json");
+      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      console.log(JSON.stringify({ reportPath, summary: report.summary }, null, 2));
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+  }
+}
