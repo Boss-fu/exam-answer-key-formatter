@@ -1,0 +1,198 @@
+<title>考卷 OCR 對照評測</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 版面：答案卡的方格紙底，一欄閱讀；三方比較一律「改前（鉛筆灰）／改後（藍墨）／試卷寶（紅筆）」 */
+:root {
+  --paper: #f6f7f4;
+  --sheet: #ffffff;
+  --ink: #1f2933;
+  --muted: #5d6873;
+  --rule: #d9ded8;
+  --grid: rgba(60, 110, 140, .07);
+  --before: #9aa3ab;
+  --after: #1f5f8b;
+  --rival: #c2412d;
+  --good: #2f7d4f;
+  --font-display: "LXGW WenKai TC", "Kaiti TC", "BiauKai", serif;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14181c; --sheet: #1b2026; --ink: #e5e9ec; --muted: #9aa5ae; --rule: #2e353c;
+    --grid: rgba(120, 170, 200, .06); --before: #6b747c; --after: #6fb1dd; --rival: #ef7a63; --good: #6cc492;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #14181c; --sheet: #1b2026; --ink: #e5e9ec; --muted: #9aa5ae; --rule: #2e353c;
+  --grid: rgba(120, 170, 200, .06); --before: #6b747c; --after: #6fb1dd; --rival: #ef7a63; --good: #6cc492;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+}
+main { max-width: 960px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 64px; display: grid; gap: 40px; }
+h1, h2 { font-family: var(--font-display); font-weight: 700; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 6vw, 44px); line-height: 1.2; }
+h2 { font-size: 24px; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--muted); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+header { display: grid; gap: 12px; }
+.lede { color: var(--muted); }
+section { display: grid; gap: 16px; }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.metric { display: grid; gap: 10px; align-content: start; }
+.metric h3 { margin: 0; font-size: 16px; }
+.metric .hint { font-size: 13px; color: var(--muted); }
+.bar-row { display: grid; grid-template-columns: 52px 1fr 64px; align-items: center; gap: 8px; font-size: 13px; }
+.track { height: 14px; background: var(--paper); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; border-radius: 3px; }
+.bar-row .v { text-align: right; }
+.verdict { font-size: 13px; font-weight: 500; }
+
+.changes { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; counter-reset: c; }
+.changes li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+.changes li::before { counter-increment: c; content: counter(c); font-family: var(--font-num); color: var(--after); font-weight: 600; }
+.changes b { display: block; }
+.changes span { color: var(--muted); font-size: 14px; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+td.r, th.r { text-align: right; }
+.mini { position: relative; height: 10px; width: 140px; background: var(--paper); border-radius: 2px; }
+.mini i { position: absolute; top: -2px; width: 3px; height: 14px; border-radius: 1px; }
+.delta { font-family: var(--font-num); font-size: 12px; }
+.up { color: var(--good); } .down { color: var(--rival); }
+
+.compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+.col { min-width: 0; display: grid; gap: 8px; align-content: start; }
+.col h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.col ol { margin: 0; padding: 12px 12px 12px 34px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px;
+  font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.col li { padding-block: 2px; }
+.notes { display: grid; gap: 10px; padding-left: 20px; margin: 0; }
+.notes li { max-width: 70ch; }
+footer { font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">exam-answer-key-formatter ／ ocr/pyexam.py</div>
+    <h1>考卷 OCR 對照評測</h1>
+    <p class="lede" id="lede"></p>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--before)"></i>我們（改前）</span>
+      <span><i class="sw" style="background:var(--after)"></i>我們（改後）</span>
+      <span><i class="sw" style="background:var(--rival)"></i>試卷寶</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>三個指標</h2>
+    <div class="metrics" id="metrics"></div>
+  </section>
+
+  <section>
+    <h2>這次改了什麼</h2>
+    <ul class="changes sheet">
+      <li><div><b>分欄改看文字框位置</b><span>原本用墨水量找欄距，欄距窄或學生在中間寫字就失敗，整頁兩欄交錯。改成用文字偵測框的分布找欄界，用相對門檻，零星手寫不影響。</span></div></li>
+      <li><div><b>支援 A3 橫式四欄</b><span>一張印兩頁的橫式卷，中線必切，左右兩半再各自找雙欄。</span></div></li>
+      <li><div><b>整頁自動轉正</b><span>上下顛倒或橫著掃的頁面原本整頁讀不出來。先看文字框是橫是直，再比兩個方向的辨識信心，選對的方向。</span></div></li>
+      <li><div><b>頁首整行讀</b><span>跨過欄界的校名、考試名稱不再被切成兩半、後半段跑到右欄。</span></div></li>
+      <li><div><b>簡繁轉換只動簡體字</b><span>原本整句轉換會把正確的繁體改錯（干擾→幹擾、游離→遊離）。現在只轉 Big5 沒有的字。</span></div></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>逐份結果</h2>
+    <p class="lede">短線是「順序正確率」（0–100%）。依改善幅度排序。</p>
+    <div class="table-wrap sheet" style="padding:0">
+      <table>
+        <thead><tr><th>考卷</th><th class="r">字數</th><th>順序正確率</th><th class="r">改前</th><th class="r">改後</th><th class="r">試卷寶</th><th class="r">漏字 改後／試卷寶</th><th class="r">附圖 我們／試卷寶／正解</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sample-sec">
+    <h2 id="sample-title">同一段原文，三方對照</h2>
+    <p class="lede">各取開頭 14 行（略過頁碼與空行）。正解是茲茲人工完成的 Word。</p>
+    <div class="compare" id="compare"></div>
+  </section>
+
+  <section>
+    <h2>還沒解決的</h2>
+    <ul class="notes" id="todo">
+      <li><b>多字偏高</b>：圖表裡的刻度、座標軸、表格數字，以及學生手寫的字被當成正文。下一步是把圖區內的文字更積極地排除，並加上手寫過濾。</li>
+      <li><b>附圖數量</b>：裁圖用的是連通區塊，常把一張圖切成好幾塊，或把相鄰的兩張圖合成一張。</li>
+      <li><b>速度</b>：自動轉正多跑了兩次縮小版辨識，每頁約多 2～4 秒。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <div id="method"></div>
+    <div>指標只比中英數字；簡體先轉繁體再比，所以試卷寶輸出簡體不會被算成錯字。漏字＝正解的字在輸出中找不到的比例（不看順序）；順序正確率＝最長共同子序列／正解字數（多出來的內容不扣分）；多字＝輸出多出、正解沒有的字。</div>
+    <div>重現：<span class="num">python3 ocr/eval_gt.py --tag v3</span>，<span class="num">python3 ocr/report_gt.py</span></div>
+  </footer>
+</main>
+
+<script>
+const D = /*__DATA__*/null;
+const pct = v => v == null ? "–" : (v * 100).toFixed(1) + "%";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+document.getElementById("lede").textContent =
+  `用 ${D.n} 份國中理化段考掃描卷（${D.chars.toLocaleString()} 字）測。每份都有茲茲人工完成的 Word 當正解，同一份正解同時幫我們和試卷寶打分數。`;
+
+const M = [
+  { k: "order", title: "順序正確率", hint: "正解的字有沒有依正確順序出現。越高越好。", better: "high" },
+  { k: "miss", title: "漏字率", hint: "正解的字在輸出裡找不到。越低越好。", better: "low" },
+  { k: "extra", title: "多字率", hint: "輸出多出來的字（圖內刻度、手寫、雜訊）。越低越好。", better: "low" },
+];
+const scaleMax = { order: 1, miss: 0.15, extra: 0.25 };
+document.getElementById("metrics").innerHTML = M.map(({ k, title, hint, better }) => {
+  const [b, a, s] = D.m[k];
+  const max = Math.max(scaleMax[k], b, a, s);
+  const bar = (label, v, color) => `<div class="bar-row"><span>${label}</span><div class="track"><div class="fill" style="width:${(v / max * 100).toFixed(1)}%;background:${color}"></div></div><span class="v num">${pct(v)}</span></div>`;
+  const win = better === "high" ? a >= s : a <= s;
+  const verdict = win ? `<span class="up">改後比試卷寶好 ${pct(Math.abs(a - s))}</span>` : `<span class="down">還差試卷寶 ${pct(Math.abs(a - s))}</span>`;
+  return `<div class="metric sheet"><h3>${title}</h3><div class="hint">${hint}</div>${bar("改前", b, "var(--before)")}${bar("改後", a, "var(--after)")}${bar("試卷寶", s, "var(--rival)")}<div class="verdict">${verdict}</div></div>`;
+}).join("");
+
+document.getElementById("rows").innerHTML = D.rows.map(r => {
+  const mark = (v, c) => v == null ? "" : `<i style="left:calc(${(v * 100).toFixed(1)}% - 1.5px);background:${c}"></i>`;
+  const d = r.oa - r.ob;
+  return `<tr><td>${esc(r.name)}</td><td class="r num">${r.chars}</td>
+    <td><div class="mini">${mark(r.ob, "var(--before)")}${mark(r.os, "var(--rival)")}${mark(r.oa, "var(--after)")}</div></td>
+    <td class="r num">${pct(r.ob)}</td><td class="r num">${pct(r.oa)} <span class="delta ${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${(d * 100).toFixed(1)}</span></td>
+    <td class="r num">${pct(r.os)}</td><td class="r num">${pct(r.ma)}／${pct(r.ms)}</td>
+    <td class="r num">${r.figs}／${r.ssf ?? "–"}／${r.gtf}</td></tr>`;
+}).join("");
+
+if (D.sample) {
+  document.getElementById("sample-title").textContent = `同一段原文，三方對照：${D.sample.name}`;
+  const col = (title, color, lines) => `<div class="col"><h3><i class="sw" style="background:${color}"></i>${title}</h3><ol>${lines.map(l => `<li>${esc(l)}</li>`).join("")}</ol></div>`;
+  document.getElementById("compare").innerHTML =
+    col("正解（茲茲人工）", "var(--good)", D.sample.gt) + col("我們（改後）", "var(--after)", D.sample.us) + col("試卷寶", "var(--rival)", D.sample.ss);
+} else {
+  document.getElementById("sample-sec").hidden = true;
+}
+
+const ex = D.excluded.length ? `排除 ${D.excluded.join("、")}：正解 Word 與掃描卷內容對不上（兩邊漏字都約 48%），不是辨識問題。` : "";
+document.getElementById("method").textContent = `${ex}我們的速度：每頁平均 ${D.per_page.toFixed(1)} 秒（Mac CPU，PP-OCRv5 mobile）。`;
+</script>

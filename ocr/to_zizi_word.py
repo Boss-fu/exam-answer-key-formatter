@@ -43,7 +43,7 @@ BOOK = {("七", "上"): "第一冊", ("七", "下"): "第二冊", ("八", "上")
         ("八", "下"): "第四冊", ("九", "上"): "第五冊", ("九", "下"): "第六冊"}
 LABEL = {"七": "國七生物", "八": "國八理化", "九": "國九自然"}
 WARN = "　⚠需確認"
-MARGIN_INK = 0.065        # 題號位置墨跡比例門檻：實測新題開頭約 0.085~0.10，續行與選項 0~0.05
+MARGIN_INK = 9.9          # 停用：v7 實測學生在左邊空白寫字會大量誤判成新題（士林 73/40）；位置資料保留供之後改良
 
 
 def markup_safe(t):
@@ -174,7 +174,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name=""):
         nonlocal cur, n_q
         if not cur:
             return
+        if not cur["opts"] and not cur["figs_mid"] and not cur["figs_after"] and len(re.sub(r"\W", "", cur["stem"])) < 4:
+            cur = None                         # 只有一兩個字、沒選項沒圖的「題目」是手寫雜訊（例如一個 0）
+            return
         n_q += 1
+        for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
+            cur["opts"][-1] = join(cur["opts"][-1], tl)
         raw = cur["stem"] + "".join(cur["opts"])
         stem = emphasize(markup_safe(cur["stem"])) or "（題幹未辨識，請對照原卷補上）"
         opts = [markup_safe(o) for o in cur["opts"]]
@@ -324,6 +329,16 @@ def build(pyexam_dir, out_dir, dpi=300, src_name=""):
             C.append(B.p_intro(markup_safe(t)))   # 例如「請注意，1~20題為地科」
             continue
         if opts:
+            if opts[0].startswith("(A)") and any(o.startswith("(A)") for o in cur["opts"]):
+                # 同一題裡又出現第二個 (A) → 一定是兩題黏在一起（題號被手寫蓋掉；一題不會有兩個 (A)）。
+                # (D) 之後累積的行：第一行若像選項尾巴（短、句號收尾）留給上一題，其餘＋這行 (A) 前的字是新題題幹
+                tails = cur.pop("tail", [])
+                keep = 1 if tails and len(tails[0]) <= 30 and re.search(r"[。．.）)]$", tails[0]) else 0
+                cur["tail"] = tails[:keep]
+                stem = "".join(tails[keep:])
+                start_q(qn + 1, join(stem, head) if head else stem)
+                cur["opts"].extend(opts)
+                continue
             if head:
                 if cur["opts"]:
                     cur["opts"][-1] = join(cur["opts"][-1], head)
@@ -331,7 +346,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name=""):
                     cur["stem"] = join(cur["stem"], head)
             cur["opts"].extend(opts)
         elif cur["opts"]:
-            cur["opts"][-1] = join(cur["opts"][-1], t)   # 長選項換行
+            if opts_done() or len(cur["opts"]) >= 3:
+                cur.setdefault("tail", []).append(t)    # 先記著：可能是選項尾巴，也可能是下一題被蓋掉題號的題幹
+            else:
+                cur["opts"][-1] = join(cur["opts"][-1], t)   # 長選項換行
         else:
             cur["stem"] = join(cur["stem"], t)
     flush()
