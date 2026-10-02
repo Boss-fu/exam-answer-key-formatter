@@ -98,9 +98,42 @@ def to_traditional(text):
     return "".join(out)
 
 
+# ---------------------------------------------------------------- Apple Vision（macOS 內建，用神經網路引擎，幾乎不吃 CPU）
+# OCR_ENGINE=vision 時，ocr_lines／det_boxes／rec_only 都改用 Apple Vision（只限 Mac；Windows 主機照用 PP-OCRv5）。
+ENGINE = os.environ.get("OCR_ENGINE", "ppocr")
+
+
+def _vision(img):
+    """numpy BGR／灰階 → [(四點框(像素), 文字, 信心)]。Vision 的框是 0~1、原點在左下，要換成像素、原點左上"""
+    import cv2
+    import Quartz
+    import Vision
+    from Foundation import NSData
+    ok, buf = cv2.imencode(".png", img)
+    data = NSData.dataWithBytes_length_(buf.tobytes(), len(buf))
+    src = Quartz.CGImageSourceCreateWithData(data, None)
+    cg = Quartz.CGImageSourceCreateImageAtIndex(src, 0, None)
+    req = Vision.VNRecognizeTextRequest.alloc().init()
+    req.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    req.setRecognitionLanguages_(["zh-Hant", "en-US"])
+    req.setUsesLanguageCorrection_(True)
+    Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(cg, None).performRequests_error_([req], None)
+    H, W = img.shape[:2]
+    out = []
+    for o in req.results() or []:
+        c = o.topCandidates_(1)[0]
+        b = o.boundingBox()
+        x0, x1 = b.origin.x * W, (b.origin.x + b.size.width) * W
+        y0, y1 = (1 - b.origin.y - b.size.height) * H, (1 - b.origin.y) * H
+        out.append(([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], str(c.string()), float(c.confidence())))
+    return out
+
+
 def det_boxes(img):
     """只跑文字偵測、不辨識（快）：回傳四點框清單 [[[x,y]*4], ...]。給版面分析（找欄界）用。"""
     img = np.ascontiguousarray(img)          # 欄位切片在記憶體裡不連續，直接丟進 onnxruntime 會 segfault（A3 四欄卷重現）
+    if ENGINE == "vision":
+        return [box for box, _, _ in _vision(img)]
     result, _ = _get_engine()(img, use_det=True, use_cls=False, use_rec=False)
     return result or []
 
@@ -108,6 +141,9 @@ def det_boxes(img):
 def rec_only(img):
     """不做偵測、整張圖當成一行直接辨識（給已裁好的小區塊，例如只有一個字的表格儲存格）。回傳 (文字, 信心)。"""
     img = np.ascontiguousarray(img)
+    if ENGINE == "vision":
+        r = _vision(img)
+        return ("".join(t for _, t, _ in r).strip(), max((c for _, _, c in r), default=0.0))
     result, _ = _get_engine()(img, use_det=False, use_cls=False, use_rec=True)
     if not result:
         return "", 0.0
@@ -118,7 +154,10 @@ def rec_only(img):
 def ocr_lines(img):
     """整張（或整欄）影像 → 文字框清單。text 已轉繁體（s2tw：只轉字形，不做用語替換）。"""
     img = np.ascontiguousarray(img)          # 欄位切片在記憶體裡不連續，直接丟進 onnxruntime 會 segfault（A3 四欄卷重現）
-    result, _ = _get_engine()(img, use_cls=False, text_score=TEXT_SCORE)
+    if ENGINE == "vision":
+        result = _vision(img)
+    else:
+        result, _ = _get_engine()(img, use_cls=False, text_score=TEXT_SCORE)
     if not result:
         return []
     out = []

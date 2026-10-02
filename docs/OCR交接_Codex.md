@@ -79,3 +79,15 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 - **九年級卷全部都收：理化、生物、地科都要**（2026-10-02 使用者確認）。橫幅維持「國九自然」、保留所有題目，不要只收理化。
   茲茲舊的正解有些只收理化（`112-1-1_G9_石牌國中`、`112-1-1_G9_陽明國中`），那是正解不完整，不是我們多切；這兩份題數不計。
 - 推 main：本機測過、確定有進步才推（使用者 2026-10-02 同意「繼續優化並且推上 main」）。
+
+## 8. 2026-10-02 新增（AI 大腦、一鍵流程、Apple Vision）
+
+- **AI 大腦**（`ocr/ai_judge.py`）：Python 做完 OCR 後只問 AI 一次（行號＋文字草稿，約 6k token），回傳題目開頭行號／雜訊行／短錯字。
+  預設 `auto`＝Claude → Codex 接力，全部失敗退回規則。開發集題數總誤差：規則 25 → 規則＋Claude 8。
+  Codex 單份實測比 Claude 準（39/40 vs 42/40）但慢 4 倍；Ollama qwen2.5 7B 嚴重錯誤（40 題抓 4~13 個），不要用。
+  `python ocr/qcount.py v8 --ai claude|codex` 比較；11 份的 Codex 完整比較還沒跑完。
+- **一鍵流程**：`ocr/exam_to_word.py`（OCR → AI → 茲茲 Word），local-app 第 1 步「掃描卷轉成茲茲格式 Word」已接上（`local-app/py-ocr.js` 自動找 `~/.venvs/zizi-exam`）。
+  **Windows 主機還不能用**：要補 Windows 版的 Python 3.11＋套件＋模型安裝說明（`setup_env.sh` 只適用 Mac）。
+- **Apple Vision**（`OCR_ENGINE=vision`，只限 Mac）：一頁辨識 1.5 秒、幾乎不吃 CPU，但整體 順序 85.3%（PP-OCRv5 93.6%）、題數總誤差 76（25），**不當預設**。
+  推測 Vision 的行框會跨欄，欄界偵測失準。下一步可試混合：`det_boxes`（版面）用 PP-OCRv5、`ocr_lines`（認字）用 Vision。
+- 多頁平行（`OCR_WORKERS`）在 M2 Pro 反而較慢，預設 1。
