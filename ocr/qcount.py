@@ -5,6 +5,7 @@
 用法：
     python3 ocr/qcount.py v8                # 全部
     python3 ocr/qcount.py v8 --diag 百齡    # 另外列出含「百齡」的考卷漏了／黏了哪幾題
+    python3 ocr/qcount.py v8 --ai claude    # 用 AI（ai_judge.py）判斷題目邊界；--ai ollama 用本機模型
 總誤差＝各份 |我們題數 − 正解題數| 的加總；不計入正解只收部分內容的考卷（PARTIAL）。"""
 import glob
 import os
@@ -51,6 +52,7 @@ def diag(name, docx_path):
 def main():
     tag = sys.argv[1] if len(sys.argv) > 1 else "v8"
     kw = sys.argv[sys.argv.index("--diag") + 1] if "--diag" in sys.argv else None
+    ai = sys.argv[sys.argv.index("--ai") + 1] if "--ai" in sys.argv else None   # claude／ollama：先問 AI（有快取）再切題
     tot = ok = n = 0
     tmp = tempfile.mkdtemp()
     for d in sorted(glob.glob(os.path.join(HERE, "results", "gt_eval", tag, "*", ""))):
@@ -59,7 +61,13 @@ def main():
         if name in MISMATCH or not os.path.exists(gt) or not glob.glob(d + "*.txt"):
             continue
         out = os.path.join(tmp, name)
-        docx_path, _, st = Z.build(d, out, dpi=E.DPI, src_name=name + ".pdf")
+        if ai:
+            import ai_judge
+            try:
+                ai_judge.judge(d, ai)
+            except Exception as ex:
+                print(f"  ⚠ {name}: AI 失敗（{ex}），這份退回純規則")
+        docx_path, _, st = Z.build(d, out, dpi=E.DPI, src_name=name + ".pdf", ai=ai)
         g = E.gt_questions(gt)
         mark = "✔" if st["questions"] == g else "✘"
         note = "（正解只收部分，不計）" if name in PARTIAL else ""

@@ -131,16 +131,14 @@ def parse_meta(lines, src_name):
     return m
 
 
-def build(pyexam_dir, out_dir, dpi=300, src_name=""):
-    import buildlib as B
+def read_lines(pyexam_dir):
+    """pyexam 的 .txt → [(頁, 行文字)]（去掉頁標頭、欄分隔、空行）。ai_judge 給 AI 的行號就是這個清單的索引，兩邊一定要用同一個函式"""
     txts = [f for f in os.listdir(pyexam_dir) if f.endswith(".txt")]
     if not txts:
         raise SystemExit(f"{pyexam_dir} 沒有 pyexam 的 .txt")
     base = txts[0][:-4]
-    raw = open(os.path.join(pyexam_dir, txts[0]), encoding="utf-8").read().splitlines()
-
-    page, lines = 1, []                      # (page, text)
-    for ln in raw:
+    page, lines = 1, []
+    for ln in open(os.path.join(pyexam_dir, txts[0]), encoding="utf-8").read().splitlines():
         ln = ln.strip()
         mp = RE_PAGE.match(ln)
         if mp:
@@ -149,6 +147,41 @@ def build(pyexam_dir, out_dir, dpi=300, src_name=""):
         if not ln or RE_SEP.match(ln):
             continue
         lines.append((page, ln))
+    return base, lines
+
+
+AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
+
+
+def apply_ai(lines, ai):
+    """套用 AI 的判斷：改錯字（只改 AI 指定的片段）、丟手寫雜訊行、在題目開頭行加記號"""
+    fixes = {}
+    for f in ai.get("fix", []):
+        try:
+            fixes.setdefault(int(f["l"]), []).append((str(f["from"]), str(f["to"])))
+        except (KeyError, ValueError, TypeError):
+            continue
+    noise = {int(x) for x in ai.get("noise", []) if str(x).lstrip("-").isdigit()}
+    starts = {int(x) for x in ai.get("q", []) if str(x).lstrip("-").isdigit()}
+    out = []
+    for i, (pg, t) in enumerate(lines):
+        if i in noise and not (RE_FIG.match(t) or RE_TAB.match(t)):
+            continue
+        for a, b in fixes.get(i, []):
+            if a and a in t and len(b) <= len(a) + 6:      # 只接受小幅修正，避免 AI 改寫題目
+                t = t.replace(a, b, 1)
+        out.append((pg, AI_Q + t if i in starts else t))
+    return out
+
+
+def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
+    import buildlib as B
+    base, lines = read_lines(pyexam_dir)
+    ai_mode = False
+    if ai:
+        aj = os.path.join(pyexam_dir, f"ai_{ai}.json")
+        if os.path.exists(aj):
+            lines, ai_mode = apply_ai(lines, json.load(open(aj, encoding="utf-8"))), True
 
     meta = parse_meta([t for _, t in lines], src_name or base)
 
@@ -294,6 +327,29 @@ def build(pyexam_dir, out_dir, dpi=300, src_name=""):
             sec = t.replace("（", "【", 1).replace("(", "【", 1) if "【" not in t else t
             sec = re.sub(r"[)）]\s*$", "】", sec) if "【" in sec and "】" not in sec else sec
             C.append(B.p_section(markup_safe(sec)) if "【" in sec else B.p_intro("^" + markup_safe(sec) + "^"))
+            continue
+        if ai_mode:
+            # AI 模式：題目邊界以 AI 為準（AI 讀得懂「這句是新題開頭」，不會被手寫蓋掉的題號騙）
+            if t.startswith(AI_Q):
+                t = t[len(AI_Q):]
+                m = RE_Q.match(t) or RE_ANS_START.match(t) or RE_Q_LOOSE.match(t)
+                start_q(qn + 1, t[m.end():] if m else t)
+                continue
+            head, opts = split_opts(t)
+            if cur is None:
+                C.append(B.p_intro(markup_safe(t)))
+                continue
+            if opts:
+                if head:
+                    if cur["opts"]:
+                        cur["opts"][-1] = join(cur["opts"][-1], head)
+                    else:
+                        cur["stem"] = join(cur["stem"], head)
+                cur["opts"].extend(opts)
+            elif cur["opts"]:
+                cur["opts"][-1] = join(cur["opts"][-1], t)
+            else:
+                cur["stem"] = join(cur["stem"], t)
             continue
         n, mq = qnum(t)
         if n is not None and (cur is None or cur["opts"] or n == qn + 1):
