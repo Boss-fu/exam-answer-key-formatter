@@ -840,65 +840,87 @@ def tidy_text(txt):
 
 
 # ---------- 主流程 ----------
-def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_tra+eng", engine="auto"):
-    os.makedirs(out_dir, exist_ok=True)
-    doc = pymupdf.open(pdf_path)
-    base = os.path.splitext(os.path.basename(pdf_path))[0]
-    all_text, report, all_tables, all_geo = [], [], {}, []
-    eng_name = resolve_engine(engine)
-    prev_q = None
-    for i, page in enumerate(doc):
-        n = i + 1
-        if only_page and n != only_page:
-            continue
-        native = page.get_text("text").strip()
-        if len(native) > 40:  # 有真文字層：直接用，免 OCR
-            all_text.append(f"\n【第 {n} 頁（數位文字層）】\n{native}")
-            report.append(f"p{n}: 文字層 {len(native)} 字（免 OCR）")
-            continue
-        # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
-        bgr = page_to_bgr(page, dpi)
-        t0 = time.time()
-        turned, inked = 0, 0.0
-        if eng_name == "ppocr":
-            bgr, turned = fix_orientation(bgr)
-            bgr, inked = remove_color_ink(bgr)
-        binimg = preprocess(bgr, upscale=upscale)
-        H, W = bgr.shape[:2]
-        if eng_name == "ppocr":
-            lay = text_layout(bgr)
-            if not lay["cuts"]:
-                lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
-            lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
-                                                 header=lay["header"], hard=lay["hard"])
-            prev_q = next((q for q in (qno_of_line(l) for l in reversed(lines)) if q is not None), prev_q)
-            txt = tidy_text("\n".join(lines))
-            pad = int(0.05 * dpi)                    # 圖框已含標籤，只留一點白邊
-            figs = [(max(0, x0 - pad) / W, max(0, y0 - pad) / H, min(W, x1 + pad) / W, min(H, y1 + pad) / H)
-                    for x0, y0, x1, y1 in fig_px]
-        else:
-            figs = detect_figures(binimg, page.rect.height)
-            body_px, tables, geo = [], [], []
-            txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
-        dt = time.time() - t0
-        for k, (x0, y0, x1, y1) in enumerate(figs, 1):
-            cx0, cy0, cx1, cy1 = int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H)
-            crop = bgr[cy0:cy1, cx0:cx1].copy()
-            for bx0, by0, bx1, by1 in body_px:       # 白邊夾到的正文（半截題目、選項）塗白
-                if bx1 > cx0 and bx0 < cx1 and by1 > cy0 and by0 < cy1:
-                    crop[max(0, by0 - cy0 - 3):max(0, by1 - cy0 + 3), max(0, bx0 - cx0 - 3):max(0, bx1 - cx0 + 3)] = 255
-            if cv2 is not None and crop.size:
-                cv2.imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
-        fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
-        for k, t in enumerate(tables, 1):
-            all_tables[f"p{n}_t{k}"] = {"rows": t["rows"], "widths": t["widths"]}
-        for g in geo:
-            g["page"] = n
-            all_geo.append(g)
-        all_text.append(f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}")
-        report.append(f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
+def _ocr_one_page(job):
+    """單頁 OCR（可在子程序裡跑）：回傳這一頁的文字區塊、報告、表格、版面位置；附圖直接寫檔。"""
+    pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q = job
+    n = i + 1
+    page = pymupdf.open(pdf_path)[i]
+    native = page.get_text("text").strip()
+    if len(native) > 40:  # 有真文字層：直接用，免 OCR
+        return {"n": n, "text": f"\n【第 {n} 頁（數位文字層）】\n{native}", "report": f"p{n}: 文字層 {len(native)} 字（免 OCR）",
+                "tables": {}, "geo": [], "lines": []}
+    # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
+    bgr = page_to_bgr(page, dpi)
+    t0 = time.time()
+    turned, inked = 0, 0.0
+    if eng_name == "ppocr":
+        bgr, turned = fix_orientation(bgr)
+        bgr, inked = remove_color_ink(bgr)
+    binimg = preprocess(bgr, upscale=upscale)
+    H, W = bgr.shape[:2]
+    lines = []
+    if eng_name == "ppocr":
+        lay = text_layout(bgr)
+        if not lay["cuts"]:
+            lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
+        lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
+                                                                   header=lay["header"], hard=lay["hard"])
+        txt = tidy_text("\n".join(lines))
+        pad = int(0.05 * dpi)                    # 圖框已含標籤，只留一點白邊
+        figs = [(max(0, x0 - pad) / W, max(0, y0 - pad) / H, min(W, x1 + pad) / W, min(H, y1 + pad) / H)
+                for x0, y0, x1, y1 in fig_px]
+    else:
+        figs = detect_figures(binimg, page.rect.height)
+        body_px, tables, geo = [], [], []
+        txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
+    dt = time.time() - t0
+    for k, (x0, y0, x1, y1) in enumerate(figs, 1):
+        cx0, cy0, cx1, cy1 = int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H)
+        crop = bgr[cy0:cy1, cx0:cx1].copy()
+        for bx0, by0, bx1, by1 in body_px:       # 白邊夾到的正文（半截題目、選項）塗白
+            if bx1 > cx0 and bx0 < cx1 and by1 > cy0 and by0 < cy1:
+                crop[max(0, by0 - cy0 - 3):max(0, by1 - cy0 + 3), max(0, bx0 - cx0 - 3):max(0, bx1 - cx0 + 3)] = 255
+        if cv2 is not None and crop.size:
+            cv2.imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
+    fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
+    for g in geo:
+        g["page"] = n
+    return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines,
+            "tables": {f"p{n}_t{k}": {"rows": t["rows"], "widths": t["widths"]} for k, t in enumerate(tables, 1)},
+            "geo": geo,
+            "report": f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
                       + (f"，已自動轉正 {turned}°" if turned else "")
-                      + (f"，已清除紅藍筆跡 {inked:.2%}" if inked >= 0.0001 else ""))
+                      + (f"，已清除紅藍筆跡 {inked:.2%}" if inked >= 0.0001 else "")}
+
+
+def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_tra+eng", engine="auto"):
+    """整份 PDF。預設逐頁；OCR_WORKERS>1 可多頁同時處理（這台 M2 Pro 實測沒有比較快）。
+    逐頁時會把上一頁最後的題號傳給下一頁（補回被吞掉括號的題號）；平行時各頁獨立，差別很小。"""
+    os.makedirs(out_dir, exist_ok=True)
+    n_pages = pymupdf.open(pdf_path).page_count
+    base = os.path.splitext(os.path.basename(pdf_path))[0]
+    eng_name = resolve_engine(engine)
+    pages = [i for i in range(n_pages) if not only_page or i + 1 == only_page]
+    # 預設逐頁：實測 4 頁平行反而較慢（61s→71s），OCR 引擎本身已吃滿所有核心；多台小主機或 GPU 再設 OCR_WORKERS>1
+    workers = int(os.environ.get("OCR_WORKERS", "1"))
+    results = []
+    if workers > 1 and len(pages) > 1:
+        import concurrent.futures as cf
+        import multiprocessing as mp
+        jobs = [(pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, None) for i in pages]
+        with cf.ProcessPoolExecutor(max_workers=min(workers, len(pages)), mp_context=mp.get_context("spawn")) as ex:
+            results = list(ex.map(_ocr_one_page, jobs))
+    else:
+        prev_q = None
+        for i in pages:
+            r = _ocr_one_page((pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q))
+            prev_q = next((q for q in (qno_of_line(l) for l in reversed(r["lines"])) if q is not None), prev_q)
+            results.append(r)
+    results.sort(key=lambda r: r["n"])
+    all_text = [r["text"] for r in results]
+    report = [r["report"] for r in results]
+    all_tables = {k: v for r in results for k, v in r["tables"].items()}
+    all_geo = [g for r in results for g in r["geo"]]
     full = "\n".join(all_text).strip()
     if all_geo:                                      # 每行的版面位置（給切題用）
         import json

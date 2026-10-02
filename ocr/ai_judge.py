@@ -6,9 +6,10 @@ AI 只看「行號＋文字」的精簡草稿（圖、表只留佔位），不�
 回傳 JSON：
     {"q": [題目開頭的行號…], "noise": [手寫雜訊行號…], "fix": [{"l": 行號, "from": "原字", "to": "改字"}…]}
 
-後端：
-    claude  本機 Claude Code（claude -p，用 Claude 訂閱額度；考卷文字會送到 Anthropic）
-    ollama  本機 Ollama（完全不外傳、不花錢，較慢、較弱）。模型用環境變數 OLLAMA_MODEL，預設 qwen2.5:latest
+後端（預設 auto：Claude → Codex 接力，全部失敗就退回 Python 規則）：
+    claude  本機 Claude Code（claude -p，用 Claude 訂閱額度；考卷文字會送到 Anthropic）。一份約 10 秒
+    codex   ChatGPT App 內附的 Codex（codex exec，用 ChatGPT 訂閱額度；考卷文字會送到 OpenAI）。一份約 35 秒
+    ollama  本機 Ollama（完全不外傳、不花錢）。實測 qwen2.5 7B 判斷題目邊界嚴重錯誤（40 題只抓到 4~13 個），不建議
 
 用法：
     python3 ocr/ai_judge.py <pyexam 輸出資料夾> --backend claude
@@ -68,6 +69,28 @@ def ask_claude(prompt):
     return p.stdout
 
 
+def _codex_bin():
+    import shutil
+    for c in (os.environ.get("CODEX_BIN"), shutil.which("codex"),
+              "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"):
+        if c and os.path.exists(c):
+            return c
+    raise RuntimeError("找不到 codex（裝 ChatGPT App 或設 CODEX_BIN）")
+
+
+def ask_codex(prompt):
+    """Codex（GPT，用 ChatGPT 訂閱額度）。唯讀沙箱、不讀 stdin（否則會卡住等輸入）"""
+    import tempfile
+    out = tempfile.mktemp(suffix=".txt")
+    p = subprocess.run([_codex_bin(), "exec", "-s", "read-only", "--skip-git-repo-check", "-o", out, prompt],
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900)
+    if p.returncode != 0 or not os.path.exists(out):
+        raise RuntimeError(f"codex exec 失敗：{(p.stderr or p.stdout)[-300:]}")
+    text = open(out, encoding="utf-8").read()
+    os.remove(out)
+    return text
+
+
 def ask_ollama(prompt):
     model = os.environ.get("OLLAMA_MODEL", "qwen2.5:latest")
     body = {"model": model, "stream": False, "format": "json", "think": False,
@@ -89,13 +112,33 @@ def parse(text, n_lines):
             "fix": [f for f in d.get("fix", []) if isinstance(f, dict) and ok(f.get("l"))]}
 
 
+BACKENDS = {"claude": ask_claude, "codex": ask_codex, "ollama": ask_ollama}
+CHAIN = [b.strip() for b in os.environ.get("AI_CHAIN", "claude,codex").split(",") if b.strip()]
+
+
 def judge(pyexam_dir, backend="claude", force=False):
+    """backend="auto"：照 CHAIN 順序接力（預設 Claude → Codex），第一個成功的結果另存 ai_auto.json；
+    全部失敗就丟 RuntimeError，呼叫端退回 Python 規則（照樣出 Word）。"""
+    if backend == "auto":
+        out = os.path.join(pyexam_dir, "ai_auto.json")
+        if os.path.exists(out) and not force:
+            return json.load(open(out, encoding="utf-8"))
+        errs = []
+        for b in CHAIN:
+            try:
+                res = judge(pyexam_dir, b, force)
+            except Exception as e:                       # 額度用完、沒網路、回傳格式錯…換下一個
+                errs.append(f"{b}: {str(e)[:120]}")
+                continue
+            json.dump(res, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            return res
+        raise RuntimeError("所有 AI 都失敗：" + "；".join(errs))
     out = os.path.join(pyexam_dir, f"ai_{backend}.json")
     if os.path.exists(out) and not force:
         return json.load(open(out, encoding="utf-8"))
     text, n = draft(pyexam_dir)
     t0 = time.time()
-    raw = (ask_claude if backend == "claude" else ask_ollama)(PROMPT + text)
+    raw = BACKENDS[backend](PROMPT + text)
     res = parse(raw, n)
     res["_meta"] = {"backend": backend, "sec": round(time.time() - t0, 1), "chars_in": len(PROMPT) + len(text),
                     "chars_out": len(raw)}
@@ -106,7 +149,8 @@ def judge(pyexam_dir, backend="claude", force=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pyexam_dir")
-    ap.add_argument("--backend", choices=["claude", "ollama"], default="claude")
+    ap.add_argument("--backend", choices=["auto", "claude", "codex", "ollama"], default="auto",
+                    help="auto＝Claude → Codex 接力（環境變數 AI_CHAIN 可改順序）")
     ap.add_argument("--force", action="store_true", help="不用快取，重問一次")
     a = ap.parse_args()
     r = judge(a.pyexam_dir, a.backend, a.force)
