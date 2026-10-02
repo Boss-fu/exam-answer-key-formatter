@@ -120,6 +120,11 @@ def parse_meta(lines, src_name):
     m["exam"] = {"1": "一", "2": "二", "3": "三"}.get(e.group(1), e.group(1)) if e else ""
     s = re.search(r"市立\s*(\S{2,4}?)(?:高級中學|國民中學|國中|高中|中學)", head) or re.search(r"(\S{2,4}?)國中", head)
     m["school"] = re.sub(r"(高級中學|國民中學|高中|國中|中學)$", "", s.group(1)) if s else ""
+    if re.search(r"評量|段考|考試|試卷|學年|學期", m["school"]):     # 抓到考試名稱而不是校名（例：「…定期評量國中」）
+        m["school"] = ""
+        fs = re.search(r"([^\s_\-]{2,4}?)(?:國中|國民中學|高中|高級中學|附中)", src_name)
+        if fs:
+            m["school"] = fs.group(1)
     # 檔名常是「113-2-1_G9_新興附中」：學年-學期-段次_年級_學校，卷頭沒認到的欄位用檔名補
     f = re.search(r"(1\d\d)-([12])-([123])_G([789])[^_]*_([^_.]+?)(?:國中|國民中學|高中|附中)?(?:\.pdf)?$", src_name)
     if f:
