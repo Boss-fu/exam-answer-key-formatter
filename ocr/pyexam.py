@@ -224,9 +224,17 @@ def text_layout(bgr):
     cuts = sorted(c for c in cuts if c is not None)
     soft = [c for c in cuts if c not in hard]
     pad = int(0.01 * W)
-    crossing = [y1 for x0, x1, y0, y1 in boxes
+    crossing = [(y0, y1) for x0, x1, y0, y1 in boxes
                 if y1 < 0.3 * H and any(x0 < c - pad and x1 > c + pad for c in soft)]
-    return {"cuts": cuts, "hard": hard, "header": max(crossing) + int(0.004 * H) if crossing else 0}
+    header = max(y1 for _, y1 in crossing) + int(0.004 * H) if crossing else 0
+    if crossing and soft:
+        # 頁首不能深過「右欄第一行正文」：右欄開始有字就代表雙欄已經開始（跨欄的手寫或圖會把頁首拉太低）
+        top = min(y0 for y0, _ in crossing)
+        right = [y0 for x0, x1, y0, y1 in boxes
+                 if x0 > soft[0] + pad and y0 > top and x1 - x0 > 2 * (y1 - y0) and (not hmed or y1 - y0 <= 1.6 * hmed)]
+        if right:
+            header = min(header, min(right) - int(0.002 * H))
+    return {"cuts": cuts, "hard": hard, "header": max(0, header)}
 
 
 def find_column_splits(binimg):
