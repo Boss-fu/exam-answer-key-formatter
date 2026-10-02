@@ -182,18 +182,18 @@
   <section class="section">
     <div class="section-head"><h2>你要做什麼？</h2><p>一次做一件事；切換時已上傳的資料會保留</p></div>
     <nav class="workflow-tabs" aria-label="選擇要做的事">
-      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">掃描卷轉 Word<span class="tab-tag local">不用 AI</span></span></button>
+      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">掃描卷轉 Word<span class="tab-tag local">AI 只判斷一次</span></span></button>
       <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">2</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
       <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">3</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
     </nav>
 
-  <!-- 1 掃描卷轉 Word（本機辨識，不用 AI）-->
+  <!-- 1 掃描卷轉茲茲 Word（Python 辨識＋AI 只判斷一次題目邊界）-->
   <div class="stage active" id="localocr">
-    <div class="stage-head"><div class="stage-no">1</div><div><h2>掃描卷轉成 Word<span class="badge local">不用 AI</span></h2><p>上傳掃描的 PDF 或照片，系統會自動認出文字、分開雙欄、把附圖裁下來。</p></div></div>
+    <div class="stage-head"><div class="stage-no">1</div><div><h2>掃描卷轉成茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片：系統自動轉正、清紅筆、分欄、認字、裁圖、重建表格，AI 只幫忙判斷題目從哪裡開始和改錯字，最後排成茲茲格式 Word。一份約 1～2 分鐘。</p></div></div>
     <div class="row drop-row"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus"></span></div>
     <div class="guide">
-      <div class="notice plain"><b>怎麼做</b><ol><li>按「選擇檔案」挑掃描卷（PDF、JPG、PNG）</li><li>按「開始轉檔」，等畫面顯示完成</li><li>下載 Word，對照原卷修正公式和表格</li></ol></div>
-      <div class="notice done"><b>完成後你會拿到</b><ul><li>Word 草稿檔和純文字檔</li><li>自動裁出的附圖（點圖可另存）</li><li>畫面上可直接修改的文字</li></ul></div>
+      <div class="notice plain"><b>怎麼做</b><ol><li>按「選擇檔案」挑掃描卷（PDF、JPG、PNG）</li><li>按「開始轉檔」，等畫面顯示完成</li><li>下載茲茲格式 Word，照「確認清單」對照原卷檢查</li></ol></div>
+      <div class="notice done"><b>完成後你會拿到</b><ul><li>茲茲格式 Word（題號自動編號、選項對齊、表格、附圖、橫幅）</li><li>需人工確認清單（低信心字、沒抓到選項的題目、範圍要手填）</li><li>自動裁出的附圖（點圖可另存）</li></ul></div>
     </div>
     <div class="result hide" id="pyResult"></div>
     <details class="manual-crop" id="manualCrop"><summary>圖裁得不準？手動截圖</summary>
@@ -418,10 +418,11 @@ $("#pyBtn").addEventListener("click",async function(){
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
     var res=await apiFetch("/api/py-ocr",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
-    st.className="status ok";st.textContent="完成！請在下方下載 Word，並對照原卷校對公式與表格。";
-    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載 Word</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 下載純文字</a>';
+    var s=j.stats||{};
+    st.className="status ok";st.textContent="完成！"+(s.questions!=null?"共 "+s.questions+" 題、"+s.figures+" 張圖、"+s.tables+" 個表格；":"")+(s.ai?"AI（"+s.ai+"）已協助判斷題目邊界與錯字；":"這次沒有用到 AI，題號請特別檢查；")+(s.sec_total?"耗時 "+Math.round(s.sec_total)+" 秒。":"");
+    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載茲茲格式 Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">⬇ 確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 辨識原文</a>';
     var figs=(j.figures||[]).map(function(g){return '<a href="'+esc(apiUrl(g.url,server))+'" target="_blank" rel="noopener" title="'+esc(g.name)+'"><img src="'+esc(apiUrl(g.url,server))+'" style="width:92px;height:62px;object-fit:contain;background:#f5f4f1;border:1px solid #e0e7ef;border-radius:6px"></a>';}).join("");
-    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+'<textarea style="margin-top:10px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea><div class="help">上方文字可直接修改；公式、表格可能有誤，請對照原卷。附圖不準請用下方「手動截圖」。</div>';
+    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+(j.reviewText?'<div class="help" style="margin-top:10px;white-space:pre-wrap">需人工確認：\n'+esc(j.reviewText)+'</div>':'')+'<details style="margin-top:8px"><summary class="help">辨識原文（對照用）</summary><textarea style="margin-top:6px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea></details><div class="help">Word 請對照原卷校對；附圖不準請用下方「手動截圖」。</div>';
     box.classList.remove("hide");
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pyBtn").disabled=location.protocol==="file:";}
 });

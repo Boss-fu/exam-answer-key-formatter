@@ -201,7 +201,7 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(file).pipe(res);
     }
 
-    // --- 純 Python OCR（0 token）：PDF/圖 → PyMuPDF+OpenCV+Tesseract → 文字 + Word 草稿 + 裁圖 ---
+    // --- 掃描卷轉茲茲 Word：Python 做 OCR／裁圖／組版，AI 只判斷一次題目邊界與錯字（約 6k token；AI 不能用就改規則）---
     if (req.method === "POST" && url.pathname === "/api/py-ocr") {
       const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
@@ -214,9 +214,12 @@ const server = http.createServer(async (req, res) => {
       const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
       fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
       const result = await runPyOcr({ sourcePath: source, outDir: resultDir });
-      const report = { txt: result.txtFile, docx: result.docxFile, figures: result.figures };
+      const report = { txt: result.txtFile, docx: result.docxFile, review: result.reviewFile, figures: result.figures, stats: result.stats };
       fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
-      return sendJson(res, 200, { ok: true, job, text: result.text, log: result.log,
+      let reviewText = "";
+      if (result.reviewFile) { try { reviewText = fs.readFileSync(path.join(resultDir, result.reviewFile), "utf8"); } catch {} }
+      return sendJson(res, 200, { ok: true, job, text: result.text, log: result.log, stats: result.stats, reviewText,
+        reviewUrl: result.reviewFile ? `/api/py-ocr/download?job=${job}&kind=review` : null,
         figures: result.figures.map((name) => ({ name, url: `/api/py-ocr/figure?job=${job}&name=${encodeURIComponent(name)}` })),
         txtUrl: result.txtFile ? `/api/py-ocr/download?job=${job}&kind=txt` : null,
         docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null });
@@ -224,14 +227,16 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/py-ocr/download") {
       const job = safeJobId(url.searchParams.get("job"));
-      const kind = url.searchParams.get("kind") === "txt" ? "txt" : "docx";
+      const kind = ["txt", "review"].includes(url.searchParams.get("kind")) ? url.searchParams.get("kind") : "docx";
       if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
       const report = JSON.parse(fs.readFileSync(path.join(PYOCR_OUTPUT, job, "report.json"), "utf8"));
-      const fname = kind === "txt" ? report.txt : report.docx;
+      const fname = kind === "txt" ? report.txt : kind === "review" ? report.review : report.docx;
       if (!fname) return send(res, 404, "text/plain; charset=utf-8", "Not found");
-      const file = path.join(PYOCR_OUTPUT, job, "result", path.basename(fname));
-      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
-      const ct = kind === "txt" ? "text/plain; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      // Word／確認清單在 result/word/ 底下：只允許 result 資料夾內的相對路徑
+      const base = path.join(PYOCR_OUTPUT, job, "result");
+      const file = path.resolve(base, fname);
+      if (!file.startsWith(base + path.sep) || !fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const ct = kind === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain; charset=utf-8";
       res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
       return fs.createReadStream(file).pipe(res);
     }

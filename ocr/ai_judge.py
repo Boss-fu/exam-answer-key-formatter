@@ -62,7 +62,8 @@ def draft(pyexam_dir):
 
 def ask_claude(prompt):
     model = os.environ.get("CLAUDE_MODEL", "sonnet")
-    p = subprocess.run(["claude", "-p", "--model", model, "--output-format", "text"],
+    claude = os.environ.get("CLAUDE_BIN", "claude")      # Windows 主機要用 claude.cmd（local-app 已設 CLAUDE_BIN）
+    p = subprocess.run([claude, "-p", "--model", model, "--output-format", "text"],
                        input=prompt, capture_output=True, text=True, timeout=900)
     if p.returncode != 0:
         raise RuntimeError(f"claude -p 失敗：{p.stderr[:300]}")
