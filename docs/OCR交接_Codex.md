@@ -134,17 +134,21 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 
 ### A. 使用者（bossfu）本輪拍板，但與現行文件不一致——請本地 session 與主管確認後對齊
 
-1. **Word 範本改用 `pre_tpl.docx`（課前考範本）。** 使用者明確指定「這是我們的 word 排版 skill」，來源 `ljmath-glitch/science-qbank` 的 `templates/pre_tpl.docx`。
-   - **衝突**：第 9 節分工表把「掃描卷→茲茲 Word」唯一產生器定為 `to_zizi_word.py`（用 `exam-to-word/template.docx`）。兩套範本只能留一套。
-   - 若改用 pre_tpl.docx：契約已查明＝docxtemplater（paragraphLoop/linebreaks），context = `{subject, book, quiz_label, running_header, chapter, unit, sections:[{title, items:[{no, text, imgs, passage}]}]}`；題號「一、/1.」由範本原生清單自動編號、選項各自 `\n` 換行；配分佔位「  /每題＿＿分，共＿＿分」在 title 有配分時移除。等同 science-qbank `index.html` 的 `downloadWordViaTemplate('pre')`。雲端已把這套包成 `ocr/fill_prequiz.js`（見 B）。
+1. **✅ 2026-10-03 使用者決定：Word 一律用 `pre_tpl.docx`（課前考範本）出。** 來源 `ljmath-glitch/science-qbank` 的 `templates/pre_tpl.docx`，使用者指定「這是我們的 word 排版 skill」。
+   - **結論（覆蓋第 9 節分工表該列）**：「掃描卷→茲茲 Word」的**格式輸出層改為 `pre_tpl.docx`**。`to_zizi_word.py` 的**切題/卷頭/結構化**邏輯保留，但**輸出改走 pre_tpl.docx**（把它切出來的 sections/items 餵進下面的 context），不再用 `exam-to-word/template.docx`。
+   - 契約（已查明）：docxtemplater（paragraphLoop/linebreaks），context = `{subject, book, quiz_label, running_header, chapter, unit, sections:[{title, items:[{no, text, imgs, passage}]}]}`；題號「一、/1.」由範本原生清單自動編號、選項各自 `\n` 換行；配分佔位「  /每題＿＿分，共＿＿分」在 title 有配分時移除。等同 science-qbank `index.html` 的 `downloadWordViaTemplate('pre')`。
+   - 雲端已把填範本這層包成 **`ocr/fill_prequiz.js`**（node docxtemplater，見 B）——建議當唯一 Word 輸出層，`to_zizi_word.py` 改成產出 context（JSON）後交給它。pre_tpl.docx 需放進本 repo 或由主機取得（目前在 science-qbank）。
 
-2. **AI 引擎：使用者要 Claude 與 Gemini。** Claude 已在用（`ai_judge.py` 的 host CLI，不算外部 API key）。**Gemini 是新的、且牴觸第 1 節「不呼叫任何外部 API」鐵律**；需使用者/主管明確鬆綁才動。在那之前雲端**不會**把任何 Gemini／外部 API 呼叫推上 main。
+2. **AI 引擎：使用者要 Claude 與 Gemini。** Claude 已在用（`ai_judge.py` 的 host CLI，不算外部 API key）。
+   - **✅ 2026-10-03 使用者（bossfu）決定「Gemini 鬆綁」**，即放寬第 1 節「不呼叫任何外部 API」鐵律，允許 Gemini API 當 OCR AI 大腦之一。此條原為老闆否決，屬公司政策層級變更；**請主管知悉、可追溯可回退**。
+   - **⚠️ 個資代價**：Gemini 會把考卷內容送到 Google。考卷含學生個資（班級／座號／姓名／作答）。實作時**必須先遮除個資再送**（沿用現有卷頭／作答清除），或明確接受該批資料外流。這點未經主管二次確認前，先以「遮個資後再送」為預設。
+   - 實作歸屬：加到 `ocr/ai_judge.py`（本地 session 的 lane），與既有 Claude／Codex 接力並列為可選大腦。雲端不代做。
 
 ### B. 雲端已推上 main 的東西——請審查是否與分工表重疊、決定去留
 
 | 檔案 | 說明 | 建議 |
 |---|---|---|
-| `ocr/fill_prequiz.js` | 用 pre_tpl.docx 填課前考 Word（node docxtemplater） | 與 `to_zizi_word.py` 的 Word 輸出重疊；依 A.1 決定。若選 pre_tpl.docx，建議把 to_zizi_word 的切題結果接到這支輸出 |
+| `ocr/fill_prequiz.js` | 用 pre_tpl.docx 填課前考 Word（node docxtemplater） | **✅ 依 A.1 決定保留為唯一 Word 輸出層**；`to_zizi_word.py` 改成輸出 context 交給它，不再用 exam-to-word 範本 |
 | `ocr/eval_ppocr.py` | 早期 PP-OCR vs Tesseract 的無 GT 評測 | 與 `eval_gt.py`（有 GT、更完整）重疊，建議以 eval_gt.py 為主，**eval_ppocr.py 可刪** |
 | `ocr/get_models.py` | 用公開 PP-OCRv5／rapidocr 內建模型自給自足 | 與 `setup_env.sh` 的模型準備可能重疊，擇一 |
 | `local-app/`：`/api/py-ocr` 端點＋按鈕、早期五分頁 index.html | 已被本地 session 三步版取代 | 五分頁版無需理會；`/api/py-ocr` 若與一鍵流程重疊可清掉 |
@@ -153,5 +157,12 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 ### C. 雲端不碰、留給本地 session
 任何需要 Mac／私密測試卷／主機的事：部署（Vercel＋主機 git pull）、主機環境、eval 迴圈、搬 iCloud、一鍵管線調校、切題規則（`to_zizi_word.py`／`ai_judge.py` owner 為本地）。雲端若要這些結果，從本文件或 main 取，不自行在雲端重做。
 
-### D. 待使用者回覆
-- A.1 範本二選一；A.2 Gemini 是否鬆綁 no-API。回覆後本地 session 與雲端各自照辦。
+### D. 使用者已回覆（2026-10-03，兩題都定）
+- **A.1 Word 範本：用 `pre_tpl.docx`（課前考）。** `to_zizi_word.py` 輸出改走它（經 `fill_prequiz.js`）。
+- **A.2 Gemini：鬆綁。** 加到 `ai_judge.py`，送 Gemini 前先遮個資（預設）。
+
+### E. 下一步（本地 session 主導）
+1. `to_zizi_word.py` 的輸出端改接 `fill_prequiz.js`＋pre_tpl.docx（把 pre_tpl.docx 放進本 repo 或主機取得）；用 `eval_gt.py` 確認 Word 仍能開、版面對。
+2. `ai_judge.py` 增加 Gemini 選項（遮個資後再送），和 Claude/Codex 並列。
+3. 部署管線：Vercel deploy＋主機 git pull／自動更新；repo 搬出 iCloud、重啟 8787。
+4. 逐顆 portal 按鈕在主機端到端測過，給主管測試。
