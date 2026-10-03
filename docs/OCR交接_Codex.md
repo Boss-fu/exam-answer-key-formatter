@@ -127,3 +127,31 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 `~/Documents` 開了 iCloud「最佳化 Mac 儲存空間」，檔案會被換成雲端空殼（`dataless`），背景服務讀不到就當掉
 （2026-10-03 Mac 的 8787 服務因此 `Unknown system error -11` 起不來；原本 `~/exam-answer-key-formatter` 也在同一時間消失）。
 跟 AGENTS.md「不要放在 Dropbox／OneDrive」同理：repo 請移到 iCloud 以外，例如 `~/dev/`，並同步更新 LaunchAgent 路徑。
+
+## 10. 雲端 Claude 交接（2026-10-03，給本地 Codex session）
+
+這段由雲端 session（claude.ai/code）寫。雲端摸不到 Mac 檔案與私密測試卷，只能靠 git＋本文件接力（兩個 session 的 Remote Control 沒連，無法即時互傳）。分工：**Mac 側（部署、主機、環境、OCR 評測迴圈、一鍵管線、切題規則）由本地 session 主導；雲端只做不需要 Mac 的開發/測試/審查。**
+
+### A. 使用者（bossfu）本輪拍板，但與現行文件不一致——請本地 session 與主管確認後對齊
+
+1. **Word 範本改用 `pre_tpl.docx`（課前考範本）。** 使用者明確指定「這是我們的 word 排版 skill」，來源 `ljmath-glitch/science-qbank` 的 `templates/pre_tpl.docx`。
+   - **衝突**：第 9 節分工表把「掃描卷→茲茲 Word」唯一產生器定為 `to_zizi_word.py`（用 `exam-to-word/template.docx`）。兩套範本只能留一套。
+   - 若改用 pre_tpl.docx：契約已查明＝docxtemplater（paragraphLoop/linebreaks），context = `{subject, book, quiz_label, running_header, chapter, unit, sections:[{title, items:[{no, text, imgs, passage}]}]}`；題號「一、/1.」由範本原生清單自動編號、選項各自 `\n` 換行；配分佔位「  /每題＿＿分，共＿＿分」在 title 有配分時移除。等同 science-qbank `index.html` 的 `downloadWordViaTemplate('pre')`。雲端已把這套包成 `ocr/fill_prequiz.js`（見 B）。
+
+2. **AI 引擎：使用者要 Claude 與 Gemini。** Claude 已在用（`ai_judge.py` 的 host CLI，不算外部 API key）。**Gemini 是新的、且牴觸第 1 節「不呼叫任何外部 API」鐵律**；需使用者/主管明確鬆綁才動。在那之前雲端**不會**把任何 Gemini／外部 API 呼叫推上 main。
+
+### B. 雲端已推上 main 的東西——請審查是否與分工表重疊、決定去留
+
+| 檔案 | 說明 | 建議 |
+|---|---|---|
+| `ocr/fill_prequiz.js` | 用 pre_tpl.docx 填課前考 Word（node docxtemplater） | 與 `to_zizi_word.py` 的 Word 輸出重疊；依 A.1 決定。若選 pre_tpl.docx，建議把 to_zizi_word 的切題結果接到這支輸出 |
+| `ocr/eval_ppocr.py` | 早期 PP-OCR vs Tesseract 的無 GT 評測 | 與 `eval_gt.py`（有 GT、更完整）重疊，建議以 eval_gt.py 為主，**eval_ppocr.py 可刪** |
+| `ocr/get_models.py` | 用公開 PP-OCRv5／rapidocr 內建模型自給自足 | 與 `setup_env.sh` 的模型準備可能重疊，擇一 |
+| `local-app/`：`/api/py-ocr` 端點＋按鈕、早期五分頁 index.html | 已被本地 session 三步版取代 | 五分頁版無需理會；`/api/py-ocr` 若與一鍵流程重疊可清掉 |
+| `docs/卷土重來-創造邏輯拆解與我們的優化藍圖.md` | 拆解俊瑋方法的筆記 | 參考用，保留 |
+
+### C. 雲端不碰、留給本地 session
+任何需要 Mac／私密測試卷／主機的事：部署（Vercel＋主機 git pull）、主機環境、eval 迴圈、搬 iCloud、一鍵管線調校、切題規則（`to_zizi_word.py`／`ai_judge.py` owner 為本地）。雲端若要這些結果，從本文件或 main 取，不自行在雲端重做。
+
+### D. 待使用者回覆
+- A.1 範本二選一；A.2 Gemini 是否鬆綁 no-API。回覆後本地 session 與雲端各自照辦。
