@@ -468,8 +468,13 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
         axis_like = n_cjk <= 6 and not re.search(r"[，。？?：:、；]", text) and (
             n_cjk == 0 or len(text) <= 10)
         drop, part = False, None
+        # 像句子的印刷字（≥4 個中文字，或帶標點）不准被附圖吃掉：學生把題幹的「何者正確？」圈起來時，
+        # 那個圈會被當成圖，題幹就少一段。這種字留在正文，裁圖時會被塗白，不會重複。
+        sentence = it["conf"] >= 0.3 and (n_cjk >= 4 or re.search(r"[，。？?：；]", text))
         for i, f in enumerate(figs):
             r = _inter_ratio(it, f)
+            if sentence and (r >= 0.12 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3])):
+                continue                              # 整行保留，也不走「塗白圖區再重認」（圖框蓋掉大半行時會重認成空白）
             if r >= 0.6 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]):
                 drop = True
                 labels[i].append(it)
