@@ -91,3 +91,39 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 - **Apple Vision**（`OCR_ENGINE=vision`，只限 Mac）：一頁辨識 1.5 秒、幾乎不吃 CPU，但整體 順序 85.3%（PP-OCRv5 93.6%）、題數總誤差 76（25），**不當預設**。
   推測 Vision 的行框會跨欄，欄界偵測失準。下一步可試混合：`det_boxes`（版面）用 PP-OCRv5、`ocr_lines`（認字）用 Vision。
 - 多頁平行（`OCR_WORKERS`）在 M2 Pro 反而較慢，預設 1。
+
+## 9. 分工與檔案歸屬（2026-10-03 主管審查後訂定，避免工具重疊）
+
+**同一件事只准有一份實作。** 要改善某件事，就改下面那支「唯一負責」的檔案；要新增功能，先確認不屬於表裡任何一列。
+
+| 功能 | 唯一負責的檔案 | 不要再另外做 |
+|---|---|---|
+| OCR 引擎（PP-OCRv5） | `ocr/ppocr_engine.py`（rapidocr＋ONNX，輕量、CPU） | 不要再裝 paddlepaddle／paddleocr 第二套（`local-app/ocr-runtime/`、`.venv-ocr`） |
+| Python 環境 | `ocr/setup_env.sh`（Mac）＋要補的 `ocr/setup_env.ps1`（Windows），共用 `~/.venvs/zizi-exam` | 不要再建 `.venv-ocr` 等第二個虛擬環境 |
+| 掃描卷 → 茲茲 Word | `ocr/exam_to_word.py` → `pyexam.py` → `ai_judge.py` → `to_zizi_word.py`；網頁經 `local-app/py-ocr.js` | 不要另寫 Word 預覽產生器（`local-app/tools/build_ocr_word_*.py`） |
+| 題號／題目邊界 | `ocr/to_zizi_word.py`（規則）＋`ocr/ai_judge.py`（AI） | `local-app/ocr-preflight.js` 的 `buildQuestions` 不要再加新規則；覆核頁之後改吃 pyexam 結果 |
+| 準確度評測 | `ocr/eval_gt.py`（文字／順序／題數／Word）、`ocr/qcount.py`（快速題數） | 不要再寫第二套題號評測（`ocr/question_anchor_benchmark.py` 併進 qcount 或刪除） |
+| 資料分組、標註 | `ocr/dataset_catalog.py`、`ocr/docx_question_candidates.py`（Codex 新增，**保留**） | — |
+
+### Codex 未提交工作的審查結論（2026-10-03）
+
+| 項目 | 判定 | 理由 |
+|---|---|---|
+| `local-app/extract.js` 改用 Poppler `pdftotext` | ✅ 採用 | pdf-parse 跟新版 Node（目前 v26）不相容，是真的 bug；Mac 已有 `/opt/homebrew/bin/pdftotext`，Windows 主機要補裝 Poppler |
+| `ocr/setup_env.sh` 計數改用 `find` | ✅ 採用 | 原本 `ls \| grep -c` 在資料夾為空時回傳 1，配合 `set -e` 會讓腳本中斷 |
+| `.gitignore` 加 `local-app/.venv-ocr/` | ⚠️ 隨 Paddle 一起移除 | 若不採用第二套環境就不需要 |
+| `ocr/dataset_catalog.py`＋`ocr/test_local_benchmark.py` | ✅ 採用 | 依考試資料夾分 train／validation／test，避免同一份卷的原稿與重製版跨組，之後訓練去筆跡模型用得到；跟現有工具不重疊 |
+| `ocr/docx_question_candidates.py` | ✅ 採用 | 從同場考試的 DOCX 產生待核對題目，做正解標註省時間 |
+| `ocr/acceptance_audit.py`、`acceptance-gold.template.json` | 🟡 可採用 | 驗收把關（訓練集不得當驗收、標註須人工確認），跟 `eval_gt.py --set holdout` 互補；請在文件註明兩者關係 |
+| `ocr/LOCAL-TRAINING.md` | 🟡 修改後採用 | 內容寫成好像沒有本機 OCR 評測（只提到舊的 `run_eval.py`），要補上 `eval_gt.py`／`qcount.py`／`ai_judge.py` 現況 |
+| `local-app/ocr-runtime/`、`ocr-preflight.js` 的 PaddleOCR 分支、`setup-ocr-mac.command` | ❌ 不採用 | 跟 `ocr/ppocr_engine.py` 是同一家族模型的第二套執行環境（paddlepaddle 約 1GB），重複且增加主機安裝負擔 |
+| `local-app/setup-ocr-windows.ps1` | 🔁 改寫後採用 | Windows 主機正缺安裝腳本；改成安裝 `ocr/requirements.txt`＋PP-OCRv5 ONNX 模型到 `~/.venvs/zizi-exam`，改名 `ocr/setup_env.ps1` |
+| `ocr/question_anchor_benchmark.py` | 🔁 合併 | 跟 `qcount.py` 量同一件事，擇一保留 |
+| `local-app/tools/build_ocr_word_*.py`、`run_paddle_ocr_audit.py` | ❌ 不採用 | 跟 `to_zizi_word.py` 重疊／依賴 Paddle |
+| `local-app/test/ocr-preflight.test.js` | 依 ocr-preflight 去留決定 | — |
+
+### 環境注意：不要把 repo 放在 iCloud 同步的資料夾
+
+`~/Documents` 開了 iCloud「最佳化 Mac 儲存空間」，檔案會被換成雲端空殼（`dataless`），背景服務讀不到就當掉
+（2026-10-03 Mac 的 8787 服務因此 `Unknown system error -11` 起不來；原本 `~/exam-answer-key-formatter` 也在同一時間消失）。
+跟 AGENTS.md「不要放在 Dropbox／OneDrive」同理：repo 請移到 iCloud 以外，例如 `~/dev/`，並同步更新 LaunchAgent 路徑。
