@@ -9,6 +9,7 @@
 # 換成 Gemini（Antigravity CLI agy）：AI=gemini ocr/codex_role.sh tester "…"（預設模型 gemini-3.1-pro-high，可用 GEMINI_MODEL 換）
 #   適合：看圖（原稿 vs 輸出、介面截圖）、第二意見審查、讀長文件。Codex 額度用完時也可以頂上。
 # tester／supervisor：唯讀沙箱（tester 需要寫快取，所以給 workspace-write，但角色規則禁止改程式）
+# AI 與它跑的測試一律 nice 15（低優先）：使用者在網站轉檔永遠優先，不會被測試拖慢。
 # 結束時印出報告路徑；報告最後一段是給人看的結論。
 set -euo pipefail
 ROLE="${1:?用法：ocr/codex_role.sh tester|supervisor|worker \"任務\"}"
@@ -50,10 +51,10 @@ if [ "$AI" = "gemini" ]; then
   AGY="${AGY_BIN:-$HOME/.local/bin/agy}"
   MODE_ARGS=(--dangerously-skip-permissions)
   [ "$SANDBOX" = "read-only" ] && MODE_ARGS+=(--sandbox)
-  (cd "$ROOT" && "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-3.1-pro-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
+  (cd "$ROOT" && nice -n 15 "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-3.1-pro-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
     || echo "（Gemini 結束碼 $?，細節看 $(basename "$LOG")）"
 else
-  "$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \
+  nice -n 15 "$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \
     || echo "（Codex 結束碼 $?，細節看 $(basename "$LOG")）"
 fi
 echo "完成：$(date '+%H:%M:%S')"
