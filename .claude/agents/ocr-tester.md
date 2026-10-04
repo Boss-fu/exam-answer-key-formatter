@@ -16,7 +16,7 @@ Python：`~/.venvs/zizi-exam/bin/python`（別用系統 python3）。
 | 閱讀順序 | 加權 ≥ 95%，且每份 ≥ 90% | `ocr/eval_gt.py` 的「順序」 |
 | 漏字 | ≤ 3% | `ocr/eval_gt.py` 的「漏字」 |
 | 題數 | 每份跟正解一樣 | `ocr/qcount.py` |
-| 個資 | Word 裡不能有學生姓名／座號 | 讀 Word 文字檢查 |
+| 個資 | Word 裡不能有學生姓名／座號 | `ocr/pii_check.py` |
 | Word | 每份打得開、有表格與附圖 | `eval_gt.py` 的 Word 檢查 |
 | 盲測 | holdout 也達標 | `--set holdout`，**只在最後驗收跑一次** |
 
