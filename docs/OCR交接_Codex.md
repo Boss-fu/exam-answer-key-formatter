@@ -105,7 +105,7 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 | 準確度評測 | `ocr/eval_gt.py`（文字／順序／題數／Word）、`ocr/qcount.py`（快速題數） | 不要再寫第二套題號評測（`ocr/question_anchor_benchmark.py` 併進 qcount 或刪除） |
 | 資料分組、標註 | `ocr/dataset_catalog.py`、`ocr/docx_question_candidates.py`（Codex 新增，**保留**） | — |
 
-### Codex 未提交工作的審查結論（2026-10-03）
+### Codex 未提交工作的審查結論（2026-10-03；**2026-10-04 已全部處理完**：採用的已 commit，未採用的移到 repo 外 `../_封存_codex_未採用/`）
 
 | 項目 | 判定 | 理由 |
 |---|---|---|
