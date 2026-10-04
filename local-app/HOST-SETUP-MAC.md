@@ -1,7 +1,7 @@
 # Mac 主機設定（把詳解應用跑在一台 Mac 上）
 
 > 共用 Vercel 入口、Tailscale HTTPS 與此 Mac 已配置的背景服務，請先看 [PORTAL-SETUP.md](PORTAL-SETUP.md)。
-> OCR 預檢另需 Tesseract（chi_tra、eng）與 Poppler；以下 Node／Claude 說明主要針對詳解工作流。
+> OCR 預檢另需 Tesseract（chi_tra、eng）與 Poppler。
 
 目標：在一台**常開機的 Mac** 上把應用跑起來，其他裝置用 Tailscale 連進來、開網址就能用。
 核心只需要 **Node ＋ Claude Code**，**不需要 Python**。
