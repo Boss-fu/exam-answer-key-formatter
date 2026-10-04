@@ -16,7 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(HERE, "dehand"))
 
-import apply as dehand
+os.environ.pop("DEHAND", None)   # 工作台一律用模型當「建議」（人會再修）；服務的 DEHAND=0 只關 OCR 流程裡的自動擦除
+import apply as dehand  # noqa: E402
 import manual_store
 import to_zizi_word as Z
 
