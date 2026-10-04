@@ -46,7 +46,7 @@ Mac 睡眠、關機或 Tailscale 斷線時，仍無法提供遠端運算。
 - 重啟：`launchctl kickstart -k gui/$(id -u)/com.tzutzu.ocr`
 - 停用：`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.tzutzu.ocr.plist`
 
-2026-10-04 起整個 Codex 資料夾已從 iCloud 同步的 `~/Documents/Codex` 搬到 `~/Codex`，10/5 再整理進 `~/vibe-coding/Codex`（iCloud「最佳化儲存空間」會把檔案換成雲端空殼，背景服務讀不到就當掉）。
+2026-10-04 起整個 Codex 資料夾已從 iCloud 同步的 `~/Documents/Codex` 搬到 `~/Codex`，同日再整理進 `~/vibe-coding/Codex`（iCloud「最佳化儲存空間」會把檔案換成雲端空殼，背景服務讀不到就當掉）。
 舊位置改名為 `~/Documents/Codex_舊位置_已搬走` 備份；不要再從 `~/Documents` 底下啟動服務。服務的 `PY_BIN` 改為 `~/.venvs/zizi-exam/bin/python`（掃描卷轉茲茲 Word 用）。
 
 ## 前端發布
