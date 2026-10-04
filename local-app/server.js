@@ -108,6 +108,9 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("cache-control", "no-store");     // 更新公告／版本偵測要拿最新的
       return send(res, 200, "application/json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
+    if (req.method === "GET" && url.pathname === "/favicon.ico") {
+      return send(res, 200, "image/x-icon", fs.readFileSync(path.join(PUBLIC, "favicon.ico")));
+    }
     if (req.method === "GET" && url.pathname === "/logo.png") {
       return send(res, 200, "image/png", fs.readFileSync(path.join(PUBLIC, "logo.png")));
     }
