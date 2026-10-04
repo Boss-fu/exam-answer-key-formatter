@@ -34,6 +34,8 @@ for d in testset holdout; do
   if [ "$(ls "ocr/$d" | wc -l)" -lt 2 ] && [ -d "$SRC/ocr/$d" ] && [ "$SRC" != "$PWD" ]; then
     cp -n "$SRC/ocr/$d/"* "ocr/$d/"
   fi
-  echo "ocr/$d：$(ls "ocr/$d" | grep -c '\.pdf$') 份 PDF、$(ls "ocr/$d" | grep -c '\.gt\.docx$') 份正解"
+  pdf_count=$(find "ocr/$d" -maxdepth 1 -type f -name '*.pdf' | wc -l | tr -d ' ')
+  gt_count=$(find "ocr/$d" -maxdepth 1 -type f -name '*.gt.docx' | wc -l | tr -d ' ')
+  echo "ocr/${d}：${pdf_count} 份 PDF、${gt_count} 份正解"
 done
 echo "完成。先跑：$VENV/bin/python ocr/qcount.py <tag>（要先有 eval_gt 的快取），或 $VENV/bin/python ocr/eval_gt.py --tag v9 --fresh"
