@@ -33,6 +33,7 @@ import numpy as np
 import pymupdf
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dehand import apply as dehand  # noqa: E402
 try:
     import ppocr_engine
 except Exception:
@@ -861,6 +862,8 @@ def _ocr_one_page(job):
     if eng_name == "ppocr":
         bgr, turned = fix_orientation(bgr)
         bgr, inked = remove_color_ink(bgr)
+        bgr, dehanded = dehand.erase(bgr, dpi)       # 黑筆筆跡（模型判斷，沒模型時不動）
+        inked += dehanded
     binimg = preprocess(bgr, upscale=upscale)
     H, W = bgr.shape[:2]
     lines = []

@@ -36,3 +36,7 @@ ocr/testset/*.gt.json
 ocr/testset/*.docx
 ocr/models/server/
 ocr/holdout/
+
+# 去筆跡訓練資料（含學生考卷）與模型輸出
+ocr/dehand/data/
+ocr/dehand/runs/
