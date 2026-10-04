@@ -166,13 +166,13 @@
   /* 單一 OCR 工作面板：上傳、處理與預覽只替換同一個工作區。 */
   .hero{padding:24px 30px;background:linear-gradient(112deg,#fffefb 64%,#fff4e9)}
   .hero h1{font-size:30px}.hero p{max-width:720px}.hero .principles{display:none}
-  .section{overflow:hidden}.section-head{padding:18px 26px 0}.section-head h2{font-size:16px}
-  .workflow-tabs{padding:12px 26px;border-bottom:0;background:#fcfaf6}.workflow-tab{min-height:46px;background:transparent;border-color:transparent}.workflow-tab.active{background:#fff;border-color:#ead2cf;box-shadow:0 4px 14px rgba(133,1,3,.08)}
+  .section{overflow:hidden;background:#fff;border-color:#e5dfd5;box-shadow:0 15px 35px rgba(58,36,26,.09)}.section-head{padding:18px 26px 0}.section-head h2{font-size:16px}
+  .workflow-tabs{padding:12px 26px;border-bottom:1px solid var(--line-soft);background:#fcfaf6}.workflow-tab{min-height:46px;background:transparent;border-color:transparent}.workflow-tab.active{background:#fff;border-color:#ead2cf;box-shadow:0 4px 14px rgba(133,1,3,.08)}
   .stage{padding:18px 26px 28px}.stage-head{display:none}
   .ocr-workspace{min-height:570px;background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 12px 30px rgba(58,36,26,.06)}
   .workspace-steps{display:flex;gap:0;padding:0 18px;border-bottom:1px solid var(--line-soft);background:#fcfaf7;overflow-x:auto}.workspace-steps .ocr-step{min-width:max-content;min-height:42px;padding:8px 13px;border:0;background:transparent;font-size:11px}.workspace-steps .ocr-step .step-dot{width:18px;height:18px;border:0;background:#ece7df;color:var(--muted);font-size:10px}.workspace-steps .ocr-step.active{box-shadow:inset 0 -2px var(--red);color:var(--red)}.workspace-steps .ocr-step.active .step-dot{background:var(--red);color:#fff}.workspace-steps .ocr-step.done .step-dot{background:var(--green);color:#fff}.workspace-steps .ocr-step.done .step-dot{font-size:0}.workspace-steps .ocr-step.done .step-dot:after{content:'✓';font-size:11px}
   .workspace-state{display:none;min-height:526px}.workspace-state.active{display:flex}.workspace-upload{align-items:center;justify-content:center;padding:34px}.upload-center{width:min(620px,100%);text-align:center}.upload-icon{width:62px;height:62px;margin:0 auto 14px;display:grid;place-items:center;border-radius:21px;background:linear-gradient(135deg,#850103,#d85c32);color:white;font-size:27px;box-shadow:0 12px 24px rgba(133,1,3,.22)}.upload-center h2{margin:0;font-size:24px;letter-spacing:.4px}.upload-center p{margin:6px auto 22px;color:var(--muted);font-size:13px}
-  .drop-row.upload-drop{display:block;padding:28px 20px;border:1.5px dashed #d8b8aa;border-radius:16px;background:linear-gradient(180deg,#fffdfa,#fff7f0);transition:.15s}.drop-row.upload-drop.dragover{border-color:var(--red);background:var(--red-soft)}.upload-file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.upload-choose{min-height:44px}.upload-name{display:block;min-height:22px;margin-top:10px;color:var(--muted);font-size:12px}.upload-actions{display:flex;justify-content:center;gap:9px;align-items:center;margin-top:14px}.recent-strip{margin-top:24px;text-align:left}.recent-title{font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--faint)}.recent-row{display:flex;gap:8px;margin-top:8px;overflow-x:auto}.recent-row select{min-width:0;flex:1;border:1px solid var(--line);border-radius:9px;background:#fff;padding:8px;font:12px var(--ui)}
+  .drop-row.upload-drop{display:block;padding:28px 20px;border:1.5px dashed #d8b8aa;border-radius:16px;background:linear-gradient(180deg,#fffdfa,#fff7f0);transition:.15s}.drop-row.upload-drop.dragover{border-color:var(--red);background:var(--red-soft)}.upload-file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.upload-choose{width:min(100%,340px);min-height:52px;font-size:15px;letter-spacing:.6px;box-shadow:0 7px 18px -5px rgba(133,1,3,.62),inset 0 1px 0 rgba(255,255,255,.18)}.upload-name{display:block;min-height:22px;margin-top:10px;color:var(--muted);font-size:12px}.upload-actions{display:flex;justify-content:center;gap:9px;align-items:center;margin-top:14px}.upload-actions #pyBtn{display:none}.recent-strip{margin-top:24px;text-align:left}.recent-title{font-size:11px;font-weight:800;letter-spacing:1.2px;color:var(--faint)}.recent-row{display:flex;gap:8px;margin-top:8px;overflow-x:auto}.recent-row select{min-width:0;flex:1;border:1px solid var(--line);border-radius:9px;background:#fff;padding:8px;font:12px var(--ui)}
   .workspace-processing{align-items:center;justify-content:center;padding:34px;background:radial-gradient(circle at center,#fff7ed,#fffefb 62%)}.processing-card{text-align:center}.scan-orbit{width:112px;height:112px;margin:0 auto 20px;border-radius:50%;border:1px solid #efd2c4;background:conic-gradient(from 0deg,#850103,#e98a4a,#850103);padding:5px;animation:spin 3s linear infinite}.scan-orbit:after{content:'⌁';display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:var(--card);font-size:38px;color:var(--red)}@keyframes spin{to{transform:rotate(360deg)}}.processing-card h2{margin:0;font-size:22px}.processing-card .elapsed{display:block;margin:8px 0;font:800 38px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--red)}.processing-card p{margin:0;color:var(--muted);font-size:13px}
   .workspace-preview{flex-direction:column;min-height:526px;background:var(--surface-work,#efede8)}.preview-toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}.job-name{font-weight:800;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}.preview-tabs{display:flex;gap:4px;padding:3px;background:#f4f0ea;border-radius:10px}.preview-tabs .btn{min-height:30px;padding:0 9px;border:0;background:transparent;box-shadow:none;font-size:11.5px}.preview-tabs .btn.primary{background:#fff;color:var(--red);box-shadow:0 1px 4px rgba(43,32,28,.12)}.toolbar-actions{margin-left:auto;display:flex;gap:7px;align-items:center}.export-wrap{position:relative}.export-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:150px;padding:7px;background:#fff;border:1px solid var(--line);border-radius:10px;z-index:10;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px}.export-menu .btn{justify-content:flex-start;border:0;background:transparent;box-shadow:none}.preview-layout{display:flex;flex:1;min-height:0;overflow:hidden}.thumb-bar{width:116px;padding:10px;background:#f7f5f1;overflow-y:auto;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px}.preview-main{flex:1;overflow:auto;padding:22px;display:flex;justify-content:center;align-items:flex-start}.preview-main img{max-width:100%;box-shadow:0 4px 20px rgba(43,32,28,.16)}
   .manual-crop{margin:0;border:0;border-top:1px solid var(--line);border-radius:0;background:#fff;padding:10px 16px}.manual-crop>summary{font-size:11.5px;color:var(--muted)}.local-note{margin:12px 16px 0}.local-note.setup-hint{display:none}
@@ -200,14 +200,12 @@
   </section>
 
   <div class="custom-host hide" id="customServerSettings"><label for="customServerUrl" style="margin:0">自訂主機網址</label><input type="text" id="customServerUrl" placeholder="https://主機名稱.tailxxxx.ts.net:8443"></div>
-  <div class="alert hide" id="connectionNotice" role="status">
-    <span id="connectionText"></span>
-    <a class="btn hide" id="openLocalServer" href="http://localhost:8787/">開啟 Mac 網站服務</a>
-    <button class="btn" id="retryConnection" type="button">重新連線</button>
-  </div>
-
   <section class="section">
-    <div class="section-head"><h2>選擇工作</h2><p>切換任務時，已上傳的資料會保留</p></div>
+    <div class="alert hide" id="connectionNotice" role="status">
+      <span id="connectionText"></span>
+      <a class="btn hide" id="openLocalServer" href="http://localhost:8787/">開啟 Mac 網站服務</a>
+      <button class="btn" id="retryConnection" type="button">重新連線</button>
+    </div>
     <nav class="workflow-tabs" aria-label="選擇要做的事">
       <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">掃描卷轉 Word<span class="tab-tag local">AI 只判斷一次</span></span></button>
       <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">2</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
@@ -369,12 +367,13 @@ function isImage(f){return /^image\//.test(f.type)||["jpg","jpeg","png","webp","
 function esc(t){return String(t==null?"":t).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
 function parseKey(s){var o=[];s=(s||"").toUpperCase();for(var i=0;i<s.length;i++){var c=s[i];if(c>="A"&&c<="D")o.push(c);}return o;}
 function setWorkspaceState(name){["uploadRow","processingModal","previewContainer"].forEach(function(id){var el=$("#"+id);if(!el)return;var on=id===name;el.classList.toggle("active",on);el.classList.toggle("hide",!on);});}
-$("#chooseFileBtn").addEventListener("click",function(){$("#pyFile").click();});
-$("#pyFile").addEventListener("change",function(){var f=this.files[0];$("#uploadFileName").textContent=f?f.name:"或直接把檔案拖進來";});
+function updateUploadAction(){var f=$("#pyFile").files[0],button=$("#chooseFileBtn");button.textContent=f?"開始轉檔":"選擇考卷檔案";$("#uploadFileName").textContent=f?f.name:"或直接把檔案拖進來";}
+$("#chooseFileBtn").addEventListener("click",function(){if($("#pyFile").files[0])$("#pyBtn").click();else $("#pyFile").click();});
+$("#pyFile").addEventListener("change",updateUploadAction);
 ["dragenter","dragover"].forEach(function(type){$("#uploadDrop").addEventListener(type,function(e){e.preventDefault();this.classList.add("dragover");});});
 ["dragleave","drop"].forEach(function(type){$("#uploadDrop").addEventListener(type,function(e){e.preventDefault();this.classList.remove("dragover");});});
 $("#uploadDrop").addEventListener("drop",function(e){var files=e.dataTransfer.files;if(files&&files.length){$("#pyFile").files=files;$("#pyFile").dispatchEvent(new Event("change"));}});
-$("#changeExamBtn").addEventListener("click",function(){setWorkspaceState("uploadRow");setOcrStep("Upload");$("#pyFile").value="";$("#uploadFileName").textContent="或直接把檔案拖進來";});
+$("#changeExamBtn").addEventListener("click",function(){setWorkspaceState("uploadRow");setOcrStep("Upload");$("#pyFile").value="";updateUploadAction();});
 
 /* 工作區導覽：一次聚焦一個流程模組，保留既有資料與操作狀態。 */
 (function(){
@@ -480,7 +479,7 @@ $("#pyBtn").addEventListener("click",async function(){
   var started=Date.now(),timer;
   function elapsed(){return Math.floor((Date.now()-started)/1000)+" 秒";}
   function progress(text, suffix){var root=$("#pyProgress"),strong=document.createElement("b"),span=document.createElement("span");strong.textContent=text;span.className="elapsed";span.textContent=elapsed();root.replaceChildren(strong,document.createTextNode("　"+(suffix||"已經過 ")),span,document.createTextNode("；後端目前未提供分頁進度。"));$("#processingElapsed").textContent="已經過 "+elapsed();}
-  st.className="status";st.textContent="已送至「"+server.label+"」處理，請稍候，不要關閉此頁…";setOcrStep("Processing");setWorkspaceState("processingModal");progress("後端處理中");timer=setInterval(function(){progress("後端處理中");},1000);box.classList.add("hide");$("#pyBtn").disabled=true;
+  st.className="status";st.textContent="已送至「"+server.label+"」處理，請稍候，不要關閉此頁…";setOcrStep("Processing");setWorkspaceState("processingModal");progress("後端處理中");timer=setInterval(function(){progress("後端處理中");},1000);box.classList.add("hide");$("#pyBtn").disabled=true;$("#chooseFileBtn").disabled=true;
 
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
     var res=await apiFetch("/api/py-ocr",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
@@ -508,7 +507,7 @@ $("#pyBtn").addEventListener("click",async function(){
     progress("處理完成，進入對照預覽","總耗時 ");
   }catch(e){
     setWorkspaceState("uploadRow");setOcrStep("Upload");progress("處理失敗，可修正後重試");st.className="status err";st.textContent="錯誤："+e.message;
-  }finally{clearInterval(timer);$("#pyBtn").disabled=location.protocol==="file:";}
+  }finally{clearInterval(timer);$("#pyBtn").disabled=location.protocol==="file:";$("#chooseFileBtn").disabled=location.protocol==="file:";}
 });
 
 async function fetchPages(job, page) {
