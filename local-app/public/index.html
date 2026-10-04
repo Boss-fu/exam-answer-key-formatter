@@ -106,6 +106,12 @@
   .status.err{color:#b33a36;font-weight:700}.status.ok{color:var(--green);font-weight:700}
   .row .status{margin:0}
   .result{padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.7}
+  .ocr-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;margin:2px 0 16px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+  .ocr-step{display:flex;align-items:center;gap:7px;min-height:52px;padding:9px 11px;color:var(--muted);font-size:12px;font-weight:700;border-right:1px solid var(--line)}
+  .ocr-step:last-child{border-right:0}.ocr-step.active{color:var(--red);background:var(--red-soft)}.ocr-step.done{color:var(--green);background:var(--green-soft)}.ocr-step.soon{color:#aaa39b;background:#faf8f4}
+  .ocr-step .step-dot{display:grid;place-items:center;width:23px;height:23px;flex:none;border:1px solid currentColor;border-radius:50%;font-size:11px}.ocr-step small{display:block;font-weight:500;font-size:10px;color:inherit;line-height:1.25}
+  .ocr-progress{padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#efede8;font-size:12.5px;color:var(--muted)}
+  .ocr-progress b{color:var(--ink)}.ocr-progress .elapsed{font-family:var(--mono);white-space:nowrap}.ocr-result-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.ocr-result-head h3{margin:0;font-size:15px}.ocr-fix-actions{display:flex;gap:8px;flex-wrap:wrap}
   .hide,.hidden{display:none!important}
   .manual-crop{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 16px}
   .manual-crop>summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--ink);list-style:none}
@@ -147,7 +153,7 @@
     .section-head{display:block;padding:18px 16px 0}.section-head p{margin-top:3px}
     .workflow-tabs{padding:14px 16px 16px;margin:0}.stage{padding:20px 16px 22px}
     .stage-head{gap:11px}.stage-no{width:32px;height:32px;font-size:14px}.stage-head h2{font-size:16px}
-    .stats{grid-template-columns:1fr 1fr}.drop-row{padding:14px}.guide{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}.drop-row{padding:14px}.guide{grid-template-columns:1fr}.ocr-steps{overflow-x:auto}.ocr-step{min-width:135px}
   }
 </style>
 </head>
@@ -191,7 +197,9 @@
   <!-- 1 掃描卷轉茲茲 Word（Python 辨識＋AI 只判斷一次題目邊界）-->
   <div class="stage active" id="localocr">
     <div class="stage-head"><div class="stage-no">1</div><div><h2>掃描卷轉成茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片：系統自動轉正、清紅筆、分欄、認字、裁圖、重建表格，AI 只幫忙判斷題目從哪裡開始和改錯字，最後排成茲茲格式 Word。一份約 1～2 分鐘。</p></div></div>
-    <div class="row drop-row"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus"></span></div>
+    <div class="ocr-steps" aria-label="掃描卷轉 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">①</span><span>上傳</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">②</span><span>處理中</span></div><div class="ocr-step soon"><span class="step-dot">③</span><span>對照預覽<small>即將推出</small></span></div><div class="ocr-step soon"><span class="step-dot">④</span><span>修正<small>即將推出</small></span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">⑤</span><span>下載</span></div></div>
+    <div class="row drop-row"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus" role="status"></span></div>
+    <div class="ocr-progress" id="pyProgress" role="status"><b>等待上傳</b>：選擇檔案後開始轉檔。後端目前未提供分頁進度，處理時只顯示已知狀態與經過時間。</div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>按「選擇檔案」挑掃描卷（PDF、JPG、PNG）</li><li>按「開始轉檔」，等畫面顯示完成</li><li>下載茲茲格式 Word，照「確認清單」對照原卷檢查</li></ol></div>
       <div class="notice done"><b>完成後你會拿到</b><ul><li>茲茲格式 Word（題號自動編號、選項對齊、表格、附圖、橫幅）</li><li>需人工確認清單（低信心字、沒抓到選項的題目、範圍要手填）</li><li>自動裁出的附圖（點圖可另存）</li></ul></div>
@@ -415,7 +423,11 @@ $("#csv2wBtn").addEventListener("click",async function(){
 $("#pyBtn").addEventListener("click",async function(){
   var f=$("#pyFile").files[0],st=$("#pyStatus"),box=$("#pyResult"),server=getTarget();
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
-  st.className="status";st.textContent="「"+server.label+"」轉檔中，請稍候，不要關閉此頁…";box.classList.add("hide");$("#pyBtn").disabled=true;
+  var started=Date.now(),timer;
+  function setOcrStep(name){["Upload","Processing","Download"].forEach(function(key){var el=$("#ocrStep"+key);el.classList.toggle("active",key===name);el.classList.toggle("done",(name==="Processing"&&key==="Upload")||(name==="Download"&&(key==="Upload"||key==="Processing")));});}
+  function elapsed(){return Math.floor((Date.now()-started)/1000)+" 秒";}
+  function progress(text){$("#pyProgress").innerHTML="<b>"+text+"</b>　已經過 <span class=\"elapsed\">"+elapsed()+"</span>；後端尚未提供分頁進度。";}
+  st.className="status";st.textContent="已送至「"+server.label+"」處理，請稍候，不要關閉此頁…";setOcrStep("Processing");progress("後端處理中");timer=setInterval(function(){progress("後端處理中");},1000);box.classList.add("hide");$("#pyBtn").disabled=true;
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
     var res=await apiFetch("/api/py-ocr",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
@@ -423,9 +435,11 @@ $("#pyBtn").addEventListener("click",async function(){
     st.className="status ok";st.textContent="完成！"+(s.questions!=null?"共 "+s.questions+" 題、"+s.figures+" 張圖、"+s.tables+" 個表格；":"")+(s.ai?"AI（"+s.ai+"）已協助判斷題目邊界與錯字；":"這次沒有用到 AI，題號請特別檢查；")+(s.sec_total?"耗時 "+Math.round(s.sec_total)+" 秒。":"");
     var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載茲茲格式 Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">⬇ 確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 辨識原文</a>';
     var figs=(j.figures||[]).map(function(g){return '<a href="'+esc(apiUrl(g.url,server))+'" target="_blank" rel="noopener" title="'+esc(g.name)+'"><img src="'+esc(apiUrl(g.url,server))+'" style="width:92px;height:62px;object-fit:contain;background:#f5f4f1;border:1px solid #e0e7ef;border-radius:6px"></a>';}).join("");
-    box.innerHTML='<p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+(j.reviewText?'<div class="help" style="margin-top:10px;white-space:pre-wrap">需人工確認：\n'+esc(j.reviewText)+'</div>':'')+'<details style="margin-top:8px"><summary class="help">辨識原文（對照用）</summary><textarea style="margin-top:6px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea></details><div class="help">Word 請對照原卷校對；附圖不準請用下方「手動截圖」。</div>';
+    var job=j.jobId||j.job||j.id||"",labelUrl="./label.html"+(job?"?job="+encodeURIComponent(job):"");
+    box.innerHTML='<div class="ocr-result-head"><div><h3>完成與下載</h3><p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p></div><div class="ocr-fix-actions"><a class="btn" href="'+esc(labelUrl)+'">修正筆跡</a><a class="btn" href="'+esc(labelUrl)+'">修正題目</a></div></div><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+(j.reviewText?'<div class="help" style="margin-top:10px;white-space:pre-wrap">需人工確認：\n'+esc(j.reviewText)+'</div>':'')+'<details style="margin-top:8px"><summary class="help">辨識原文（對照用）</summary><textarea style="margin-top:6px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea></details><div class="help">Word 請對照原卷校對；附圖不準請用下方「手動截圖」。</div>';
+    setOcrStep("Download");$("#pyProgress").innerHTML="<b>處理完成，可下載結果</b>　總耗時 <span class=\"elapsed\">"+elapsed()+"</span>。";
     box.classList.remove("hide");
-  }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#pyBtn").disabled=location.protocol==="file:";}
+  }catch(e){setOcrStep("Upload");$("#pyProgress").innerHTML="<b>處理失敗，可修正後重試</b>　已經過 <span class=\"elapsed\">"+elapsed()+"</span>。";st.className="status err";st.textContent="錯誤："+e.message;}finally{clearInterval(timer);$("#pyBtn").disabled=location.protocol==="file:";}
 });
 
 /* ===== 第 3 步：詳解 ===== */

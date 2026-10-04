@@ -1,0 +1,44 @@
+{
+  "public/index.html": {
+    "endpoints": [
+      "/api/csv-to-word",
+      "/api/exam-package",
+      "/api/extract",
+      "/api/generate",
+      "/api/health",
+      "/api/py-ocr",
+      "/api/render"
+    ],
+    "buttonIds": [
+      "csv2wBtn",
+      "genBtn",
+      "pkgBtn",
+      "pyBtn",
+      "renderBtn",
+      "retryConnection"
+    ]
+  },
+  "public/label.html": {
+    "endpoints": [
+      "/api/label/draft",
+      "/api/label/list",
+      "/api/label/rebuild",
+      "/api/label/render",
+      "/api/label/save-mask",
+      "/api/label/save-questions",
+      "/api/label/upload"
+    ],
+    "buttonIds": [
+      "erase",
+      "load",
+      "next",
+      "prev",
+      "rebuild",
+      "restore",
+      "save",
+      "saveQ",
+      "tabM",
+      "tabQ"
+    ]
+  }
+}

@@ -6,6 +6,8 @@
 #   ocr/codex_role.sh supervisor "審查 HEAD~3..HEAD 的改動能不能推"
 #   ocr/codex_role.sh worker     "依 ocr-supervisor 報告修好 ocr/to_zizi_word.py 的問題"   ← 會改檔，不會 commit
 #
+# 換成 Gemini（Antigravity CLI agy）：AI=gemini ocr/codex_role.sh tester "…"（預設模型 gemini-3.1-pro-high，可用 GEMINI_MODEL 換）
+#   適合：看圖（原稿 vs 輸出、介面截圖）、第二意見審查、讀長文件。Codex 額度用完時也可以頂上。
 # tester／supervisor：唯讀沙箱（tester 需要寫快取，所以給 workspace-write，但角色規則禁止改程式）
 # 結束時印出報告路徑；報告最後一段是給人看的結論。
 set -euo pipefail
@@ -16,7 +18,8 @@ CODEX="${CODEX_BIN:-/Applications/ChatGPT.app/Contents/Resources/codex-cli/Codex
 OUT="$ROOT/ocr/results/codex"
 mkdir -p "$OUT"
 STAMP="$(date +%m%d-%H%M%S)"
-REPORT="$OUT/${STAMP}_${ROLE}.md"
+AI="${AI:-codex}"
+REPORT="$OUT/${STAMP}_${ROLE}_${AI}.md"
 
 case "$ROLE" in
   tester)     SPEC="$ROOT/.claude/agents/ocr-tester.md";     SANDBOX=workspace-write ;;
@@ -41,8 +44,17 @@ $TASK
 ## 交付
 最後輸出一段「報告」，照角色說明的報告格式，20 行以內，繁體中文。"
 
-echo "Codex（$ROLE）開始：$(date '+%H:%M:%S') → $REPORT"
-"$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$OUT/${STAMP}_${ROLE}.log" 2>&1 \
-  || echo "（Codex 結束碼 $?，細節看 ${STAMP}_${ROLE}.log）"
+echo "$AI（$ROLE）開始：$(date '+%H:%M:%S') → $REPORT"
+LOG="${REPORT%.md}.log"
+if [ "$AI" = "gemini" ]; then
+  AGY="${AGY_BIN:-$HOME/.local/bin/agy}"
+  MODE_ARGS=(--dangerously-skip-permissions)
+  [ "$SANDBOX" = "read-only" ] && MODE_ARGS+=(--sandbox)
+  (cd "$ROOT" && "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-3.1-pro-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
+    || echo "（Gemini 結束碼 $?，細節看 $(basename "$LOG")）"
+else
+  "$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \
+    || echo "（Codex 結束碼 $?，細節看 $(basename "$LOG")）"
+fi
 echo "完成：$(date '+%H:%M:%S')"
 echo "REPORT=$REPORT"
