@@ -37,7 +37,7 @@ Mac 的對應指令是 `/Applications/Tailscale.app/Contents/MacOS/Tailscale ser
 ## 本次 Mac 的背景服務
 
 2026-10-02 已安裝使用者 LaunchAgent `com.tzutzu.ocr`，固定執行
-`/Users/chiafuchang/Documents/Codex/許力講義詳解/exam-answer-key-formatter/local-app/server.js`。
+`/Users/chiafuchang/Codex/許力講義詳解/exam-answer-key-formatter/local-app/server.js`。
 登入 Mac 後啟動；程序結束會重新啟動，不依賴聊天或終端機保持開啟。
 Mac 睡眠、關機或 Tailscale 斷線時，仍無法提供遠端運算。
 
@@ -46,7 +46,8 @@ Mac 睡眠、關機或 Tailscale 斷線時，仍無法提供遠端運算。
 - 重啟：`launchctl kickstart -k gui/$(id -u)/com.tzutzu.ocr`
 - 停用：`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.tzutzu.ocr.plist`
 
-家目錄舊副本 `/Users/chiafuchang/exam-answer-key-formatter` 保留但不再提供服務，請勿從該處啟動。
+2026-10-04 起整個 Codex 資料夾已從 iCloud 同步的 `~/Documents/Codex` 搬到 `~/Codex`（iCloud「最佳化儲存空間」會把檔案換成雲端空殼，背景服務讀不到就當掉）。
+舊位置改名為 `~/Documents/Codex_舊位置_已搬走` 備份；不要再從 `~/Documents` 底下啟動服務。服務的 `PY_BIN` 改為 `~/.venvs/zizi-exam/bin/python`（掃描卷轉茲茲 Word 用）。
 
 ## 前端發布
 

@@ -126,7 +126,8 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 
 `~/Documents` 開了 iCloud「最佳化 Mac 儲存空間」，檔案會被換成雲端空殼（`dataless`），背景服務讀不到就當掉
 （2026-10-03 Mac 的 8787 服務因此 `Unknown system error -11` 起不來；原本 `~/exam-answer-key-formatter` 也在同一時間消失）。
-跟 AGENTS.md「不要放在 Dropbox／OneDrive」同理：repo 請移到 iCloud 以外，例如 `~/dev/`，並同步更新 LaunchAgent 路徑。
+跟 AGENTS.md「不要放在 Dropbox／OneDrive」同理。**2026-10-04 已把整個 Codex 資料夾搬到 `~/Codex`**，LaunchAgent 已更新；請在 Codex App 改開 `~/Codex/許力講義詳解/exam-answer-key-formatter`。
+（更正：原本 `~/exam-answer-key-formatter` 是 10/3 被移到垃圾桶 `~/.Trash/exam-answer-key-formatter-20261003`，不是 iCloud 造成；裡面的測試卷、模型、評測快取仍可從垃圾桶救回。）
 
 ## 10. 雲端 Claude 交接（2026-10-03，給本地 Codex session）
 
