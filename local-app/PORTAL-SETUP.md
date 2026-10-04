@@ -37,7 +37,7 @@ Mac 的對應指令是 `/Applications/Tailscale.app/Contents/MacOS/Tailscale ser
 ## 本次 Mac 的背景服務
 
 2026-10-02 已安裝使用者 LaunchAgent `com.tzutzu.ocr`，固定執行
-`/Users/chiafuchang/vibe-coding/Codex/許力講義詳解/exam-answer-key-formatter/local-app/server.js`。
+`/Users/chiafuchang/vibe-coding/Codex/OCR＋answer key/exam-answer-key-formatter/local-app/server.js`。
 登入 Mac 後啟動；程序結束會重新啟動，不依賴聊天或終端機保持開啟。
 Mac 睡眠、關機或 Tailscale 斷線時，仍無法提供遠端運算。
 
