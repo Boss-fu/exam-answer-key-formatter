@@ -64,6 +64,15 @@ def cache_dirs():
     return sorted(output, reverse=True)
 
 
+def get_job_source(job):
+    directory = cache(job)
+    job_dir = os.path.dirname(directory)
+    exts = (".pdf", ".jpg", ".jpeg", ".png")
+    sources = [os.path.join(job_dir, f) for f in os.listdir(job_dir) if f.lower().endswith(exts) and os.path.isfile(os.path.join(job_dir, f))]
+    if not sources:
+        raise ValueError("找不到原始檔案")
+    return sources[0]
+
 def cache(job):
     directory = os.path.join(PYOCR, safe(job), "result")
     if not os.path.isdir(directory):
@@ -87,8 +96,9 @@ def list_jobs():
 
 
 def render(args):
-    gray, pages = page_gray(args.pdf, args.page)
-    stem = manual_store.manual_stem(args.pdf, args.page, absolute_hash=True)
+    pdf = get_job_source(args.job) if args.job else args.pdf
+    gray, pages = page_gray(pdf, args.page)
+    stem = manual_store.manual_stem(pdf, args.page, absolute_hash=True)
     mask_path = os.path.join(MANUAL, stem + "_m.png")
     source_path = os.path.join(MANUAL, stem + "_x.png")
     if os.path.exists(mask_path):
@@ -100,11 +110,12 @@ def render(args):
         done = False
     clean = gray.copy()
     clean[mask > 127] = 255
-    return {"pages": pages, "page": args.page, "done": done, "name": os.path.basename(args.pdf), "x": dataurl(gray), "m": dataurl(mask), "clean": dataurl(clean), "stats": stats()}
+    return {"pages": pages, "page": args.page, "done": done, "name": os.path.basename(pdf), "x": dataurl(gray), "m": dataurl(mask), "clean": dataurl(clean), "stats": stats()}
 
 
 def save_mask(args):
-    gray, pages = page_gray(args.pdf, args.page)
+    pdf = get_job_source(args.job) if args.job else args.pdf
+    gray, pages = page_gray(pdf, args.page)
     with open(args.mask, "rb") as file:
         raw = file.read()
     if raw.startswith(b"data:"):
@@ -112,8 +123,47 @@ def save_mask(args):
     mask = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE)
     if mask is None or mask.shape != gray.shape:
         raise ValueError("遮罩尺寸不符")
-    stem = manual_store.save_manual_page(MANUAL, args.pdf, args.page, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
+    stem = manual_store.save_manual_page(MANUAL, pdf, args.page, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
     return {"saved": stem, "pages": pages, "stats": stats()}
+
+
+def job_page(args):
+    directory = cache(args.job)
+    job_dir = os.path.dirname(directory)
+    exts = (".pdf", ".jpg", ".jpeg", ".png")
+    sources = [os.path.join(job_dir, f) for f in os.listdir(job_dir) if f.lower().endswith(exts) and os.path.isfile(os.path.join(job_dir, f))]
+    if not sources:
+        raise ValueError("找不到原始檔案")
+    source = sources[0]
+
+    pages = 1
+    if source.lower().endswith(".pdf"):
+        with pymupdf.open(source) as document:
+            pages = len(document)
+            if args.page < 1 or args.page > pages:
+                raise ValueError("頁數超出範圍")
+            pixmap = document[args.page - 1].get_pixmap(dpi=150, colorspace=pymupdf.csGRAY)
+            gray = np.frombuffer(pixmap.samples, np.uint8).reshape(pixmap.h, pixmap.w).copy()
+    else:
+        gray = cv2.imread(source, cv2.IMREAD_GRAYSCALE)
+        if args.page != 1:
+            raise ValueError("圖片只有一頁")
+
+    if gray.shape[1] > 1400 or gray.shape[0] > 2000:
+        scale = min(1400 / gray.shape[1], 2000 / gray.shape[0])
+        gray = cv2.resize(gray, (int(gray.shape[1] * scale), int(gray.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+
+    if args.view == "dehand":
+        mask = mask_for(gray)
+        clean = gray.copy()
+        clean[mask > 127] = 255
+        img = clean
+    else:
+        img = gray
+
+    encoded = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1]
+    b64 = base64.b64encode(encoded).decode()
+    return {"job": args.job, "page": args.page, "pages": pages, "image": "data:image/jpeg;base64," + b64}
 
 
 def draft(args):
@@ -178,7 +228,8 @@ def main():
     subparsers.add_parser("list")
     for command in ("render", "save-mask"):
         subparser = subparsers.add_parser(command)
-        subparser.add_argument("--pdf", required=True)
+        subparser.add_argument("--pdf")
+        subparser.add_argument("--job")
         subparser.add_argument("--page", type=int, required=True)
         if command == "save-mask":
             subparser.add_argument("--mask", required=True)
@@ -189,8 +240,12 @@ def main():
     subparser.add_argument("--data", required=True)
     subparser = subparsers.add_parser("rebuild")
     subparser.add_argument("--job", required=True)
+    subparser = subparsers.add_parser("job-page")
+    subparser.add_argument("--job", required=True)
+    subparser.add_argument("--page", type=int, required=True)
+    subparser.add_argument("--view", choices=["original", "dehand"], default="original")
     args = parser.parse_args()
-    actions = {"render": render, "save-mask": save_mask, "draft": draft, "save-questions": save_questions, "rebuild": rebuild}
+    actions = {"render": render, "save-mask": save_mask, "draft": draft, "save-questions": save_questions, "rebuild": rebuild, "job-page": job_page}
     result = list_jobs() if args.cmd == "list" else actions[args.cmd](args)
     emit({"ok": True, **result})
 

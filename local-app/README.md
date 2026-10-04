@@ -71,6 +71,11 @@ npm start            # 啟動，預設 http://localhost:8787
 - `output/` — 產出的 .docx（自動建立，已被 .gitignore 忽略）
 - 共用產檔邏輯在 `../code/render.js`（包裝 `../code/lib3.js`）
 
+## 網站更新公告與部署
+
+- 要新增給老師看的更新公告，編輯 `public/changelog.json`：每則填日期、類型、圖示、標題與白話說明；最新版會在使用者開啟網站時自動顯示一次。
+- 要部署公開入口，從 repo 根目錄執行 `bash local-app/deploy-vercel.sh`。腳本只會由 Git 的 `HEAD` 匯出 `local-app/public/` 到暫存資料夾，再寫入版本資訊後部署；不會上傳考卷、輸出檔或未提交的本機檔案。
+
 ## 省 token / 省成本的用法
 
 分清楚兩條路，成本差很多：

@@ -72,6 +72,22 @@ function safeName(name) {
 }
 function safeJobId(id) { return /^[a-f0-9]{24}$/i.test(String(id || "")) ? String(id) : null; }
 function safeSourceName(name) { return safeName(name).replace(/\.+$/g, "") || "source"; }
+function pyOcrResultFile(job, kind) {
+  const safeJob = safeJobId(job);
+  const fields = { docx: "docx", txt: "txt", review: "review" };
+  const extensions = { docx: ".docx", txt: ".txt", review: ".txt" };
+  if (!safeJob || !fields[kind]) return null;
+  let report;
+  try { report = JSON.parse(fs.readFileSync(path.join(PYOCR_OUTPUT, safeJob, "report.json"), "utf8")); } catch { return null; }
+  const filename = report[fields[kind]];
+  if (typeof filename !== "string" || path.extname(filename).toLowerCase() !== extensions[kind]) return null;
+  const base = path.join(PYOCR_OUTPUT, safeJob, "result");
+  const file = path.resolve(base, filename);
+  return file.startsWith(base + path.sep) && fs.existsSync(file) ? file : null;
+}
+function pyOcrDownloadUrl(job, kind) {
+  return pyOcrResultFile(job, kind) ? `/api/py-ocr/download?job=${job}&kind=${kind}` : null;
+}
 
 const server = http.createServer(async (req, res) => {
   if (!applyCors(req, res)) return;
@@ -85,8 +101,12 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
     }
     if (req.method === "GET" && url.pathname === "/label.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "label.html")));
-    if (req.method === "GET" && ["/api-client.js", "/server-config.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
+    }
+    if (req.method === "GET" && ["/changelog.json", "/version.json"].includes(url.pathname)) {
+      res.setHeader("cache-control", "no-store");     // 更新公告／版本偵測要拿最新的
+      return send(res, 200, "application/json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
     if (req.method === "GET" && url.pathname === "/logo.png") {
       return send(res, 200, "image/png", fs.readFileSync(path.join(PUBLIC, "logo.png")));
@@ -110,14 +130,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, id });
     }
     if (req.method === "POST" && url.pathname === "/api/label/render") {
-      const { id, page } = JSON.parse(await readBody(req) || "{}");
+      const { id, job, page } = JSON.parse(await readBody(req) || "{}");
+      if (job) {
+        return sendJson(res, 200, await runLabel(["render", "--job", safeJobId(job), "--page", String(Number(page) || 1)]));
+      }
       return sendJson(res, 200, await runLabel(["render", "--pdf", labelPdf(id), "--page", String(Number(page) || 1)]));
     }
     if (req.method === "POST" && url.pathname === "/api/label/save-mask") {
-      const { id, page, mask } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      const { id, job, page, mask } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!mask) return sendJson(res, 400, { ok: false, error: "缺少遮罩" });
-      const temporary = path.join(LABEL_OUTPUT, safeJobId(id) || "bad", "mask.png");
+      const temporary = path.join(LABEL_OUTPUT, safeJobId(id || job) || "bad", "mask.png");
+      fs.mkdirSync(path.dirname(temporary), { recursive: true });
       fs.writeFileSync(temporary, Buffer.from(String(mask).split(",").pop(), "base64"));
+      if (job) {
+        return sendJson(res, 200, await runLabel(["save-mask", "--job", safeJobId(job), "--page", String(Number(page) || 1), "--mask", temporary]));
+      }
       return sendJson(res, 200, await runLabel(["save-mask", "--pdf", labelPdf(id), "--page", String(Number(page) || 1), "--mask", temporary]));
     }
     if (req.method === "POST" && url.pathname === "/api/label/draft") {
@@ -297,17 +324,34 @@ const server = http.createServer(async (req, res) => {
         docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null });
     }
 
+    if (req.method === "POST" && url.pathname === "/api/py-ocr/job-page") {
+      const { job, page, view } = JSON.parse(await readBody(req) || "{}");
+      const safeJob = safeJobId(job);
+      if (!safeJob || !page) return sendJson(res, 400, { ok: false, error: "Invalid job or page" });
+      const args = ["job-page", "--job", safeJob, "--page", String(page)];
+      if (view === "dehand") args.push("--view", "dehand");
+      return sendJson(res, 200, await runLabel(args));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/py-ocr/job") {
+      const { job } = JSON.parse(await readBody(req) || "{}");
+      const safeJob = safeJobId(job);
+      if (!safeJob) return sendJson(res, 400, { ok: false, error: "Invalid job" });
+      const txt = pyOcrResultFile(safeJob, "txt");
+      let text = "尚無整份文字";
+      if (txt) { try { text = fs.readFileSync(txt, "utf8"); } catch {} }
+      return sendJson(res, 200, { ok: true, job: safeJob, text,
+        docxUrl: pyOcrDownloadUrl(safeJob, "docx"),
+        reviewUrl: pyOcrDownloadUrl(safeJob, "review"),
+        txtUrl: pyOcrDownloadUrl(safeJob, "txt") });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/py-ocr/download") {
       const job = safeJobId(url.searchParams.get("job"));
       const kind = ["txt", "review"].includes(url.searchParams.get("kind")) ? url.searchParams.get("kind") : "docx";
       if (!job) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
-      const report = JSON.parse(fs.readFileSync(path.join(PYOCR_OUTPUT, job, "report.json"), "utf8"));
-      const fname = kind === "txt" ? report.txt : kind === "review" ? report.review : report.docx;
-      if (!fname) return send(res, 404, "text/plain; charset=utf-8", "Not found");
-      // Word／確認清單在 result/word/ 底下：只允許 result 資料夾內的相對路徑
-      const base = path.join(PYOCR_OUTPUT, job, "result");
-      const file = path.resolve(base, fname);
-      if (!file.startsWith(base + path.sep) || !fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const file = pyOcrResultFile(job, kind);
+      if (!file) return send(res, 404, "text/plain; charset=utf-8", "Not found");
       const ct = kind === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain; charset=utf-8";
       res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
       return fs.createReadStream(file).pipe(res);

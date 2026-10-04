@@ -6,6 +6,14 @@
 <title>茲茲文教｜OCR 系統</title>
 <link rel="icon" type="image/png" href="./logo.png">
 <style>
+.previewLayout { display: flex; flex-direction: row; height: 100%; }
+.previewThumbnails { width: 100px; overflow-y: auto; background: #fafafa; border-right: 1px solid #ccc; display: flex; flex-direction: column; gap: 5px; padding: 5px; }
+.previewMain { flex: 1; overflow: auto; padding: 10px; background: #eee; display:flex; justify-content:center; }
+@media (max-width: 500px) {
+  .previewLayout { flex-direction: column; }
+  .previewThumbnails { width: 100%; overflow-y: hidden; overflow-x: auto; flex-direction: row; border-right: none; border-bottom: 1px solid #ccc; height: auto; }
+}
+
   /* 茲茲文教共用視覺（對齊 science-qbank home.html）：米白底、白卡、#850103 主色、英文大寫小標。 */
   :root{--ink:#2d3038;--paper:#f8f7f4;--card:#fffefb;--line:#e5dfd5;--line-soft:#eee8de;--red:#850103;--red-soft:#fbf1ef;--green:#1f6f5c;--green-soft:#eef6f2;--amber:#8a6d1f;--amber-soft:#fff9e9;--amber-line:#f3e2b4;--muted:#807a73;--faint:#a0978d;--ui:"PingFang TC","Microsoft JhengHei",system-ui,-apple-system,sans-serif;--mono:ui-monospace,Menlo,Consolas,monospace;--shadow:0 2px 9px rgba(43,32,28,.045)}
   *{box-sizing:border-box}
@@ -197,14 +205,58 @@
   <!-- 1 掃描卷轉茲茲 Word（Python 辨識＋AI 只判斷一次題目邊界）-->
   <div class="stage active" id="localocr">
     <div class="stage-head"><div class="stage-no">1</div><div><h2>掃描卷轉成茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片：系統自動轉正、清紅筆、分欄、認字、裁圖、重建表格，AI 只幫忙判斷題目從哪裡開始和改錯字，最後排成茲茲格式 Word。一份約 1～2 分鐘。</p></div></div>
-    <div class="ocr-steps" aria-label="掃描卷轉 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">①</span><span>上傳</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">②</span><span>處理中</span></div><div class="ocr-step soon"><span class="step-dot">③</span><span>對照預覽<small>即將推出</small></span></div><div class="ocr-step soon"><span class="step-dot">④</span><span>修正<small>即將推出</small></span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">⑤</span><span>下載</span></div></div>
-    <div class="row drop-row"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus" role="status"></span></div>
+    <div class="ocr-steps" aria-label="掃描卷轉 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">①</span><span>上傳</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">②</span><span>處理中</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">③</span><span>對照預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">④</span><span>修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">⑤</span><span>下載</span></div></div>
+    <div class="row drop-row" id="uploadRow"><input type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus" role="status"></span></div>
+    <div class="row drop-row" id="recentRow" style="margin-top:10px; display:none; background:#f9f9f9; padding:10px; border-radius:4px;">
+      <span style="font-weight:bold; margin-right:10px;">最近處理：</span>
+      <select id="recentJobs" style="margin-right:10px;"><option value="">-- 讀取中 --</option></select>
+      <button class="btn" id="openRecentBtn">打開此考卷 (預覽/修正)</button>
+    </div>
     <div class="ocr-progress" id="pyProgress" role="status"><b>等待上傳</b>：選擇檔案後開始轉檔。後端目前未提供分頁進度，處理時只顯示已知狀態與經過時間。</div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>按「選擇檔案」挑掃描卷（PDF、JPG、PNG）</li><li>按「開始轉檔」，等畫面顯示完成</li><li>下載茲茲格式 Word，照「確認清單」對照原卷檢查</li></ol></div>
       <div class="notice done"><b>完成後你會拿到</b><ul><li>茲茲格式 Word（題號自動編號、選項對齊、表格、附圖、橫幅）</li><li>需人工確認清單（低信心字、沒抓到選項的題目、範圍要手填）</li><li>自動裁出的附圖（點圖可另存）</li></ul></div>
     </div>
-    <div class="result hide" id="pyResult"></div>
+
+    <!-- Phase 2 UI -->
+    <div id="processingModal" class="modal hide" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:center;justify-content:center;">
+      <div class="modal-box" style="background:#fff;padding:20px;border-radius:8px;text-align:center;min-width:300px;">
+        <h3>處理中</h3>
+        <div id="processingStage">上傳、轉正與清筆跡、辨識與切題、Word 組版</div>
+        <div id="processingElapsed" style="margin-top:10px; font-weight:bold; font-size:18px;">已經過 0 秒</div>
+      </div>
+    </div>
+    <div id="previewContainer" class="hide" style="display:flex; flex-direction:column; background:var(--surface-work, #efede8); margin-top:20px; border:1px solid #ccc; height:600px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px; border-bottom:1px solid #ccc;">
+        <div id="previewTabs">
+          <button class="btn primary" id="tabOriginal" onclick="switchPreview('original')">原稿</button>
+          <button class="btn" id="tabDehand" onclick="switchPreview('dehand')">去筆跡預覽</button>
+          <button class="btn" id="tabText" onclick="switchPreview('text')">辨識文字</button>
+        </div>
+        <div style="position:relative;">
+          <button class="btn primary" id="exportMenuBtn" onclick="document.getElementById('exportMenu').classList.toggle('hide')">匯出 ▼</button>
+          <div id="exportMenu" class="hide" style="position:absolute; right:0; top:100%; background:#fff; border:1px solid #ccc; padding:10px; z-index:10; white-space:nowrap; box-shadow:0 2px 5px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:5px;"></div>
+        </div>
+      </div>
+      <div class="preview-layout" style="display:flex; flex:1; overflow:hidden;">
+        <div id="previewThumbnails" class="thumb-bar" style="width:120px; background:#fafafa; overflow-y:auto; border-right:1px solid #ccc; padding:10px; display:flex; flex-direction:column; gap:10px;"></div>
+        <div id="previewMain" style="flex:1; overflow:auto; text-align:center; padding:20px; display:flex; justify-content:center; align-items:flex-start;">
+          <img id="previewImage" src="" style="max-width:100%; display:none; box-shadow:0 0 10px rgba(0,0,0,0.1);">
+          <textarea id="previewText" style="width:100%; height:100%; display:none; min-height:400px;" readonly></textarea>
+        </div>
+      </div>
+      <div style="background:#fff; padding:10px; border-top:1px solid #ccc; display:flex; gap:10px; justify-content:center; position:sticky; bottom:0;">
+        <button class="btn" id="fixHandwritingBtn">修正這頁筆跡</button>
+        <button class="btn" id="fixQuestionsBtn">修正題目</button>
+      </div>
+    </div>
+    <style>
+      @media (max-width: 767px) {
+        .preview-layout { flex-direction: column !important; }
+        .thumb-bar { width: 100% !important; flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important; border-right: none !important; border-bottom: 1px solid #ccc !important; }
+      }
+    </style>
+<div class="result hide" id="pyResult"></div>
     <details class="manual-crop" id="manualCrop"><summary>圖裁得不準？手動截圖</summary>
       <p class="help">選擇同一份 PDF，用滑鼠框住要的圖並輸入題號（例：12；多題共用的圖在題號前加 g，例：g24）。圖會存成 Q12.png，可單張下載或一次打包 ZIP；只在你的瀏覽器裡處理。</p>
       <div class="row drop-row"><input type="file" id="cropPdf" accept=".pdf"><span class="status" id="cropStatus"></span></div>
@@ -264,6 +316,7 @@ python3 ocr/get_models.py</pre>
 
 <script src="./server-config.js"></script>
 <script src="./api-client.js"></script>
+<script src="./patch-notes.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
@@ -419,28 +472,152 @@ $("#csv2wBtn").addEventListener("click",async function(){
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#csv2wBtn").disabled=false;}
 });
 
+
 /* ===== 純 Python OCR 草稿（0 token，不經 AI）===== */
 $("#pyBtn").addEventListener("click",async function(){
   var f=$("#pyFile").files[0],st=$("#pyStatus"),box=$("#pyResult"),server=getTarget();
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
   var started=Date.now(),timer;
-  function setOcrStep(name){["Upload","Processing","Download"].forEach(function(key){var el=$("#ocrStep"+key);el.classList.toggle("active",key===name);el.classList.toggle("done",(name==="Processing"&&key==="Upload")||(name==="Download"&&(key==="Upload"||key==="Processing")));});}
   function elapsed(){return Math.floor((Date.now()-started)/1000)+" 秒";}
-  function progress(text){$("#pyProgress").innerHTML="<b>"+text+"</b>　已經過 <span class=\"elapsed\">"+elapsed()+"</span>；後端尚未提供分頁進度。";}
-  st.className="status";st.textContent="已送至「"+server.label+"」處理，請稍候，不要關閉此頁…";setOcrStep("Processing");progress("後端處理中");timer=setInterval(function(){progress("後端處理中");},1000);box.classList.add("hide");$("#pyBtn").disabled=true;
+  function progress(text, suffix){var root=$("#pyProgress"),strong=document.createElement("b"),span=document.createElement("span");strong.textContent=text;span.className="elapsed";span.textContent=elapsed();root.replaceChildren(strong,document.createTextNode("　"+(suffix||"已經過 ")),span,document.createTextNode("；後端目前未提供分頁進度。"));$("#processingElapsed").textContent="已經過 "+elapsed();}
+  st.className="status";st.textContent="已送至「"+server.label+"」處理，請稍候，不要關閉此頁…";setOcrStep("Processing");progress("後端處理中");timer=setInterval(function(){progress("後端處理中");},1000);box.classList.add("hide");$("#previewContainer").classList.add("hide");$("#pyBtn").disabled=true;
+
+  // Show Modal
+  $("#processingModal").style.display = "flex";
+
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
     var res=await apiFetch("/api/py-ocr",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
     var s=j.stats||{};
-    st.className="status ok";st.textContent="完成！"+(s.questions!=null?"共 "+s.questions+" 題、"+s.figures+" 張圖、"+s.tables+" 個表格；":"")+(s.ai?"AI（"+s.ai+"）已協助判斷題目邊界與錯字；":"這次沒有用到 AI，題號請特別檢查；")+(s.sec_total?"耗時 "+Math.round(s.sec_total)+" 秒。":"");
-    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載茲茲格式 Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">⬇ 確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">⬇ 辨識原文</a>';
-    var figs=(j.figures||[]).map(function(g){return '<a href="'+esc(apiUrl(g.url,server))+'" target="_blank" rel="noopener" title="'+esc(g.name)+'"><img src="'+esc(apiUrl(g.url,server))+'" style="width:92px;height:62px;object-fit:contain;background:#f5f4f1;border:1px solid #e0e7ef;border-radius:6px"></a>';}).join("");
-    var job=j.jobId||j.job||j.id||"",labelUrl="./label.html"+(job?"?job="+encodeURIComponent(job):"");
-    box.innerHTML='<div class="ocr-result-head"><div><h3>完成與下載</h3><p class="help">由「'+esc(server.label)+'」處理完成'+(figs?'・自動裁出 '+(j.figures||[]).length+' 張圖（點圖可另存）':'')+'</p></div><div class="ocr-fix-actions"><a class="btn" href="'+esc(labelUrl)+'">修正筆跡</a><a class="btn" href="'+esc(labelUrl)+'">修正題目</a></div></div><div class="row">'+links+'</div>'+(figs?'<div class="row" style="flex-wrap:wrap;gap:7px">'+figs+'</div>':'')+(j.reviewText?'<div class="help" style="margin-top:10px;white-space:pre-wrap">需人工確認：\n'+esc(j.reviewText)+'</div>':'')+'<details style="margin-top:8px"><summary class="help">辨識原文（對照用）</summary><textarea style="margin-top:6px;min-height:220px" spellcheck="false">'+esc(j.text||"")+'</textarea></details><div class="help">Word 請對照原卷校對；附圖不準請用下方「手動截圖」。</div>';
-    setOcrStep("Download");$("#pyProgress").innerHTML="<b>處理完成，可下載結果</b>　總耗時 <span class=\"elapsed\">"+elapsed()+"</span>。";
-    box.classList.remove("hide");
-  }catch(e){setOcrStep("Upload");$("#pyProgress").innerHTML="<b>處理失敗，可修正後重試</b>　已經過 <span class=\"elapsed\">"+elapsed()+"</span>。";st.className="status err";st.textContent="錯誤："+e.message;}finally{clearInterval(timer);$("#pyBtn").disabled=location.protocol==="file:";}
+    st.className="status ok";st.textContent="完成！耗時 "+Math.round(s.sec_total||0)+" 秒。";
+
+    // Hide Modal
+    $("#processingModal").style.display = "none";
+
+    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';
+
+    var job=j.jobId||j.job||j.id||"";
+
+    // Setup Export Menu
+    $("#exportMenu").innerHTML = links;
+
+    window.currentOcrJob = job;
+    window.currentOcrServer = server;
+    window.currentOcrText = j.text || "尚無整份文字";
+
+    setOcrStep("Preview");showOcrPreview();
+    $("#uploadRow").style.display = "none";
+    $("#recentRow").style.display = "none";
+
+    // Fetch pages info
+    fetchPages(job, 1);
+
+    progress("處理完成，進入對照預覽","總耗時 ");
+  }catch(e){
+    $("#processingModal").style.display = "none";
+    setOcrStep("Upload");progress("處理失敗，可修正後重試");st.className="status err";st.textContent="錯誤："+e.message;
+  }finally{clearInterval(timer);$("#pyBtn").disabled=location.protocol==="file:";}
 });
+
+async function fetchPages(job, page) {
+    if (!job) return;
+    try {
+        let res = await apiFetch("/api/py-ocr/job-page", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({job:job, page:page, view: window.currentPreviewMode || "original"})}, window.currentOcrServer);
+        let j = await res.json();
+        if(j.ok) {
+            window.currentOcrPages = j.pages;
+            window.currentOcrPage = j.page;
+            renderThumbnails(j.pages, j.page);
+            showPreviewImage(j.image);
+            updateFixLinks(job, j.page);
+        } else {
+            throw new Error(j.error || "預覽頁載入失敗");
+        }
+    } catch(e) {
+        console.error(e);
+        showPreviewError(e, job, page);
+    }
+}
+
+function setOcrStep(name){["Upload","Processing","Preview","Fix","Download"].forEach(function(key){var el=$("#ocrStep"+key);if(el){el.classList.toggle("active",key===name);el.classList.toggle("done",(name==="Processing"&&key==="Upload")||(name==="Preview"&&(key==="Upload"||key==="Processing"))||(name==="Download"&&(key==="Upload"||key==="Processing"||key==="Preview")));}});}
+function showOcrPreview() {
+    var preview=$("#previewContainer"), node=preview;
+    $("#localocr").classList.add("active");
+    while (node) {
+        node.classList.remove("hide", "hidden");
+        if (node.style && node.style.display === "none") node.style.removeProperty("display");
+        if (node.id === "localocr") break;
+        node=node.parentElement;
+    }
+    preview.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function showPreviewError(error, job, page) {
+    var main=$("#previewMain"),message=document.createElement("p"),retry=document.createElement("button");
+    $("#previewImage").style.display="none";$("#previewText").style.display="none";
+    message.className="status err";message.textContent="預覽頁載入失敗："+(error&&error.message?error.message:"未知錯誤");
+    retry.className="btn";retry.textContent="重試";retry.onclick=function(){fetchPages(job,page);};
+    main.replaceChildren(message,retry);
+}
+
+window.currentPreviewMode = "original";
+window.switchPreview = function(mode) {
+    window.currentPreviewMode = mode;
+    ["tabOriginal", "tabDehand", "tabText"].forEach(id => $("#" + id).classList.remove("primary"));
+
+    $("#previewImage").style.display = "none";
+    $("#previewText").style.display = "none";
+
+    if (mode === "original") {
+        $("#tabOriginal").classList.add("primary");
+        fetchPages(window.currentOcrJob, window.currentOcrPage);
+    } else if (mode === "dehand") {
+        $("#tabDehand").classList.add("primary");
+        fetchPages(window.currentOcrJob, window.currentOcrPage);
+    } else if (mode === "text") {
+        $("#tabText").classList.add("primary");
+        var main=$("#previewMain"),image=$("#previewImage"),text=$("#previewText");
+        if (!main.contains(text)) main.replaceChildren(image,text);
+        text.value = window.currentOcrText; // "若後端只有整份文字就整份顯示並註明"
+        text.style.display = "block";
+    }
+}
+
+async function renderThumbnails(totalPages, currentPage) {
+    var bar=$("#previewThumbnails"), items=[];
+    for(let i=1; i<=totalPages; i++) {
+        let thumb=document.createElement("button");
+        thumb.type="button";thumb.className="btn";thumb.textContent="頁 "+i;
+        thumb.style.cssText="cursor:pointer; text-align:center; padding:5px; background:#fff;"+(i===currentPage?"border:2px solid #850103;":"border:1px solid #ccc;");
+        thumb.onclick=(function(page){return function(){fetchPages(window.currentOcrJob,page);};})(i);
+        items.push(thumb);
+    }
+    bar.replaceChildren.apply(bar,items);
+    await Promise.all(items.map(async function(thumb,index){
+        try {
+            var res=await apiFetch("/api/py-ocr/job-page",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({job:window.currentOcrJob,page:index+1,view:"original"})},window.currentOcrServer);
+            var page=await res.json();
+            if (!page.ok || !page.image) return;
+            var image=document.createElement("img");
+            image.src=page.image;image.alt="第 "+(index+1)+" 頁縮圖";
+            image.style.cssText="display:block;width:100%;max-height:110px;object-fit:contain;margin-top:4px;";
+            thumb.appendChild(image);
+        } catch (_) {}
+    }));
+}
+
+function showPreviewImage(dataUrl) {
+    var main=$("#previewMain"),image=$("#previewImage"),text=$("#previewText");
+    if (!main.contains(image)) main.replaceChildren(image,text);
+    image.src = dataUrl;
+    image.style.display = "block";
+    text.style.display = "none";
+}
+
+function updateFixLinks(job, page) {
+    $("#fixHandwritingBtn").onclick = () => window.location.href = "./label.html?job=" + job + "&page=" + page;
+    $("#fixQuestionsBtn").onclick = () => window.location.href = "./label.html?job=" + job + "&tab=questions";
+}
 
 /* ===== 第 3 步：詳解 ===== */
 $("#examFile").addEventListener("change",async function(e){
@@ -503,6 +680,38 @@ $("#renderBtn").addEventListener("click",async function(){
   }catch(e){st.className="status err";st.textContent="錯誤："+e.message;}finally{$("#renderBtn").disabled=false;}
 });
 
+
+async function loadRecentJobs() {
+    try {
+        let res = await apiFetch("/api/label/list", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({})}, getTarget());
+        let j = await res.json();
+        if(j.ok && j.jobs && j.jobs.length > 0) {
+            var select=$("#recentJobs");
+            select.replaceChildren.apply(select,j.jobs.map(function(x){var option=document.createElement("option");option.value=x.id;option.textContent=x.name;return option;}));
+            $("#recentRow").style.display = "block";
+        }
+    } catch(e) { console.error("Failed to load recent jobs", e); }
+}
+window.addEventListener("DOMContentLoaded", loadRecentJobs);
+
+$("#openRecentBtn").addEventListener("click", async function() {
+    let job = $("#recentJobs").value;
+    if(!job) return;
+    let server = getTarget();
+    try {
+    var response=await apiFetch("/api/py-ocr/job",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({job:job})},server);
+    var j=await response.json();if(!j.ok)throw new Error(j.error||"找不到此 OCR 工作");
+    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';
+    $("#exportMenu").innerHTML = links;
+    window.currentOcrJob = job;
+    window.currentOcrServer = server;
+    window.currentOcrText = j.text;
+    setOcrStep("Preview");showOcrPreview();
+    $("#uploadRow").style.display = "none";
+    $("#recentRow").style.display = "none";
+    fetchPages(job, 1);
+    } catch (e) { console.error(e); $("#pyStatus").className="status err"; $("#pyStatus").textContent="無法開啟舊考卷："+e.message; }
+});
 </script>
-</body>
+<script>try{TzutzuPatchNotes.mountButton(document.querySelector(".header-actions"))}catch(e){}</script></body>
 </html>

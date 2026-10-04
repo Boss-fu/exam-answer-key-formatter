@@ -33,6 +33,7 @@ if (process.argv.includes("--write-baseline-from-head")) {
 
 assert.ok(fs.existsSync(baselinePath), "找不到 UI 契約基準；先加 --write-baseline-from-head");
 const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+// `/api/label/upload` 是後端相容 API；label.html 已取消上傳入口，故不列為該頁 UI 契約。
 for (const page of pages) {
   const missingEndpoints = (baseline[page]?.endpoints || []).filter((item) => !current[page].endpoints.includes(item));
   const missingButtons = (baseline[page]?.buttonIds || []).filter((item) => !current[page].buttonIds.includes(item));
