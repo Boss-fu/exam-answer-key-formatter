@@ -81,6 +81,8 @@ def load_pages(data):
     man = json.load(open(os.path.join(data, "manifest.json"), encoding="utf-8")) if os.path.exists(
         os.path.join(data, "manifest.json")) else []
     group = {(m["pair"], m["page"]): m["group"] for m in man}
+    mp = os.path.join(data, "_manual", "manifest.json")
+    manual = json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else {}
     pages = []
     for x in sorted(glob.glob(os.path.join(data, "*", "*_x.png"))):
         m = x[:-6] + "_m.png"
@@ -89,18 +91,22 @@ def load_pages(data):
         pair = os.path.basename(os.path.dirname(x))
         stem = os.path.basename(x)[:-6]
         if pair == "_manual":                    # 人工修正頁：<檔名>_p<頁>，同一份考卷同一組
-            grp = "manual:" + re.sub(r"_p\d+$", "", stem)
+            grp = manual.get(stem, "manual:" + re.sub(r"_p\d+$", "", stem))   # 跟自動配對同一份考卷＝同一組
         else:
             grp = group.get((pair, int(stem[1:])), pair)
         img, msk = cv2.imread(x, cv2.IMREAD_GRAYSCALE), cv2.imread(m, cv2.IMREAD_GRAYSCALE) > 127
-        pages.append({"x": img, "m": msk, "ink": ink(img), "group": grp,
+        near = cv2.dilate(msk.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        prt = ink(img) & ~near                   # 印刷墨跡；筆跡周圍 2px 是模糊帶（筆跡壓到印刷、遮罩邊緣），不算印刷也不算筆跡
+        lab = msk.astype(np.uint8) | (prt.astype(np.uint8) << 1)     # bit0＝筆跡、bit1＝印刷（省記憶體：一頁一張）
+        pages.append({"x": img, "lab": lab, "nhand": int(msk.sum()), "group": grp,
                       "w": 2.0 if pair == "_manual" else 1.0, "name": f"{pair}/{stem}"})
     return pages
 
 
 def sample(page, rng):
     """七成挑有筆跡的位置；加縮放、明暗、雜訊、模糊（模擬手機照片、淡掃描）"""
-    x, m = page["x"], page["m"]
+    x, lab = page["x"], page["lab"]
+    m = lab & 1
     H, W = x.shape
     s = rng.uniform(0.8, 1.25)
     ps = int(PATCH / s)
@@ -114,9 +120,9 @@ def sample(page, rng):
     else:
         y0, x0 = rng.randint(0, H - ps), rng.randint(0, W - ps)
     xi = cv2.resize(x[y0:y0 + ps, x0:x0 + ps], (PATCH, PATCH), interpolation=cv2.INTER_AREA).astype(np.float32)
-    mi = cv2.resize(m[y0:y0 + ps, x0:x0 + ps].astype(np.uint8), (PATCH, PATCH), interpolation=cv2.INTER_NEAREST)
-    pi = cv2.resize(page["ink"][y0:y0 + ps, x0:x0 + ps].astype(np.uint8), (PATCH, PATCH),
-                    interpolation=cv2.INTER_NEAREST) & (1 - mi)
+    mi = cv2.resize(m[y0:y0 + ps, x0:x0 + ps], (PATCH, PATCH), interpolation=cv2.INTER_NEAREST)
+    pi = cv2.resize(lab[y0:y0 + ps, x0:x0 + ps] >> 1, (PATCH, PATCH),
+                    interpolation=cv2.INTER_NEAREST)
     xi = xi * rng.uniform(0.85, 1.1) + rng.uniform(-20, 15)
     if rng.random() < 0.3:
         xi = cv2.GaussianBlur(xi, (3, 3), 0)
@@ -149,19 +155,19 @@ def evaluate(model, pages, dev):
     probs = [(predict_page(model, p["x"], dev), p) for p in pages]
     best = None
     table = []
-    for th in np.arange(0.30, 0.96, 0.05):
+    for th in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.93, 0.95, 0.97, 0.98, 0.99]:
         tp = hand = er = prt = 0
         for pr, p in probs:
             pred = pr >= th
-            hand += p["m"].sum()
-            tp += (pred & p["m"]).sum()
-            pm = p["ink"] & ~p["m"]
+            hm, pm = (p["lab"] & 1) > 0, (p["lab"] & 2) > 0
+            hand += hm.sum()
+            tp += (pred & hm).sum()
             prt += pm.sum()
             er += (pred & pm).sum()
         rec, ers = tp / max(1, hand), er / max(1, prt)
-        table.append((round(float(th), 2), float(rec), float(ers)))
+        table.append((round(float(th), 3), float(rec), float(ers)))
         if ers < MAX_ERASE and (best is None or rec > best[1]):
-            best = (round(float(th), 2), float(rec), float(ers))
+            best = (round(float(th), 3), float(rec), float(ers))
     return best, table
 
 
@@ -181,13 +187,15 @@ def main():
 
     pages = load_pages(a.data)
     groups = sorted({p["group"] for p in pages})
+    if len(groups) < 2:
+        sys.exit(f"訓練資料只有 {len(groups)} 場考試，至少要 2 場（一場訓練、一場驗證）。先跑 pairs_build.py。")
     rng.shuffle(groups)
-    nval = max(1, int(round(len(groups) * a.val_frac)))
+    nval = min(len(groups) - 1, max(1, int(round(len(groups) * a.val_frac))))
     val_g = set(groups[:nval])
     tr = [p for p in pages if p["group"] not in val_g]
     va = [p for p in pages if p["group"] in val_g]
     print(f"裝置 {dev}；訓練 {len(tr)} 頁（{len(groups) - nval} 場考試）、驗證 {len(va)} 頁（{nval} 場）", flush=True)
-    weights = [p["w"] * (1 + 50 * p["m"].mean()) for p in tr]   # 筆跡多的頁、人工修正頁多抽一點
+    weights = [p["w"] * (1 + 50 * p["nhand"] / p["lab"].size) for p in tr]   # 筆跡多的頁、人工修正頁多抽一點
 
     model = UNet().to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)

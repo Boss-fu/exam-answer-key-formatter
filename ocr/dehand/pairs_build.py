@@ -145,11 +145,13 @@ def main():
             print(f"✘ 讀不到 {c}：{e}", flush=True)
             mark(d, c)
             continue
-        best = None
+        best, failed = None, False
         for o in origs:                                    # 同資料夾可能有好幾份原稿候選：取一致度最高的
             try:
                 op = pages(os.path.join(d, o))
-            except Exception:
+            except Exception as e:
+                print(f"  ⚠ 讀不到原稿 {o}：{e}", flush=True)
+                failed = True
                 continue
             res = []
             for i, og in enumerate(op):
@@ -161,7 +163,8 @@ def main():
             if best is None or score > best[0]:
                 best = (score, o, op, res)
         if not best:
-            mark(d, c)
+            if not failed:                                 # 讀檔失敗的不標完成，下次續跑會再試
+                mark(d, c)
             continue
         score, o, op, res = best
         name = re.sub(r"[\\/:*?\"<>|\s]+", "_", os.path.splitext(o)[0])[:60]

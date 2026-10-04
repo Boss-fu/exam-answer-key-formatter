@@ -24,6 +24,7 @@ import pymupdf
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import apply as dehand  # noqa: E402
+from pairs_build import key  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "_manual")
 PORT = int(os.environ.get("PORT", 8790))
@@ -161,6 +162,10 @@ class H(http.server.BaseHTTPRequestHandler):
         stem = PAGES[k][2]
         cv2.imwrite(os.path.join(OUT, stem + "_x.png"), g)
         cv2.imwrite(os.path.join(OUT, stem + "_m.png"), (mk > 127).astype(np.uint8) * 255)
+        mpath = os.path.join(OUT, "manifest.json")      # 考卷分組跟自動配對同一套（train.py 切驗證集時同卷不跨組）
+        man = json.load(open(mpath, encoding="utf-8")) if os.path.exists(mpath) else {}
+        man[stem] = hashlib.md5(key(os.path.basename(PAGES[k][0])).encode()).hexdigest()[:8]
+        json.dump(man, open(mpath, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         self.send("{}")
 
 
