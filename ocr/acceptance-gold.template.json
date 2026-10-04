@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source": "relative/path/to/exam.pdf",
+  "source_sha256": "replace-with-sha256",
+  "status": "human_verified",
+  "reviewer": "reviewer-id",
+  "reviewed_at": "YYYY-MM-DD",
+  "split": "test",
+  "page_questions": {
+    "1": [1, 2, 3]
+  },
+  "runtime_seconds": 0,
+  "page_review": {
+    "background_whiteness": true,
+    "background_uniformity": true,
+    "printed_thin_lines_preserved": true,
+    "handwriting_removed": true,
+    "formulas_and_symbols_preserved": true,
+    "scientific_figures_preserved": true,
+    "table_lines_preserved": true,
+    "image_geometry_preserved": true,
+    "meaning_unchanged": true,
+    "ocr_text": true,
+    "notes": "True means every applicable page passed. Record page and region for every failure."
+  },
+  "word_review": {
+    "question_numbering": true,
+    "stem_and_options": true,
+    "table_structure": true,
+    "figure_placement": true,
+    "handwriting_excluded": true,
+    "tzutzu_layout": true,
+    "overall_usable": true,
+    "notes": "Record every failure; true means the entire exam passed that dimension."
+  }
+}
