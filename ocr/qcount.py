@@ -18,9 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import eval_gt as E          # noqa: E402
 import to_zizi_word as Z     # noqa: E402
-
-PARTIAL = {"112-1-1_G9_石牌國中", "112-1-1_G9_陽明國中"}   # 正解只收理化部分（掃描卷還有地科）
-MISMATCH = {"113-1-1_G8_陽明國中"}                      # 正解跟掃描卷內容對不上
+from testset_rules import MISMATCH, PARTIAL  # noqa: E402
 
 
 def gt_stems(gt_path):

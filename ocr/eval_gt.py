@@ -39,6 +39,8 @@ W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 DPI = 350                                         # 跟 local-app 呼叫 pyexam 的解析度一致
 KEEP = re.compile(r"[0-9A-Za-z㐀-鿿]")
 
+from testset_rules import excluded_from_total
+
 
 _cc = None
 
@@ -189,14 +191,17 @@ def main():
              "q": qn, "gt_q": gt_questions(g), "word_ok": word_ok,
              "figs": m["figs"], "gt_figs": docx_images(g), "ss_figs": docx_images(ss_path) if ss else None}
         rows.append(r)
-        w = len(ref)
-        tot["chars"] += w
-        for k in ("cer", "miss", "extra", "order"):
-            tot["us_" + k] += us[k] * w
-            if ss:
-                tot["ss_" + k] += ss[k] * w
-                tot["ssw"] += w if k == "cer" else 0
-        print(f"  {name}: 題數 {qn}/{r['gt_q']}　我們 漏字 {us['miss']:.1%}／順序 {us['order']:.1%}"
+        excluded = excluded_from_total(name)
+        if not excluded:
+            w = len(ref)
+            tot["chars"] += w
+            for k in ("cer", "miss", "extra", "order"):
+                tot["us_" + k] += us[k] * w
+                if ss:
+                    tot["ss_" + k] += ss[k] * w
+                    tot["ssw"] += w if k == "cer" else 0
+        note = "（不計入）" if excluded else ""
+        print(f"  {name}{note}: 題數 {qn}/{r['gt_q']}　我們 漏字 {us['miss']:.1%}／順序 {us['order']:.1%}"
               + (f"　試卷寶 漏字 {ss['miss']:.1%}／順序 {ss['order']:.1%}" if ss else "") + f"　{m['sec']:.0f}s", flush=True)
 
     pct = lambda v: f"{v:.1%}"
@@ -205,7 +210,8 @@ def main():
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|"]
     for r in rows:
         u, s = r["us"], r["ss"] or {}
-        lines.append(f"| {r['name']} | {r['chars']} | {pct(u['miss'])} | {pct(s['miss']) if s else '-'} | "
+        name = r['name'] + ("（不計入）" if excluded_from_total(r['name']) else "")
+        lines.append(f"| {name} | {r['chars']} | {pct(u['miss'])} | {pct(s['miss']) if s else '-'} | "
                      f"{pct(u['order'])} | {pct(s['order']) if s else '-'} | "
                      f"{pct(u['extra'])} | {pct(s['extra']) if s else '-'} | {pct(u['cer'])} | {pct(s['cer']) if s else '-'} | "
                      f"{r['figs']}/{r['ss_figs'] if s else '-'}/{r['gt_figs']} | {r['sec']:.0f} |")
