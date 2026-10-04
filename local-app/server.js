@@ -9,7 +9,8 @@ const portalConfig = require("./public/server-config");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
 const { preflight } = require("./ocr-preflight");
-const { runPyOcr } = require("./py-ocr");
+const { runPyOcr, pyBin } = require("./py-ocr");
+const { execFile } = require("child_process");
 // Word 相關套件只在需要輸出時載入，避免新版 Node 啟動服務時被舊套件阻塞。
 function renderer() { return require("../code/render"); }
 
@@ -22,6 +23,7 @@ const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
 const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
 const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
 const PYOCR_OUTPUT = path.join(OUTPUT, "py-ocr");
+const LABEL_OUTPUT = path.join(OUTPUT, "label");
 let revision = "unknown";
 try { revision = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 2000 }).trim(); } catch {}
 fs.mkdirSync(OUTPUT, { recursive: true });
@@ -30,6 +32,21 @@ fs.mkdirSync(CLEAN_OUTPUT, { recursive: true });
 fs.mkdirSync(PKG_OUTPUT, { recursive: true });
 fs.mkdirSync(OCR_OUTPUT, { recursive: true });
 fs.mkdirSync(PYOCR_OUTPUT, { recursive: true });
+fs.mkdirSync(LABEL_OUTPUT, { recursive: true });
+
+function runLabel(args) {
+  return new Promise((resolve, reject) => execFile(pyBin(), [path.join(__dirname, "..", "ocr", "label_api.py"), ...args], { cwd: path.join(__dirname, ".."), maxBuffer: 48 * 1024 * 1024, timeout: 120000 }, (err, out, stderr) => {
+    let data; try { data = JSON.parse(String(out).trim().split("\n").pop()); } catch {}
+    if (err || !data || !data.ok) return reject(new Error((data && data.error) || String(stderr || err && err.message || "工作台處理失敗").slice(-400)));
+    resolve(data);
+  }));
+}
+function labelPdf(id) {
+  if (!/^[a-f0-9]{24}$/i.test(String(id || ""))) throw new Error("無效的工作編號");
+  const source = path.join(LABEL_OUTPUT, id, "source.pdf");
+  if (!fs.existsSync(source)) throw new Error("找不到上傳的 PDF");
+  return source;
+}
 
 function send(res, code, type, body) {
   res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
@@ -67,6 +84,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
     }
+    if (req.method === "GET" && url.pathname === "/label.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "label.html")));
     if (req.method === "GET" && ["/api-client.js", "/server-config.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
@@ -77,6 +95,60 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
         ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word", "py-ocr"] });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/label/list") {
+      return sendJson(res, 200, await runLabel(["list"]));
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/upload") {
+      const { dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少 PDF" });
+      const id = require("crypto").randomBytes(12).toString("hex");
+      const directory = path.join(LABEL_OUTPUT, id);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "source.pdf"), Buffer.from(dataBase64, "base64"));
+      return sendJson(res, 200, { ok: true, id });
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/render") {
+      const { id, page } = JSON.parse(await readBody(req) || "{}");
+      return sendJson(res, 200, await runLabel(["render", "--pdf", labelPdf(id), "--page", String(Number(page) || 1)]));
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/save-mask") {
+      const { id, page, mask } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!mask) return sendJson(res, 400, { ok: false, error: "缺少遮罩" });
+      const temporary = path.join(LABEL_OUTPUT, safeJobId(id) || "bad", "mask.png");
+      fs.writeFileSync(temporary, Buffer.from(String(mask).split(",").pop(), "base64"));
+      return sendJson(res, 200, await runLabel(["save-mask", "--pdf", labelPdf(id), "--page", String(Number(page) || 1), "--mask", temporary]));
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/draft") {
+      const { job } = JSON.parse(await readBody(req) || "{}");
+      return sendJson(res, 200, await runLabel(["draft", "--job", safeJobId(job) || ""]));
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/save-questions") {
+      const { job, data } = JSON.parse(await readBody(req) || "{}");
+      const temporary = path.join(LABEL_OUTPUT, "questions-" + Date.now() + ".json");
+      fs.writeFileSync(temporary, JSON.stringify(data || {}));
+      try {
+        return sendJson(res, 200, await runLabel(["save-questions", "--job", safeJobId(job) || "", "--data", temporary]));
+      } finally {
+        try { fs.unlinkSync(temporary); } catch {}
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/label/rebuild") {
+      const { job } = JSON.parse(await readBody(req) || "{}");
+      const result = await runLabel(["rebuild", "--job", safeJobId(job) || ""]);
+      return sendJson(res, 200, { ...result, downloadUrl: `/api/label/download?job=${encodeURIComponent(job)}&file=${encodeURIComponent(result.docx)}` });
+    }
+    if (req.method === "GET" && url.pathname === "/api/label/download") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const file = url.searchParams.get("file") || "";
+      const base = path.join(PYOCR_OUTPUT, job || "", "result");
+      const target = path.resolve(base, file);
+      if (!job || !target.startsWith(base + path.sep) || !target.endsWith(".docx") || !fs.existsSync(target)) {
+        return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      }
+      res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(target))}` });
+      return fs.createReadStream(target).pipe(res);
     }
 
     // --- 上傳 PDF/Word/文字檔 → 取出純文字（給前端放進考卷欄位確認後再產詳解）---

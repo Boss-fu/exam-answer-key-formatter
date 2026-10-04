@@ -40,3 +40,9 @@ ocr/holdout/
 # 去筆跡訓練資料（含學生考卷）與模型輸出
 ocr/dehand/data/
 ocr/dehand/runs/
+ocr/labels/
+
+# Codex 執行時產生的暫存檔、ONNX 外部權重
+:memory:*
+ocr/models/*.onnx.data
+ocr/labels/

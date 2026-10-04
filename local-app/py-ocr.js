@@ -48,4 +48,4 @@ function runPyOcr({ sourcePath, outDir, dpi = 350, timeout = 900000 }) {
   });
 }
 
-module.exports = { runPyOcr };
+module.exports = { runPyOcr, pyBin };

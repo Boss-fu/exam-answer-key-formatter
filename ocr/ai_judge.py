@@ -120,6 +120,9 @@ CHAIN = [b.strip() for b in os.environ.get("AI_CHAIN", "claude,codex").split(","
 def judge(pyexam_dir, backend="claude", force=False):
     """backend="auto"：照 CHAIN 順序接力（預設 Claude → Codex），第一個成功的結果另存 ai_auto.json；
     全部失敗就丟 RuntimeError，呼叫端退回 Python 規則（照樣出 Word）。"""
+    human = os.path.join(pyexam_dir, "ai_human.json")
+    if os.path.exists(human):
+        return json.load(open(human, encoding="utf-8"))
     if backend == "auto":
         out = os.path.join(pyexam_dir, "ai_auto.json")
         if os.path.exists(out) and not force:

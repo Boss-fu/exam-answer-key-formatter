@@ -9,7 +9,6 @@
 """
 import base64
 import glob
-import hashlib
 import http.server
 import json
 import os
@@ -24,7 +23,7 @@ import pymupdf
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import apply as dehand  # noqa: E402
-from pairs_build import key  # noqa: E402
+import manual_store  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "_manual")
 PORT = int(os.environ.get("PORT", 8790))
@@ -37,10 +36,8 @@ def collect(args):
     for a in args:
         pdfs += sorted(glob.glob(os.path.join(a, "**", "*.pdf"), recursive=True)) if os.path.isdir(a) else [a]
     for p in pdfs:
-        stem = re.sub(r"[\\/:*?\"<>|\s]+", "_", os.path.splitext(os.path.basename(p))[0])[:50]
-        stem += "_" + hashlib.md5(p.encode()).hexdigest()[:4]
         for i in range(len(pymupdf.open(p))):
-            PAGES.append((p, i, f"{stem}_p{i + 1}"))
+            PAGES.append((p, i, manual_store.manual_stem(p, i + 1)))
 
 
 def png64(img):
@@ -158,14 +155,9 @@ class H(http.server.BaseHTTPRequestHandler):
         data = self.rfile.read(int(self.headers["Content-Length"])).decode()
         mk = cv2.imdecode(np.frombuffer(base64.b64decode(data.split(",", 1)[1]), np.uint8), cv2.IMREAD_GRAYSCALE)
         g, _, _ = load(k)
-        os.makedirs(OUT, exist_ok=True)
-        stem = PAGES[k][2]
-        cv2.imwrite(os.path.join(OUT, stem + "_x.png"), g)
-        cv2.imwrite(os.path.join(OUT, stem + "_m.png"), (mk > 127).astype(np.uint8) * 255)
-        mpath = os.path.join(OUT, "manifest.json")      # 考卷分組跟自動配對同一套（train.py 切驗證集時同卷不跨組）
-        man = json.load(open(mpath, encoding="utf-8")) if os.path.exists(mpath) else {}
-        man[stem] = hashlib.md5(key(os.path.basename(PAGES[k][0])).encode()).hexdigest()[:8]
-        json.dump(man, open(mpath, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        manual_store.save_manual_page(
+            OUT, PAGES[k][0], PAGES[k][1] + 1, g, (mk > 127).astype(np.uint8) * 255
+        )
         self.send("{}")
 
 
