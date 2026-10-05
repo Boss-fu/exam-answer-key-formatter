@@ -86,13 +86,17 @@ def load_pages(data):
     pages = []
     sources = [("real", os.path.join(data, "*", "*_x.png")),
                ("manual", os.path.join(data, "_manual", "*_x.png")),
-               ("synth", os.path.join(data, "_synth", "*", "*_x.png"))]
+               ("synth", os.path.join(data, "_synth", "*", "*_x.png")),
+               ("pseudo", os.path.join(data, "_pseudo", "*", "*_x.png"))]
     synth_path = os.path.join(data, "_synth", "manifest.json")
     synth = json.load(open(synth_path, encoding="utf-8")) if os.path.exists(synth_path) else []
     synth_group = {(m["pair"], str(m["page"])): m["group"] for m in synth}
+    pseudo_path = os.path.join(data, "_pseudo", "manifest.json")
+    pseudo = json.load(open(pseudo_path, encoding="utf-8")) if os.path.exists(pseudo_path) else []
+    pseudo_group = {(m["pair"], str(m["page"])): m["group"] for m in pseudo}
     for source, pat in sources:
       for x in sorted(glob.glob(pat)):
-        if source == "real" and os.path.basename(os.path.dirname(x)) in ("_manual", "_synth", "_strokes"):
+        if source == "real" and os.path.basename(os.path.dirname(x)) in ("_manual", "_synth", "_pseudo", "_strokes"):
             continue                             # 人工/合成頁由各自的來源讀，不重複
         m = x[:-6] + "_m.png"
         if not os.path.exists(m):
@@ -103,6 +107,8 @@ def load_pages(data):
             grp = manual.get(stem, "manual:" + re.sub(r"_p\d+$", "", stem))   # 跟自動配對同一份考卷＝同一組
         elif source == "synth":
             grp = synth_group.get((pair, stem), "synth:" + pair)
+        elif source == "pseudo":
+            grp = pseudo_group.get((pair, stem), "pseudo:" + pair)
         else:
             grp = group.get((pair, stem[1:]), pair)
         img, msk = cv2.imread(x, cv2.IMREAD_GRAYSCALE), cv2.imread(m, cv2.IMREAD_GRAYSCALE) > 127
@@ -113,7 +119,7 @@ def load_pages(data):
         if os.path.exists(qp):                   # 題號區（合成時記錄）打包進 lab 的 bit2，不另佔記憶體
             lab |= ((cv2.imread(qp, cv2.IMREAD_GRAYSCALE) > 127) & ((lab & 1) == 0)).astype(np.uint8) << 2
         pages.append({"x": img, "lab": lab, "nhand": int(msk.sum()), "group": grp, "hasq": os.path.exists(qp),
-                      "w": 2.0 if source == "manual" else (.7 if source == "synth" else 1.0),
+                      "w": 2.0 if source == "manual" else (.7 if source == "synth" else (.8 if source == "pseudo" else 1.0)),
                       "source": source, "name": f"{pair}/{stem}"})
     return pages
 
@@ -192,7 +198,7 @@ def evaluate(model, pages, dev):
 def group_metrics(model, pages, dev):
     """A=真實配對、B=合成、C=人工；各自獨立挑安全門檻並留下可審核表。"""
     out = {}
-    for key, label in (("real", "A_real"), ("synth", "B_synth"), ("manual", "C_manual")):
+    for key, label in (("real", "A_real"), ("synth", "B_synth"), ("manual", "C_manual"), ("pseudo", "D_pseudo")):
         subset = [p for p in pages if p["source"] == key]
         if subset:
             best, table = evaluate(model, subset, dev)

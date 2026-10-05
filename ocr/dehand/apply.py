@@ -1,6 +1,7 @@
-"""去筆跡（推論）：pyexam 在 OCR 之前呼叫 erase(bgr, dpi)，把模型判定是黑筆筆跡的像素塗白。
+"""去筆跡（推論）：pyexam 在 OCR 之前呼叫 erase(bgr, dpi)，把筆跡像素塗白。
 
-模型：ocr/models/dehand.onnx ＋ dehand.json（ocr/dehand/train.py 訓練產生）。沒有模型或 DEHAND=0 時什麼都不做。
+DEHAND_MODE=model|rule|both（預設 both）。rule 是 300dpi 的淡鉛筆規則；模型仍在
+150dpi 推論。沒有模型時 rule 仍可獨立使用；DEHAND=0 時什麼都不做。
 在 150dpi 灰階上推論（跟訓練一致），遮罩放大回原解析度、外擴 1px 把筆畫邊緣一起清。
 只塗「本來就是墨跡」的像素，不會在空白處亂畫；回傳 (清過的影像, 被清掉的像素比例)。
 """
@@ -46,15 +47,32 @@ def predict(gray150, sess, tile=1024, pad=32):
 
 
 def erase(bgr, dpi=300):
-    s = _load()
-    if not s:
+    if os.environ.get("DEHAND", "1") == "0":
         return bgr, 0.0
-    sess, th, mdpi = s
     H, W = bgr.shape[:2]
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    small = cv2.resize(gray, (max(16, round(W * mdpi / dpi)), max(16, round(H * mdpi / dpi))), interpolation=cv2.INTER_AREA)
-    prob = predict(small, sess)
-    mask = cv2.resize((prob >= th).astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST)
+    mode = os.environ.get("DEHAND_MODE", "both").lower()
+    if mode not in ("model", "rule", "both"):
+        raise ValueError("DEHAND_MODE 必須是 model、rule 或 both")
+    mask = np.zeros((H, W), np.uint8)
+    if mode in ("rule", "both"):
+        try:
+            from .pencil_rule import detect
+        except ImportError:                 # 直接執行 dehand 工具時沒有 package context
+            from pencil_rule import detect
+        # 規則以 300dpi 為設計基準；非 300dpi 先等比換算再放回。
+        if dpi == 300:
+            mask |= (detect(gray) > 0).astype(np.uint8)
+        else:
+            g300 = cv2.resize(gray, (max(1, round(W * 300 / dpi)), max(1, round(H * 300 / dpi))), interpolation=cv2.INTER_CUBIC)
+            mask |= cv2.resize((detect(g300) > 0).astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST)
+    if mode in ("model", "both"):
+        s = _load()
+        if s:
+            sess, th, mdpi = s
+            small = cv2.resize(gray, (max(16, round(W * mdpi / dpi)), max(16, round(H * mdpi / dpi))), interpolation=cv2.INTER_AREA)
+            prob = predict(small, sess)
+            mask |= cv2.resize((prob >= th).astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST)
     if not mask.any():
         return bgr, 0.0
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
