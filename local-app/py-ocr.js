@@ -20,11 +20,12 @@ function pyBin() {
 }
 
 // 回傳 { text, txtFile, docxFile, reviewFile, figures[], stats, log }（檔名為 outDir 內相對路徑）。
-function runPyOcr({ sourcePath, outDir, dpi = 350, timeout = 900000 }) {
+function runPyOcr({ sourcePath, outDir, dpi = 350, timeout = 900000, progress = false }) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(outDir, { recursive: true });
     const args = [SCRIPT, sourcePath, "-o", outDir, "--dpi", String(dpi)];
-    execFile(pyBin(), args, { cwd: REPO, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const env = progress ? { ...process.env, OCR_PROGRESS: "1" } : process.env;
+    execFile(pyBin(), args, { cwd: REPO, env, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
         if (err.code === "ENOENT") {
           return reject(new Error("主機找不到 Python（或 PY_BIN 指定的直譯器）。請在主機執行 bash ocr/setup_env.sh 準備環境。"));

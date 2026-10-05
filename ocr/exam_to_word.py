@@ -17,6 +17,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 
+def progress(out_dir, started, stage, msg, page=0, pages=0, img=None):
+    """畫面回報是附加功能，任何寫檔問題都不可影響轉檔。"""
+    if os.environ.get("OCR_PROGRESS") != "1":
+        return
+    try:
+        event = {"t": round(time.time() - started, 1), "stage": stage,
+                 "page": page, "pages": pages, "msg": msg, "img": img}
+        with open(os.path.join(out_dir, "progress.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
@@ -28,23 +41,32 @@ def main():
     import to_zizi_word
 
     t0 = time.time()
-    r = pyexam.process(a.src, a.out, dpi=a.dpi)
-    t_ocr = time.time() - t0
-    ai_used, ai_note = None, ""
-    if a.ai != "none":
-        import ai_judge
-        try:
-            res = ai_judge.judge(a.out, a.ai)
-            ai_used = res.get("_meta", {}).get("backend", a.ai)
-        except Exception as e:                       # 額度用完、沒登入、沒網路：照樣出 Word，只是改用規則切題
-            ai_note = str(e)[:200]
-    t_ai = time.time() - t0 - t_ocr
-    docx, review, st = to_zizi_word.build(a.out, os.path.join(a.out, "word"), dpi=a.dpi,
-                                          src_name=os.path.basename(a.src), ai=a.ai if ai_used else None)
+    try:
+        r = pyexam.process(a.src, a.out, dpi=a.dpi)
+        t_ocr = time.time() - t0
+        ai_used, ai_note = None, ""
+        if a.ai != "none":
+            progress(a.out, t0, "ai", "正在判斷題目")
+            import ai_judge
+            try:
+                res = ai_judge.judge(a.out, a.ai)
+                ai_used = res.get("_meta", {}).get("backend", a.ai)
+            except Exception as e:                   # 額度用完、沒登入、沒網路：照樣出 Word，只是改用規則切題
+                ai_note = str(e)[:200]
+            progress(a.out, t0, "ai", "題目判斷完成")
+        t_ai = time.time() - t0 - t_ocr
+        progress(a.out, t0, "word", "正在組成 Word")
+        docx, review, st = to_zizi_word.build(a.out, os.path.join(a.out, "word"), dpi=a.dpi,
+                                              src_name=os.path.basename(a.src), ai=a.ai if ai_used else None)
+        progress(a.out, t0, "word", "Word 已組成")
+    except Exception as e:
+        progress(a.out, t0, "error", str(e)[:200])
+        raise
     if ai_note:
         with open(review, "a", encoding="utf-8") as f:
             f.write(f"・這次沒有用到 AI（{ai_note}），題目邊界改用規則判斷，請特別檢查題號\n")
     print("\n".join(r["report"]))
+    progress(a.out, t0, "done", "處理完成")
     print(json.dumps({"docx": docx, "review": review, "questions": st["questions"], "figures": st["figures"],
                       "tables": st["tables"], "ai": ai_used, "ai_error": ai_note,
                       "sec_ocr": round(t_ocr, 1), "sec_ai": round(t_ai, 1), "sec_total": round(time.time() - t0, 1)},

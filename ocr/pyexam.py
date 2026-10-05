@@ -24,6 +24,7 @@ PP-OCRv5 路徑的後處理（見 ocr_page_ppocr_records）：
     python3 ocr/pyexam.py 某考卷.pdf --dpi 400 --page 1  # 只試第1頁、提高解析度
 """
 import argparse
+import json
 import os
 import re
 import sys
@@ -47,6 +48,37 @@ try:
     import pytesseract
 except Exception:
     pytesseract = None
+
+
+def _progress(out_dir, started, stage, page=0, pages=0, msg="", img=None):
+    """Best-effort 即時狀態：絕不能因為畫面回報失敗而中斷 OCR。"""
+    if os.environ.get("OCR_PROGRESS") != "1":
+        return
+    try:
+        event = {"t": round(time.time() - started, 1), "stage": stage,
+                 "page": page, "pages": pages, "msg": msg, "img": img}
+        with open(os.path.join(out_dir, "progress.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _save_preview(image, out_dir, name):
+    """存給處理畫面的輕量卷面圖；失敗時回傳 None。"""
+    try:
+        if cv2 is None or image is None or image.size == 0:
+            return None
+        previews = os.path.join(out_dir, "previews")
+        os.makedirs(previews, exist_ok=True)
+        h, w = image.shape[:2]
+        if w > 900:
+            image = cv2.resize(image, (900, max(1, round(h * 900 / w))), interpolation=cv2.INTER_AREA)
+        filename = f"{name}.jpg"
+        if not cv2.imwrite(os.path.join(previews, filename), image, [cv2.IMWRITE_JPEG_QUALITY, 70]):
+            return None
+        return f"previews/{filename}"
+    except Exception:
+        return None
 
 
 # ---------- 影像前處理（OpenCV）----------
@@ -624,6 +656,33 @@ def postprocess_line(text, conf=1.0, low_conf=LOW_CONF):
     return text
 
 
+def table_has_question_or_paragraph(t, items):
+    """表格外框不能把整段題文吞掉。
+
+    有些考卷會把一組題目或題組圖用大框圈起來；形態學能看見外框與
+    圖中的格線，卻無法分辨它和真正的表格。題目框的題號必須是連續的
+    且靠整個外框的左緣；表格內欄位的 1.、2. 說明文字不可誤觸發。
+    沒有內部直格線的外框，才以連續長正文作為題目框的輔助訊號。
+    """
+    lines = group_into_lines(items)
+    bx0, _, bx1, _ = t["box"]
+    left_edge = bx0 + 0.25 * (bx1 - bx0)
+    qnos = []
+    long_lines = 0
+    for line in lines:
+        text = normalize_qno(line["text"])
+        qno = qno_of_line(text)
+        if qno is not None and line["x0"] <= left_edge:
+            qnos.append(qno)
+        if len(re.sub(r"\s+", "", text)) >= 20:
+            long_lines += 1
+    if any(b == a + 1 for a, b in zip(qnos, qnos[1:])):
+        return True
+    # 幾乎只有外框的單欄、兩列框才用長段落輔助；有內部格線時，
+    # 長段落可能只是其中一欄的說明文字。
+    return len(t["xs"]) <= 2 and len(t["ys"]) <= 3 and long_lines >= 2
+
+
 def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=()):
     """PP-OCRv5 一頁：整欄辨識 → 圖內文字過濾 → 重組成行 → 後處理。
     回傳 (records, figs)。record = {text, conf, kind('text'|'fig'|'sep'), x0,y0,x1,y1}，
@@ -652,6 +711,8 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
     for t in detect_tables(bgr, dpi):
         bx0, by0, bx1, by1 = t["box"]
         inside = [it for it in items if bx0 <= _center(it)[0] <= bx1 and by0 <= _center(it)[1] <= by1]
+        if table_has_question_or_paragraph(t, inside):
+            continue
         rows = fill_table(t, inside, bgr)
         cells = [c for r in rows for c in r]
         if not cells or sum(1 for c in cells if c[0]) < 0.5 * len(cells):
@@ -848,15 +909,22 @@ def tidy_text(txt):
 # ---------- 主流程 ----------
 def _ocr_one_page(job):
     """單頁 OCR（可在子程序裡跑）：回傳這一頁的文字區塊、報告、表格、版面位置；附圖直接寫檔。"""
-    pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q = job
+    pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q, pages, started = job
     n = i + 1
     page = pymupdf.open(pdf_path)[i]
+    # 即使是有文字層的 PDF，也輸出卷面小圖，讓處理畫面逐頁可見。
+    rendered = page_to_bgr(page, dpi)
+    orig_img = _save_preview(rendered, out_dir, f"p{n}_orig")
+    _progress(out_dir, started, "render", n, pages, "已顯示原始卷面", orig_img)
     native = page.get_text("text").strip()
     if len(native) > 40:  # 有真文字層：直接用，免 OCR
+        clean_img = _save_preview(rendered, out_dir, f"p{n}_clean")
+        _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
+        _progress(out_dir, started, "ocr", n, pages, "已讀取本頁文字", clean_img)
         return {"n": n, "text": f"\n【第 {n} 頁（數位文字層）】\n{native}", "report": f"p{n}: 文字層 {len(native)} 字（免 OCR）",
                 "tables": {}, "geo": [], "lines": []}
     # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
-    bgr = page_to_bgr(page, dpi)
+    bgr = rendered
     t0 = time.time()
     turned, inked = 0, 0.0
     if eng_name == "ppocr":
@@ -864,6 +932,8 @@ def _ocr_one_page(job):
         bgr, inked = remove_color_ink(bgr)
         bgr, dehanded = dehand.erase(bgr, dpi)       # 黑筆筆跡（模型判斷，沒模型時不動）
         inked += dehanded
+    clean_img = _save_preview(bgr, out_dir, f"p{n}_clean")
+    _progress(out_dir, started, "clean", n, pages, "已轉正並清除筆跡", clean_img)
     binimg = preprocess(bgr, upscale=upscale)
     H, W = bgr.shape[:2]
     lines = []
@@ -893,6 +963,7 @@ def _ocr_one_page(job):
     fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
     for g in geo:
         g["page"] = n
+    _progress(out_dir, started, "ocr", n, pages, "已辨識本頁文字", clean_img)
     return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines,
             "tables": {f"p{n}_t{k}": {"rows": t["rows"], "widths": t["widths"]} for k, t in enumerate(tables, 1)},
             "geo": geo,
@@ -909,19 +980,20 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
     base = os.path.splitext(os.path.basename(pdf_path))[0]
     eng_name = resolve_engine(engine)
     pages = [i for i in range(n_pages) if not only_page or i + 1 == only_page]
+    started = time.time()
     # 預設逐頁：實測 4 頁平行反而較慢（61s→71s），OCR 引擎本身已吃滿所有核心；多台小主機或 GPU 再設 OCR_WORKERS>1
     workers = int(os.environ.get("OCR_WORKERS", "1"))
     results = []
     if workers > 1 and len(pages) > 1:
         import concurrent.futures as cf
         import multiprocessing as mp
-        jobs = [(pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, None) for i in pages]
+        jobs = [(pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, None, len(pages), started) for i in pages]
         with cf.ProcessPoolExecutor(max_workers=min(workers, len(pages)), mp_context=mp.get_context("spawn")) as ex:
             results = list(ex.map(_ocr_one_page, jobs))
     else:
         prev_q = None
         for i in pages:
-            r = _ocr_one_page((pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q))
+            r = _ocr_one_page((pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q, len(pages), started))
             prev_q = next((q for q in (qno_of_line(l) for l in reversed(r["lines"])) if q is not None), prev_q)
             results.append(r)
     results.sort(key=lambda r: r["n"])

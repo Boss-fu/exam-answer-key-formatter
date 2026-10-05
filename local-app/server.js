@@ -88,6 +88,23 @@ function pyOcrResultFile(job, kind) {
 function pyOcrDownloadUrl(job, kind) {
   return pyOcrResultFile(job, kind) ? `/api/py-ocr/download?job=${job}&kind=${kind}` : null;
 }
+function pyOcrResponse(job, result) {
+  let reviewText = "";
+  if (result.reviewFile) { try { reviewText = fs.readFileSync(path.join(PYOCR_OUTPUT, job, "result", result.reviewFile), "utf8"); } catch {} }
+  return { ok: true, job, text: result.text, log: result.log, stats: result.stats, reviewText,
+    reviewUrl: result.reviewFile ? `/api/py-ocr/download?job=${job}&kind=review` : null,
+    figures: result.figures.map((name) => ({ name, url: `/api/py-ocr/figure?job=${job}&name=${encodeURIComponent(name)}` })),
+    txtUrl: result.txtFile ? `/api/py-ocr/download?job=${job}&kind=txt` : null,
+    docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null };
+}
+function pyOcrJobPaths(job) {
+  const jobDir = path.join(PYOCR_OUTPUT, job);
+  return { jobDir, resultDir: path.join(jobDir, "result") };
+}
+function readProgress(resultDir, since) {
+  try { return fs.readFileSync(path.join(resultDir, "progress.jsonl"), "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)); }
+  catch { return []; }
+}
 
 const server = http.createServer(async (req, res) => {
   if (!applyCors(req, res)) return;
@@ -303,7 +320,56 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(file).pipe(res);
     }
 
-    // --- 掃描卷轉茲茲 Word：Python 做 OCR／裁圖／組版，AI 只判斷一次題目邊界與錯字（約 6k token；AI 不能用就改規則）---
+    // --- 即時掃描卷：立即建立工作，後續由 progress 取得新的畫面與步驟。---
+    if (req.method === "POST" && url.pathname === "/api/py-ocr/start") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(filename || "").toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "只接受 PDF、PNG 或 JPG 檔案" });
+      const job = require("crypto").randomBytes(12).toString("hex");
+      const { jobDir, resultDir } = pyOcrJobPaths(job);
+      fs.mkdirSync(resultDir, { recursive: true });
+      const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
+      fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
+      fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "running" }));
+      runPyOcr({ sourcePath: source, outDir: resultDir, progress: true }).then((result) => {
+        const report = { txt: result.txtFile, docx: result.docxFile, review: result.reviewFile, figures: result.figures, stats: result.stats };
+        fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+        fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "done" }));
+      }).catch((error) => {
+        fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "error", error: error.message }));
+      });
+      return sendJson(res, 200, { ok: true, jobId: job });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/progress") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+      if (!job) return sendJson(res, 400, { ok: false, error: "無效的工作編號" });
+      const { jobDir, resultDir } = pyOcrJobPaths(job);
+      const events = readProgress(resultDir).slice(since);
+      let state = {}; try { state = JSON.parse(fs.readFileSync(path.join(jobDir, "state.json"), "utf8")); } catch {}
+      if (state.status === "error") return sendJson(res, 200, { ok: false, events, next: since + events.length, done: true, error: state.error || "處理失敗" });
+      if (state.status !== "done") return sendJson(res, 200, { ok: true, events, next: since + events.length, done: false });
+      let report; try { report = JSON.parse(fs.readFileSync(path.join(jobDir, "report.json"), "utf8")); } catch { report = {}; }
+      const files = fs.readdirSync(resultDir);
+      const txtFile = report.txt || files.find((f) => f.toLowerCase().endsWith(".txt"));
+      let text = ""; if (txtFile) { try { text = fs.readFileSync(path.join(resultDir, txtFile), "utf8"); } catch {} }
+      return sendJson(res, 200, { ...pyOcrResponse(job, { text, log: "", txtFile, docxFile: report.docx, reviewFile: report.review, figures: report.figures || [], stats: report.stats || {} }), events, next: since + events.length, done: true });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/preview") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const page = Number(url.searchParams.get("page"));
+      const kind = url.searchParams.get("kind");
+      if (!job || !Number.isInteger(page) || page < 1 || !["orig", "clean"].includes(kind)) return send(res, 400, "text/plain; charset=utf-8", "Invalid request");
+      const base = path.join(PYOCR_OUTPUT, job, "result", "previews");
+      const file = path.resolve(base, `p${page}_${kind}.jpg`);
+      if (!file.startsWith(base + path.sep) || !fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      return send(res, 200, "image/jpeg", fs.readFileSync(file));
+    }
+
+    // --- 掃描卷轉茲茲 Word：保留同步流程，供桌面版與舊前端相容。---
     if (req.method === "POST" && url.pathname === "/api/py-ocr") {
       const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
@@ -318,13 +384,7 @@ const server = http.createServer(async (req, res) => {
       const result = await runPyOcr({ sourcePath: source, outDir: resultDir });
       const report = { txt: result.txtFile, docx: result.docxFile, review: result.reviewFile, figures: result.figures, stats: result.stats };
       fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
-      let reviewText = "";
-      if (result.reviewFile) { try { reviewText = fs.readFileSync(path.join(resultDir, result.reviewFile), "utf8"); } catch {} }
-      return sendJson(res, 200, { ok: true, job, text: result.text, log: result.log, stats: result.stats, reviewText,
-        reviewUrl: result.reviewFile ? `/api/py-ocr/download?job=${job}&kind=review` : null,
-        figures: result.figures.map((name) => ({ name, url: `/api/py-ocr/figure?job=${job}&name=${encodeURIComponent(name)}` })),
-        txtUrl: result.txtFile ? `/api/py-ocr/download?job=${job}&kind=txt` : null,
-        docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null });
+      return sendJson(res, 200, pyOcrResponse(job, result));
     }
 
     if (req.method === "POST" && url.pathname === "/api/py-ocr/job-page") {
