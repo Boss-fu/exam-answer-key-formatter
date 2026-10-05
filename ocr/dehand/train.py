@@ -80,26 +80,41 @@ from pairs_build import ink  # noqa: E402  墨跡判定跟產生資料時同一�
 def load_pages(data):
     man = json.load(open(os.path.join(data, "manifest.json"), encoding="utf-8")) if os.path.exists(
         os.path.join(data, "manifest.json")) else []
-    group = {(m["pair"], m["page"]): m["group"] for m in man}
+    group = {(m["pair"], str(m["page"])): m["group"] for m in man}
     mp = os.path.join(data, "_manual", "manifest.json")
     manual = json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else {}
     pages = []
-    for x in sorted(glob.glob(os.path.join(data, "*", "*_x.png"))):
+    sources = [("real", os.path.join(data, "*", "*_x.png")),
+               ("manual", os.path.join(data, "_manual", "*_x.png")),
+               ("synth", os.path.join(data, "_synth", "*", "*_x.png"))]
+    synth_path = os.path.join(data, "_synth", "manifest.json")
+    synth = json.load(open(synth_path, encoding="utf-8")) if os.path.exists(synth_path) else []
+    synth_group = {(m["pair"], str(m["page"])): m["group"] for m in synth}
+    for source, pat in sources:
+      for x in sorted(glob.glob(pat)):
+        if source == "real" and os.path.basename(os.path.dirname(x)) in ("_manual", "_synth", "_strokes"):
+            continue                             # 人工/合成頁由各自的來源讀，不重複
         m = x[:-6] + "_m.png"
         if not os.path.exists(m):
             continue
         pair = os.path.basename(os.path.dirname(x))
         stem = os.path.basename(x)[:-6]
-        if pair == "_manual":                    # 人工修正頁：<檔名>_p<頁>，同一份考卷同一組
+        if source == "manual":                    # 人工修正頁：<檔名>_p<頁>，同一份考卷同一組
             grp = manual.get(stem, "manual:" + re.sub(r"_p\d+$", "", stem))   # 跟自動配對同一份考卷＝同一組
+        elif source == "synth":
+            grp = synth_group.get((pair, stem), "synth:" + pair)
         else:
-            grp = group.get((pair, int(stem[1:])), pair)
+            grp = group.get((pair, stem[1:]), pair)
         img, msk = cv2.imread(x, cv2.IMREAD_GRAYSCALE), cv2.imread(m, cv2.IMREAD_GRAYSCALE) > 127
         near = cv2.dilate(msk.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         prt = ink(img) & ~near                   # 印刷墨跡；筆跡周圍 2px 是模糊帶（筆跡壓到印刷、遮罩邊緣），不算印刷也不算筆跡
         lab = msk.astype(np.uint8) | (prt.astype(np.uint8) << 1)     # bit0＝筆跡、bit1＝印刷（省記憶體：一頁一張）
-        pages.append({"x": img, "lab": lab, "nhand": int(msk.sum()), "group": grp,
-                      "w": 2.0 if pair == "_manual" else 1.0, "name": f"{pair}/{stem}"})
+        qp = x[:-6] + "_q.png"
+        if os.path.exists(qp):                   # 題號區（合成時記錄）打包進 lab 的 bit2，不另佔記憶體
+            lab |= ((cv2.imread(qp, cv2.IMREAD_GRAYSCALE) > 127) & ((lab & 1) == 0)).astype(np.uint8) << 2
+        pages.append({"x": img, "lab": lab, "nhand": int(msk.sum()), "group": grp, "hasq": os.path.exists(qp),
+                      "w": 2.0 if source == "manual" else (.7 if source == "synth" else 1.0),
+                      "source": source, "name": f"{pair}/{stem}"})
     return pages
 
 
@@ -156,7 +171,7 @@ def evaluate(model, pages, dev):
     best = None
     table = []
     for th in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.93, 0.95, 0.97, 0.98, 0.99]:
-        tp = hand = er = prt = 0
+        tp = hand = er = prt = qer = qpix = 0
         for pr, p in probs:
             pred = pr >= th
             hm, pm = (p["lab"] & 1) > 0, (p["lab"] & 2) > 0
@@ -164,11 +179,25 @@ def evaluate(model, pages, dev):
             tp += (pred & hm).sum()
             prt += pm.sum()
             er += (pred & pm).sum()
+            if p.get("hasq"):
+                qm = (p["lab"] & 4) > 0
+                qpix += qm.sum(); qer += (pred & qm).sum()
         rec, ers = tp / max(1, hand), er / max(1, prt)
-        table.append((round(float(th), 3), float(rec), float(ers)))
+        table.append((round(float(th), 3), float(rec), float(ers), float(qer / max(1, qpix))))
         if ers < MAX_ERASE and (best is None or rec > best[1]):
-            best = (round(float(th), 3), float(rec), float(ers))
+            best = (round(float(th), 3), float(rec), float(ers), float(qer / max(1, qpix)))
     return best, table
+
+
+def group_metrics(model, pages, dev):
+    """A=真實配對、B=合成、C=人工；各自獨立挑安全門檻並留下可審核表。"""
+    out = {}
+    for key, label in (("real", "A_real"), ("synth", "B_synth"), ("manual", "C_manual")):
+        subset = [p for p in pages if p["source"] == key]
+        if subset:
+            best, table = evaluate(model, subset, dev)
+            out[label] = {"pages": len(subset), "best": best, "table": table}
+    return out
 
 
 # ---------------------------------------------------------------- 主程式
@@ -180,6 +209,8 @@ def main():
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--val-frac", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--synth-ratio", type=float, default=.7, help="合成頁相對於真實頁的抽樣權重")
+    ap.add_argument("--out", default=None, help="run 輸出資料夾；預設 ocr/dehand/runs/<時間>")
     a = ap.parse_args()
     rng = random.Random(a.seed)
     torch.manual_seed(a.seed)
@@ -195,7 +226,7 @@ def main():
     tr = [p for p in pages if p["group"] not in val_g]
     va = [p for p in pages if p["group"] in val_g]
     print(f"裝置 {dev}；訓練 {len(tr)} 頁（{len(groups) - nval} 場考試）、驗證 {len(va)} 頁（{nval} 場）", flush=True)
-    weights = [p["w"] * (1 + 50 * p["nhand"] / p["lab"].size) for p in tr]   # 筆跡多的頁、人工修正頁多抽一點
+    weights = [p["w"] * (a.synth_ratio / .7 if p["source"] == "synth" else 1) * (1 + 50 * p["nhand"] / p["lab"].size) for p in tr]
 
     model = UNet().to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)
@@ -236,19 +267,19 @@ def main():
         best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
     model.load_state_dict(best_state)
     model.eval()
-    best, table = evaluate(model, va, dev)
-    os.makedirs(MODELS, exist_ok=True)
+    best, table = evaluate(model, va, dev); groups_report = group_metrics(model, va, dev)
+    out = a.out or os.path.join(HERE, "runs", time.strftime("%Y%m%d-%H%M%S")); os.makedirs(out, exist_ok=True)
     cpu_model = model.to("cpu")
-    torch.onnx.export(cpu_model, torch.ones(1, 1, 256, 256), os.path.join(MODELS, "dehand.onnx"),
+    torch.onnx.export(cpu_model, torch.ones(1, 1, 256, 256), os.path.join(out, "dehand.onnx"),
                       input_names=["x"], output_names=["logits"], opset_version=17,
                       dynamic_axes={"x": {2: "h", 3: "w"}, "logits": {2: "h", 3: "w"}})
     info = {"threshold": best[0] if best else 0.9, "dpi": 150, "recall": best[1] if best else None,
             "print_erase": best[2] if best else None, "val_groups": sorted(val_g),
-            "val_pages": [p["name"] for p in va], "train_pages": len(tr), "table": table,
+            "val_pages": [p["name"] for p in va], "train_pages": len(tr), "table": table, "validation": groups_report,
             "note": "我們自己訓練（ocr/dehand/train.py），資料來自茲茲乾淨版考卷對齊相減"}
-    json.dump(info, open(os.path.join(MODELS, "dehand.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(info, open(os.path.join(out, "dehand.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"\n完成：門檻 {info['threshold']}  召回 {info['recall']}  印刷誤擦 {info['print_erase']}"
-          f"\n（卷土重來 v1：召回 36.2%、印刷誤擦 0.49%）→ {os.path.join(MODELS, 'dehand.onnx')}")
+          f"\n（卷土重來 v1：召回 36.2%、印刷誤擦 0.49%）→ {os.path.join(out, 'dehand.onnx')}")
 
 
 if __name__ == "__main__":
