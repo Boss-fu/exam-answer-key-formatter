@@ -3,13 +3,38 @@
   "framework": null,
   "buildCommand": "",
   "installCommand": "",
-  "rewrites": [{ "source": "/raw.html", "destination": "/index.html" }],
-  "headers": [{
-    "source": "/(.*)",
-    "headers": [
-      { "key": "Cache-Control", "value": "no-cache" },
-      { "key": "X-Content-Type-Options", "value": "nosniff" },
-      { "key": "Referrer-Policy", "value": "no-referrer" }
-    ]
-  }]
+  "rewrites": [
+    {
+      "source": "/raw.html",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    },
+    {
+      "source": "/(favicon.ico|logo.png|apple-touch-icon.png)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    }
+  ]
 }
