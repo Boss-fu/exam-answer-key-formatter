@@ -14,3 +14,4 @@
 - `.claude/agents/ocr-supervisor.md`：只審不改，推 main 前審查 diff（重複實作、評測誠信、學生資料、測試證據）。
 - 在 Codex 跑：`ocr/codex_role.sh tester|supervisor|worker "任務"`，報告在 `ocr/results/codex/`。
 - 在 Codex App 裡也可以直接說「照 .claude/agents/ocr-tester.md 的角色，驗證…」。
+- 別的 AI 寫好詳解內容、要轉成茲茲 Word：照 `docs/詳解_別的AI寫內容轉Word.md`（轉換程式 `tools/詳解轉word.js`）。
