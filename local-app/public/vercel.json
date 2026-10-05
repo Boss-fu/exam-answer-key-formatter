@@ -11,7 +11,7 @@
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/((?!favicon\\.ico|logo\\.png|apple-touch-icon\\.png).*)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -28,11 +28,24 @@
       ]
     },
     {
-      "source": "/(favicon.ico|logo.png|apple-touch-icon.png)",
+      "source": "/favicon.ico",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "image/x-icon"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(logo.png|apple-touch-icon.png)",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }
