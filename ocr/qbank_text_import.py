@@ -6,6 +6,7 @@
 """
 import argparse
 import csv
+import difflib
 import re
 import subprocess
 import tempfile
@@ -91,11 +92,23 @@ def read_reference(path):
         return {int(row["題號"]): row for row in csv.DictReader(f) if row.get("題號", "").isdigit()}
 
 
+def question_stem(text):
+    """只比較題幹，避免選項排版差異影響跨來源安全合併。"""
+    text = re.split(r"\(A\)|（A）", text or "", maxsplit=1)[0]
+    return re.sub(r"\s+", "", text)
+
+
 def row_for(number, question, reference):
     row = {field: "" for field in FIELDS}
     old = reference.get(number, {})
-    for field in FIELDS:
-        row[field] = old.get(field, "")
+    # 題號相同不代表是同一份考卷；只有題幹相似時才合併答案與分類，
+    # 避免把另一份試卷的答案誤套進來。
+    similarity = difflib.SequenceMatcher(
+        None, question_stem(question), question_stem(old.get("題目", ""))
+    ).ratio() if old else 0.0
+    if similarity >= 0.80:
+        for field in FIELDS:
+            row[field] = old.get(field, "")
     row["題號"] = str(number)
     row["題目"] = question
     if not row["答案"]:
@@ -121,7 +134,8 @@ def main():
         writer.writerows(rows)
     print(f"完成：{len(rows)} 題、{len(FIELDS)} 欄 → {args.out}")
     if reference:
-        print(f"參考 CSV 對應：{sum(n in reference for n, _ in questions)}/{len(rows)} 題")
+        matched = sum(bool(row["答案"]) for row in rows)
+        print(f"參考 CSV 題幹確認後對應：{matched}/{len(rows)} 題；其餘已標記待確認")
 
 
 if __name__ == "__main__":
