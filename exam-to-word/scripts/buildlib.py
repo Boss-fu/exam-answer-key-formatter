@@ -188,7 +188,7 @@ def finish(C, out, repl=()):
     media_dir = os.path.join(BUILD, "word", "media")
     if os.path.isdir(media_dir):
         xml = ""
-        rel_ids = set(re.findall(r'\b(?:r:embed|r:id)="([^"]+)"', ""))
+        rel_ids = set()
         for root, _dirs, names in os.walk(os.path.join(BUILD, "word")):
             for name in names:
                 if name.endswith(".xml") and not name.endswith(".rels"):
