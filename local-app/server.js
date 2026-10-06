@@ -41,6 +41,20 @@ function runLabel(args) {
     resolve(data);
   }));
 }
+function runCleanExam(sourcePath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const script = path.join(__dirname, "..", "ocr", "clean_pdf.py");
+    execFile(pyBin(), [script, sourcePath, outputPath, "--dpi", "200"], {
+      cwd: path.join(__dirname, ".."), timeout: 900000, maxBuffer: 4 * 1024 * 1024
+    }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(String(stderr || err.message).slice(-600)));
+      const lines = String(stdout || "").trim().split(/\r?\n/).filter(Boolean);
+      let stats = {}; try { stats = JSON.parse(lines[lines.length - 1]); } catch {}
+      if (!stats.ok) return reject(new Error("清理器沒有回傳完成狀態"));
+      resolve(stats);
+    });
+  });
+}
 function labelPdf(id) {
   if (!/^[a-f0-9]{24}$/i.test(String(id || ""))) throw new Error("無效的工作編號");
   const source = path.join(LABEL_OUTPUT, id, "source.pdf");
@@ -118,6 +132,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
     }
     if (req.method === "GET" && url.pathname === "/label.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "label.html")));
+    if (req.method === "GET" && url.pathname === "/eraser.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "eraser.html")));
     if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
@@ -135,6 +150,38 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
         ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word", "py-ocr"] });
+    }
+
+    // --- 本機考卷清理：沿用 dehand 模型，輸出影像 PDF，不上傳外部服務 ---
+    if (req.method === "POST" && url.pathname === "/api/eraser/clean") {
+      const { filename, dataBase64 } = JSON.parse(await readBody(req, 96 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
+      const ext = path.extname(String(filename || "")).toLowerCase();
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "只接受 PDF、PNG 或 JPG 檔案" });
+      const id = require("crypto").randomBytes(12).toString("hex");
+      const dir = path.join(CLEAN_OUTPUT, id);
+      fs.mkdirSync(dir, { recursive: true });
+      const source = path.join(dir, safeSourceName(path.basename(String(filename))))
+      const output = path.join(dir, safeName(path.basename(String(filename), ext)) + "_乾淨.pdf");
+      fs.writeFileSync(source, Buffer.from(String(dataBase64), "base64"));
+      try {
+        const stats = await runCleanExam(source, output);
+        return sendJson(res, 200, { ok: true, name: path.basename(output), pages: stats.pages, clearedRatio: stats.cleared_ratio,
+          downloadUrl: `/api/eraser/download?id=${id}` });
+      } catch (error) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+        return sendJson(res, 500, { ok: false, error: error.message || "清理失敗" });
+      }
+    }
+    if (req.method === "GET" && url.pathname === "/api/eraser/download") {
+      const id = String(url.searchParams.get("id") || "");
+      if (!/^[a-f0-9]{24}$/i.test(id)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const dir = path.resolve(CLEAN_OUTPUT, id);
+      let target = null;
+      try { target = fs.readdirSync(dir).map((name) => path.join(dir, name)).find((name) => name.endsWith("_乾淨.pdf")); } catch {}
+      if (!target || !fs.existsSync(target) || !target.startsWith(dir + path.sep)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      res.writeHead(200, { "content-type": "application/pdf", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(target))}`, "cache-control": "no-store" });
+      return fs.createReadStream(target).pipe(res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/label/list") {
