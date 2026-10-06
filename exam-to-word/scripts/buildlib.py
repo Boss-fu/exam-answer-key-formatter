@@ -182,6 +182,47 @@ def finish(C, out, repl=()):
     r = open(RELS, encoding="utf-8").read()
     r = r.replace("</Relationships>", "".join(f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{tgt}"/>' for rid,tgt in img_rels) + "</Relationships>")
     open(RELS, "w", encoding="utf-8").write(r)
+    # 範本可能附帶上一份考卷的圖片。內容截斷後那些圖片不再被任何 XML 引用，
+    # 若照原樣打包，使用者下載的 Word 會帶著錯誤的舊圖，也會讓檔案無故變大。
+    # 只刪除「整個 word/ XML 都沒有引用」的 media，保留頁首頁尾與本次新插入的圖。
+    media_dir = os.path.join(BUILD, "word", "media")
+    if os.path.isdir(media_dir):
+        xml = ""
+        rel_ids = set(re.findall(r'\b(?:r:embed|r:id)="([^"]+)"', ""))
+        for root, _dirs, names in os.walk(os.path.join(BUILD, "word")):
+            for name in names:
+                if name.endswith(".xml") and not name.endswith(".rels"):
+                    try:
+                        part = open(os.path.join(root, name), encoding="utf-8").read()
+                        xml += part
+                        rel_ids.update(re.findall(r'\b(?:r:embed|r:id)="([^"]+)"', part))
+                    except UnicodeDecodeError:
+                        pass
+        relationships = ""
+        rel_files = []
+        for root, _dirs, names in os.walk(os.path.join(BUILD, "word")):
+            for name in names:
+                if name.endswith(".rels"):
+                    try:
+                        rel_path = os.path.join(root, name)
+                        rel_text = open(rel_path, encoding="utf-8").read()
+                        rel_files.append((rel_path, rel_text))
+                        relationships += rel_text
+                    except UnicodeDecodeError:
+                        pass
+        def keep_rel(match):
+            tag, rid, target = match.group(0), match.group(1), match.group(2)
+            return "" if target.startswith("media/") and rid not in rel_ids else tag
+        for rel_path, rel_text in rel_files:
+            rel_text = re.sub(r'<Relationship\b(?=[^>]*\bId="([^"]+)")(?=[^>]*\bTarget="([^"]+)")[^>]*/>', keep_rel, rel_text)
+            open(rel_path, "w", encoding="utf-8").write(rel_text)
+        relationships = "".join(open(path, encoding="utf-8").read() for path, _ in rel_files)
+        for name in os.listdir(media_dir):
+            direct = f"media/{name}" in xml
+            linked = any(rid in rel_ids and target.endswith(f"media/{name}")
+                         for rid, target in re.findall(r'<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"', relationships))
+            if not direct and not linked:
+                os.remove(os.path.join(media_dir, name))
     if os.path.exists(out): os.remove(out)
     os.system(f'cd {BUILD} && zip -Xqr "{out}" .')
     print("ok", out)
