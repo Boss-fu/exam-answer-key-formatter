@@ -216,14 +216,21 @@
       <button class="btn" id="retryConnection" type="button">重新連線</button>
     </div>
     <nav class="workflow-tabs" aria-label="選擇要做的事">
-      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">考卷清理 → OCR 轉 Word<span class="tab-tag local">同一份 job，不重複上傳</span></span></button>
-      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">2</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
-      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">3</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
+      <button class="workflow-tab active" type="button" data-target="eraserStage"><span class="tab-no">1</span><span class="tab-text">去除筆跡<span class="tab-tag local">本機處理，不改原檔</span></span></button>
+      <button class="workflow-tab" type="button" data-target="localocr"><span class="tab-no">2</span><span class="tab-text">轉成 Word<span class="tab-tag local">使用清理後檔案</span></span></button>
+      <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">3</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
+      <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">4</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
     </nav>
 
-  <!-- 1 考卷清理 → OCR → 茲茲 Word（同一 job 全程沿用）-->
-  <div class="stage active" id="localocr">
-    <div class="stage-head"><div class="stage-no">1</div><div><h2>考卷清理室 → 茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片後，系統先轉正、清除筆跡，再分欄、認字、裁圖、重建表格；同一份 job 會一路保留到人工校正與 Word 匯出，毋須重複上傳。一份約 1～2 分鐘。</p></div></div>
+  <!-- 1 去除筆跡：獨立入口，完成後再進第 2 步轉 Word。 -->
+  <div class="stage active" id="eraserStage">
+    <div class="stage-head"><div class="stage-no">1</div><div><h2>去除筆跡<span class="badge local">本機模型</span></h2><p>先把掃描考卷上的手寫答案清掉，原始檔不會被覆蓋；完成後可在第 2 步沿用同一份清理結果轉成 Word。</p></div></div>
+    <div class="notice done" style="margin:18px 0"><b>考卷清理室</b><p style="margin:6px 0 12px">支援 PDF、JPG、PNG，可一次處理多頁。清理結果會保留在本機工作紀錄，之後不用重新上傳。</p><a class="btn primary" href="./eraser.html">開始去除筆跡 →</a></div>
+  </div>
+
+  <!-- 2 OCR 轉成茲茲格式 Word（同一 job 全程沿用）-->
+  <div class="stage" id="localocr">
+    <div class="stage-head"><div class="stage-no">2</div><div><h2>轉成 Word<span class="badge local">AI 只判斷一次</span></h2><p>把第 1 步下載的乾淨 PDF 或圖片放進來，系統會分欄、認字、裁圖、重建表格並輸出茲茲格式 Word。</p></div></div>
     <div class="ocr-workspace">
     <div class="workspace-steps" aria-label="考卷清理到 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">1</span><span>匯入考卷</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">2</span><span>清理筆跡</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">3</span><span>OCR 預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">4</span><span>人工修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">5</span><span>匯出 Word</span></div></div>
     <div class="workspace-state workspace-upload active" id="uploadRow"><div class="upload-center"><div class="upload-icon">↑</div><h2>匯入考卷，先進清理室</h2><p>支援 PDF、JPG、PNG；上傳一次後，系統先清除筆跡，再 OCR 並排成 Word。</p><div class="drop-row upload-drop" id="uploadDrop"><input class="upload-file" type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary upload-choose" id="chooseFileBtn" type="button">選擇考卷檔案</button><span class="upload-name" id="uploadFileName">或直接把檔案拖進來</span></div><div class="upload-actions"><button class="btn primary" id="pyBtn">開始清理並轉 Word</button><span class="status" id="pyStatus" role="status"></span></div><div class="recent-strip" id="recentRow" style="display:none"><div class="recent-title">最近的考卷</div><div class="recent-row"><select id="recentJobs"><option value="">讀取中…</option></select><button class="btn" id="openRecentBtn">開啟</button></div></div></div></div>
@@ -270,9 +277,9 @@ python3 ocr/get_models.py</pre>
     </details>
   </div>
 
-  <!-- 2 產生題庫檔 -->
+  <!-- 3 產生題庫檔 -->
   <div class="stage" id="reconstruction">
-    <div class="stage-head"><div class="stage-no">2</div><div><h2>產生題庫檔<span class="badge ai">會用 AI</span></h2><p>上傳考卷，AI 會讀懂每一題並分好題型、單元，做成排版好的 Word 和可匯入題庫的 CSV。只需要乾淨 Word 的話，用第 1 步就好。</p></div></div>
+    <div class="stage-head"><div class="stage-no">3</div><div><h2>產生題庫檔<span class="badge ai">會用 AI</span></h2><p>使用第 2 步輸出的 Word 或乾淨考卷，AI 會讀懂每一題並整理成可匯入題庫的 CSV。</p></div></div>
     <div class="row drop-row"><input type="file" id="pkgFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary" id="pkgBtn">開始產生</button><span class="status" id="pkgStatus"></span></div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>選擇考卷，按「開始產生」</li><li>等約 4–5 分鐘，期間不要關閉此頁</li><li>下載 Word 和 CSV，看「需人工確認」的題目</li></ol></div>
@@ -286,9 +293,9 @@ python3 ocr/get_models.py</pre>
     </div>
   </div>
 
-  <!-- 3 產生詳解 -->
+  <!-- 4 產生詳解 -->
   <div class="stage" id="solution">
-    <div class="stage-head"><div class="stage-no">3</div><div><h2>產生詳解<span class="badge ai">會用 AI</span></h2><p>上傳考卷或貼上題目，AI 會逐題寫詳解；填入官方答案就能自動比對哪幾題答案不同。</p></div></div>
+    <div class="stage-head"><div class="stage-no">4</div><div><h2>產生詳解<span class="badge ai">會用 AI</span></h2><p>使用第 2 步的 Word 或第 3 步的題庫文字，AI 會逐題寫詳解；填入官方答案就能自動比對哪幾題答案不同。</p></div></div>
     <div class="guide">
       <div class="notice plain"><b>怎麼做</b><ol><li>上傳考卷（PDF、Word、照片），或在下方直接貼題目</li><li>按「產生詳解」</li><li>（選填）輸入官方答案，檢查答案不同的題目</li><li>按「下載 Word」</li></ol></div>
       <div class="notice done"><b>完成後你會拿到</b><ul><li>每題的答案和詳解，可點開逐題檢查</li><li>和官方答案的比對結果</li><li>排版好的詳解 Word</li></ul></div>
@@ -451,7 +458,7 @@ $("#changeExamBtn").addEventListener("click",function(){setWorkspaceState("uploa
   };
 })();
 
-/* ===== 第 2 步：產生題庫檔（乾淨 Word + 題庫 CSV）===== */
+/* ===== 第 3 步：產生題庫檔（乾淨 Word + 題庫 CSV）===== */
 $("#pkgBtn").addEventListener("click",async function(){
   var f=$("#pkgFile").files[0],st=$("#pkgRunStatus"),box=$("#pkgResult"),server=getTarget();
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}

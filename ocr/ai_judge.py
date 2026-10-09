@@ -9,7 +9,7 @@ AI 只看「行號＋文字」的精簡草稿（圖、表只留佔位），不�
 後端（預設 auto：Claude → Codex 接力，全部失敗就退回 Python 規則）：
     claude  本機 Claude Code（claude -p，用 Claude 訂閱額度；考卷文字會送到 Anthropic）。一份約 10 秒
     codex   ChatGPT App 內附的 Codex（codex exec，用 ChatGPT 訂閱額度；考卷文字會送到 OpenAI）。一份約 35 秒
-    ollama  本機 Ollama（完全不外傳、不花錢）。實測 qwen2.5 7B 判斷題目邊界嚴重錯誤（40 題只抓到 4~13 個），不建議
+    ollama  本機 Ollama（完全不外傳、不花錢）；目前優先使用 qwen3-vl:8b，作為遠端引擎失敗時的備援
 
 用法：
     python3 ocr/ai_judge.py <pyexam 輸出資料夾> --backend claude
@@ -93,7 +93,7 @@ def ask_codex(prompt):
 
 
 def ask_ollama(prompt):
-    model = os.environ.get("OLLAMA_MODEL", "qwen2.5:latest")
+    model = os.environ.get("OLLAMA_MODEL", "qwen3-vl:8b")
     body = {"model": model, "stream": False, "format": "json", "think": False,
             "options": {"temperature": 0, "num_ctx": 16384},
             "messages": [{"role": "user", "content": prompt}]}
@@ -114,7 +114,7 @@ def parse(text, n_lines):
 
 
 BACKENDS = {"claude": ask_claude, "codex": ask_codex, "ollama": ask_ollama}
-CHAIN = [b.strip() for b in os.environ.get("AI_CHAIN", "claude,codex").split(",") if b.strip()]
+CHAIN = [b.strip() for b in os.environ.get("AI_CHAIN", "claude,codex,ollama").split(",") if b.strip()]
 
 
 def judge(pyexam_dir, backend="claude", force=False):
@@ -154,7 +154,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pyexam_dir")
     ap.add_argument("--backend", choices=["auto", "claude", "codex", "ollama"], default="auto",
-                    help="auto＝Claude → Codex 接力（環境變數 AI_CHAIN 可改順序）")
+                    help="auto＝Claude → Codex → Ollama 接力（環境變數 AI_CHAIN 可改順序）")
     ap.add_argument("--force", action="store_true", help="不用快取，重問一次")
     a = ap.parse_args()
     r = judge(a.pyexam_dir, a.backend, a.force)
