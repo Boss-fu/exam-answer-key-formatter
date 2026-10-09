@@ -95,6 +95,11 @@ def list_jobs():
     return {"jobs": jobs, "stats": stats()}
 
 
+def submitted_pages(pdf, pages):
+    return [page for page in range(1, pages + 1)
+            if os.path.exists(os.path.join(MANUAL, manual_store.manual_stem(pdf, page, absolute_hash=True) + "_m.png"))]
+
+
 def render(args):
     pdf = get_job_source(args.job) if args.job else args.pdf
     gray, pages = page_gray(pdf, args.page)
@@ -110,7 +115,7 @@ def render(args):
         done = False
     clean = gray.copy()
     clean[mask > 127] = 255
-    return {"pages": pages, "page": args.page, "done": done, "name": os.path.basename(pdf), "x": dataurl(gray), "m": dataurl(mask), "clean": dataurl(clean), "stats": stats()}
+    return {"pages": pages, "page": args.page, "done": done, "submittedPages": submitted_pages(pdf, pages), "name": os.path.basename(pdf), "x": dataurl(gray), "m": dataurl(mask), "clean": dataurl(clean), "stats": stats()}
 
 
 def save_mask(args):
@@ -124,7 +129,7 @@ def save_mask(args):
     if mask is None or mask.shape != gray.shape:
         raise ValueError("遮罩尺寸不符")
     stem = manual_store.save_manual_page(MANUAL, pdf, args.page, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
-    return {"saved": stem, "pages": pages, "stats": stats()}
+    return {"saved": stem, "pages": pages, "submittedPages": submitted_pages(pdf, pages), "stats": stats()}
 
 
 def job_page(args):

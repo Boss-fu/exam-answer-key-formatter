@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "page_width": 1240,
+  "dpi": 150,
+  "tile": 512,
+  "overlap": 48,
+  "input": "x",
+  "output": "logits",
+  "pencil_rule": {
+    "print_core_max": 150,
+    "brightness_offset": 7,
+    "ink_max": 200
+  },
+  "models": {
+    "webgpu": "dehand-web.onnx",
+    "wasm_int8": "dehand-web-int8.onnx"
+  }
+}

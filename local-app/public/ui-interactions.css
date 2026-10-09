@@ -1,0 +1,18 @@
+/* 共用按鈕互動：所有 OCR 工作頁共用酒紅回饋。 */
+:is(button,.btn,a.btn,.back,.back-link,.help-link,.secondary,.icon-link,.correction-entry):not(:disabled){transition:background-color 120ms,border-color 120ms,color 120ms,box-shadow 120ms,transform 120ms}
+:is(button,.btn,a.btn,.back,.back-link,.help-link,.secondary,.icon-link,.correction-entry):not(:disabled):is(:hover,:focus-visible){border-color:#a34d50;color:#850103;background:#fff1ef}
+:is(button,.btn,a.btn,.back,.back-link,.help-link,.secondary,.icon-link,.correction-entry):not(:disabled):focus-visible{outline:0;box-shadow:0 0 0 3px rgba(133,1,3,.18)}
+:is(.primary,.btn.primary,button.primary):not(:disabled):is(:hover,:focus-visible){background:#650002;color:#fff;border-color:#650002}
+.workflow-tab{transition:background-color 120ms,border-color 120ms,color 120ms,box-shadow 120ms}
+.workflow-tab:is(:hover,:focus-visible){border-color:#a34d50;color:#850103;background:#fff1ef}
+.workflow-tab:focus-visible{outline:0;box-shadow:0 0 0 3px rgba(133,1,3,.18)}
+
+/* 筆跡校正工具列：圖示搭配文字、柔和圓角與酒紅選取狀態。 */
+.reviewActions .tool-picker{gap:7px}
+.reviewActions .tool-picker button{width:auto;height:44px;min-height:44px;padding:0 11px;border:1px solid #ded8d2;border-radius:13px;background:#fff;color:#514b44;gap:5px;font-size:12px;line-height:1}
+.reviewActions .tool-picker button svg{width:18px;height:18px}
+.reviewActions .tool-picker .tool-label{font-size:12px;font-weight:800;white-space:nowrap}
+.reviewActions .tool-picker button.active,.reviewActions .tool-picker #restore.active,.reviewActions .tool-picker #erase.active,.reviewActions .tool-picker #boxTool.active{background:#f9e9e8;color:#850103;border-color:#a34d50;box-shadow:none}
+.reviewActions .page-controls #prev,.reviewActions .page-controls #next{min-height:40px;padding:0 10px;border:1px solid #ded8d2;border-radius:13px;background:#fff;color:#514b44;font-size:13px;gap:5px}
+.reviewActions .page-controls #prev span[aria-hidden],.reviewActions .page-controls #next span[aria-hidden]{font-size:20px;line-height:1}
+.reviewActions .page-controls #prev span:not([aria-hidden]),.reviewActions .page-controls #next span:not([aria-hidden]){font-size:12px;font-weight:800}

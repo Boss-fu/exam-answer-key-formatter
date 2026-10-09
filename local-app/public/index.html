@@ -186,6 +186,7 @@
   @media(max-width:767px){.hero{padding:20px}.hero h1{font-size:25px}.hero-main{display:block}.correction-entry{margin-top:15px;max-width:330px}.workflow-tabs{padding:10px 14px}.stage{padding:14px}.ocr-workspace{min-height:520px}.workspace-upload{padding:24px 16px}.workspace-steps{display:flex;overflow-x:auto;padding:0 4px}.workspace-steps .ocr-step{min-width:max-content;padding:8px 13px}.workspace-steps .ocr-step span:last-child{font-size:13px}.preview-toolbar{padding:9px}.job-name{order:-1;flex:1;max-width:none}.toolbar-actions{margin-left:0}.preview-layout{flex-direction:column}.thumb-bar{width:100%;height:92px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid #ccc}.thumb-bar .btn{min-width:72px}.preview-main{padding:14px}.workspace-preview{min-height:500px}.upload-actions{flex-wrap:wrap}.recent-strip{margin-top:18px}}
 .processing-card #pyProgress{display:none}  /* 處理中只留上方一個大計時，避免重複 */
 </style>
+<link rel="stylesheet" href="./ui-interactions.css">
 </head>
 <body>
 <header>
@@ -203,8 +204,8 @@
   <section class="hero">
     <div class="kicker">OCR WORKSPACE</div>
     <div class="hero-main"><h1>把掃描考卷，整理成可用的 Word</h1></div>
-    <p>上傳、辨識、預覽、修正與匯出，都在同一個工作面板完成。</p>
-    <p class="host-line" id="connectionMeta" role="status"></p><a class="hero-correction-link" href="./eraser.html">開啟考卷清理室 →</a><a class="hero-correction-link" href="./label.html" style="margin-left:16px">進入人工修正 →</a>
+    <p>先清理筆跡，再辨識、預覽、修正與匯出；同一份考卷只要上傳一次。</p>
+    <p class="host-line" id="connectionMeta" role="status"></p><a class="hero-correction-link" href="#localocr">考卷清理室（從第 1 步開始）→</a><a class="hero-correction-link" href="./label.html" style="margin-left:16px">進入人工修正 →</a>
   </section>
 
   <div class="custom-host hide" id="customServerSettings"><label for="customServerUrl" style="margin:0">自訂主機網址</label><input type="text" id="customServerUrl" placeholder="https://主機名稱.tailxxxx.ts.net:8443"></div>
@@ -215,17 +216,17 @@
       <button class="btn" id="retryConnection" type="button">重新連線</button>
     </div>
     <nav class="workflow-tabs" aria-label="選擇要做的事">
-      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">掃描卷轉 Word<span class="tab-tag local">AI 只判斷一次</span></span></button>
+      <button class="workflow-tab active" type="button" data-target="localocr"><span class="tab-no">1</span><span class="tab-text">考卷清理 → OCR 轉 Word<span class="tab-tag local">同一份 job，不重複上傳</span></span></button>
       <button class="workflow-tab" type="button" data-target="reconstruction"><span class="tab-no">2</span><span class="tab-text">產生題庫檔<span class="tab-tag ai">會用 AI</span></span></button>
       <button class="workflow-tab" type="button" data-target="solution"><span class="tab-no">3</span><span class="tab-text">產生詳解<span class="tab-tag ai">會用 AI</span></span></button>
     </nav>
 
-  <!-- 1 掃描卷轉茲茲 Word（Python 辨識＋AI 只判斷一次題目邊界）-->
+  <!-- 1 考卷清理 → OCR → 茲茲 Word（同一 job 全程沿用）-->
   <div class="stage active" id="localocr">
-    <div class="stage-head"><div class="stage-no">1</div><div><h2>掃描卷轉成茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片：系統自動轉正、清紅筆、分欄、認字、裁圖、重建表格，AI 只幫忙判斷題目從哪裡開始和改錯字，最後排成茲茲格式 Word。一份約 1～2 分鐘。</p></div></div>
+    <div class="stage-head"><div class="stage-no">1</div><div><h2>考卷清理室 → 茲茲格式 Word<span class="badge local">AI 只判斷一次</span></h2><p>上傳掃描的 PDF 或照片後，系統先轉正、清除筆跡，再分欄、認字、裁圖、重建表格；同一份 job 會一路保留到人工校正與 Word 匯出，毋須重複上傳。一份約 1～2 分鐘。</p></div></div>
     <div class="ocr-workspace">
-    <div class="workspace-steps" aria-label="掃描卷轉 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">1</span><span>上傳</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">2</span><span>處理</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">3</span><span>預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">4</span><span>修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">5</span><span>匯出</span></div></div>
-    <div class="workspace-state workspace-upload active" id="uploadRow"><div class="upload-center"><div class="upload-icon">↑</div><h2>拖曳考卷到這裡</h2><p>支援 PDF、JPG、PNG；系統會自動轉正、辨識並排成 Word。</p><div class="drop-row upload-drop" id="uploadDrop"><input class="upload-file" type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary upload-choose" id="chooseFileBtn" type="button">選擇考卷檔案</button><span class="upload-name" id="uploadFileName">或直接把檔案拖進來</span></div><div class="upload-actions"><button class="btn primary" id="pyBtn">開始轉檔</button><span class="status" id="pyStatus" role="status"></span></div><div class="recent-strip" id="recentRow" style="display:none"><div class="recent-title">最近的考卷</div><div class="recent-row"><select id="recentJobs"><option value="">讀取中…</option></select><button class="btn" id="openRecentBtn">開啟</button></div></div></div></div>
+    <div class="workspace-steps" aria-label="考卷清理到 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">1</span><span>匯入考卷</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">2</span><span>清理筆跡</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">3</span><span>OCR 預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">4</span><span>人工修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">5</span><span>匯出 Word</span></div></div>
+    <div class="workspace-state workspace-upload active" id="uploadRow"><div class="upload-center"><div class="upload-icon">↑</div><h2>匯入考卷，先進清理室</h2><p>支援 PDF、JPG、PNG；上傳一次後，系統先清除筆跡，再 OCR 並排成 Word。</p><div class="drop-row upload-drop" id="uploadDrop"><input class="upload-file" type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary upload-choose" id="chooseFileBtn" type="button">選擇考卷檔案</button><span class="upload-name" id="uploadFileName">或直接把檔案拖進來</span></div><div class="upload-actions"><button class="btn primary" id="pyBtn">開始清理並轉 Word</button><span class="status" id="pyStatus" role="status"></span></div><div class="recent-strip" id="recentRow" style="display:none"><div class="recent-title">最近的考卷</div><div class="recent-row"><select id="recentJobs"><option value="">讀取中…</option></select><button class="btn" id="openRecentBtn">開啟</button></div></div></div></div>
     <div id="processingModal" class="workspace-state workspace-processing hide" role="status"><div class="processing-card"><h2>正在整理考卷</h2><span id="processingElapsed" class="elapsed">0 秒</span><p id="processingStage">準備卷面中</p><div class="live-process"><div><div class="live-sheet"><img id="livePageImage" alt="目前這一頁的卷面" style="display:none"></div><div id="livePages" class="live-pages"></div></div><ol id="liveSteps" class="live-steps"><li data-stage="clean">轉正與清筆跡 <small></small></li><li data-stage="ocr">辨識文字 <small></small></li><li data-stage="ai">判斷題目 <small></small></li><li data-stage="word">組成 Word <small></small></li></ol></div><div class="ocr-progress" id="pyProgress"><b>等待上傳</b></div></div></div>
     <div id="previewContainer" class="workspace-state workspace-preview hide">
       <div class="preview-toolbar"><strong class="job-name" id="ocrJobName">掃描卷預覽</strong>
@@ -702,5 +703,8 @@ $("#openRecentBtn").addEventListener("click", async function() {
     } catch (e) { console.error(e); $("#pyStatus").className="status err"; $("#pyStatus").textContent="無法開啟舊考卷："+e.message; }
 });
 </script>
-<script>try{TzutzuPatchNotes.mountButton(document.querySelector(".header-actions"))}catch(e){}</script></body>
+<script src="./dehand-web.js"></script><script>
+/* Show a first-page browser cleanup while the server OCR runs in parallel. */
+document.getElementById('pyBtn').addEventListener('click',async function(){var f=document.getElementById('pyFile').files[0],out=document.getElementById('livePageImage');if(!f||!window.DehandWeb)return;try{var c=document.createElement('canvas'),ctx=c.getContext('2d');if(/pdf$/i.test(f.name)&&window.pdfjsLib){var pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise,p=await pdf.getPage(1),v=p.getViewport({scale:1240/p.getViewport({scale:1}).width});c.width=v.width;c.height=v.height;await p.render({canvasContext:ctx,viewport:v}).promise}else{var im=await createImageBitmap(f);c.width=1240;c.height=Math.round(im.height*1240/im.width);ctx.drawImage(im,0,0,c.width,c.height)}var r=await DehandWeb.suggest(ctx.getImageData(0,0,c.width,c.height));var d=ctx.createImageData(c.width,c.height);for(var i=0;i<r.gray.length;i++){var j=i*4,v=r.mask[i]?255:r.gray[i];d.data[j]=d.data[j+1]=d.data[j+2]=v;d.data[j+3]=255}ctx.putImageData(d,0,0);out.src=c.toDataURL('image/jpeg',.88);out.style.display='block';document.getElementById('processingStage').textContent='瀏覽器已先完成第 1 頁去筆跡，後端 OCR 同步進行中'}catch(e){/* Server progress remains the fallback. */}} ,true);
+</script><script>try{TzutzuPatchNotes.mountButton(document.querySelector(".header-actions"))}catch(e){}</script></body>
 </html>

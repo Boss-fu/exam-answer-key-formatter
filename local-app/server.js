@@ -133,8 +133,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/label.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "label.html")));
     if (req.method === "GET" && url.pathname === "/eraser.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "eraser.html")));
-    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js", "/dehand-web.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/models/")) {
+      const name = path.basename(url.pathname);
+      if (!/^dehand-web(?:-int8)?\.(?:onnx|json)$/.test(name)) return send(res, 404, "text/plain", "Not found");
+      const file = path.join(PUBLIC, "models", name);
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain", "Not found");
+      return send(res, 200, name.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream", fs.readFileSync(file));
     }
     if (req.method === "GET" && ["/changelog.json", "/version.json"].includes(url.pathname)) {
       res.setHeader("cache-control", "no-store");     // 更新公告／版本偵測要拿最新的
