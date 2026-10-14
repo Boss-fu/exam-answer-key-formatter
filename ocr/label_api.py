@@ -6,11 +6,16 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 
 import cv2
 import numpy as np
 import pymupdf
+
+import onnxruntime as ort
+ort.set_default_logger_severity(3)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -24,6 +29,10 @@ import to_zizi_word as Z
 MANUAL = os.path.join(HERE, "dehand", "data", "_manual")
 QUESTIONS = os.path.join(HERE, "labels", "questions")
 PYOCR = os.path.join(REPO, "local-app", "output", "py-ocr")
+PSEUDO = os.path.join(HERE, "dehand", "data", "_pseudo")
+QUEUE = os.path.join(HERE, "dehand", "data", "_queue.json")
+QUEUE_LOCK = QUEUE + ".building"
+QUEUE_MAX_AGE = 24 * 60 * 60
 
 
 def emit(value):
@@ -100,10 +109,90 @@ def submitted_pages(pdf, pages):
             if os.path.exists(os.path.join(MANUAL, manual_store.manual_stem(pdf, page, absolute_hash=True) + "_m.png"))]
 
 
+def pseudo_identity(group):
+    # A stable virtual source preserves manual_store's per-exam group rule.
+    return os.path.join(PSEUDO, group, "source.pdf")
+
+
+def pseudo_page(token):
+    group, page = token.rsplit("/", 1)
+    match = re.fullmatch(r"p(\d+)", page)
+    path = os.path.join(PSEUDO, group, page + "_x.png")
+    if not match or not os.path.isfile(path) or os.path.commonpath([PSEUDO, os.path.abspath(path)]) != PSEUDO:
+        raise ValueError("找不到 pseudo 頁面")
+    return path, group, int(match.group(1))
+
+
+def uncertainty(gray, state=None):
+    state = state or dehand._load()
+    if not state:
+        return 0.0
+    probability = dehand.predict(gray, state[0])
+    return float(((probability >= .3) & (probability <= .7)).mean())
+
+
+def queue_item_submitted(item):
+    try:
+        if item.get("source") == "pseudo":
+            _path, group, page = pseudo_page(item["pseudo"])
+            pdf = pseudo_identity(group)
+        else:
+            pdf, page = get_job_source(item["job"]), int(item["page"])
+        return os.path.exists(os.path.join(MANUAL, manual_store.manual_stem(pdf, page, absolute_hash=True) + "_m.png"))
+    except (KeyError, ValueError, OSError):
+        return True
+
+
+def queue_is_fresh(value):
+    try:
+        created = datetime.fromisoformat(value["generatedAt"].replace("Z", "+00:00"))
+        return value.get("complete") is True and (datetime.now(timezone.utc) - created).total_seconds() <= QUEUE_MAX_AGE
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def start_queue_build():
+    if os.path.exists(QUEUE_LOCK):
+        return
+    try:
+        fd = os.open(QUEUE_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        return
+    try:
+        subprocess.Popen([sys.executable, os.path.join(HERE, "dehand", "build_queue.py")], cwd=REPO,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except Exception:
+        os.unlink(QUEUE_LOCK)
+
+
+def queue(_args):
+    try:
+        with open(QUEUE, encoding="utf-8") as file:
+            saved = json.load(file)
+    except (OSError, ValueError):
+        saved = {"items": []}
+    building = not queue_is_fresh(saved)
+    if building:
+        start_queue_build()
+    candidates = [item for item in saved.get("items", []) if not queue_item_submitted(item)]
+    candidates.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return {"items": candidates[:20], "stats": stats(), "building": building or os.path.exists(QUEUE_LOCK)}
+
+
 def render(args):
-    pdf = get_job_source(args.job) if args.job else args.pdf
-    gray, pages = page_gray(pdf, args.page)
-    stem = manual_store.manual_stem(pdf, args.page, absolute_hash=True)
+    pseudo = getattr(args, "pseudo", None)
+    if pseudo:
+        source, group, real_page = pseudo_page(pseudo)
+        if args.page != 1:
+            raise ValueError("pseudo 頁面只有一頁")
+        pdf, pages, gray = pseudo_identity(group), 1, cv2.imread(source, cv2.IMREAD_GRAYSCALE)
+        page_for_store = real_page
+    else:
+        pdf = get_job_source(args.job) if args.job else args.pdf
+        gray, pages = page_gray(pdf, args.page)
+        page_for_store = args.page
+    stem = manual_store.manual_stem(pdf, page_for_store, absolute_hash=True)
     mask_path = os.path.join(MANUAL, stem + "_m.png")
     source_path = os.path.join(MANUAL, stem + "_x.png")
     if os.path.exists(mask_path):
@@ -119,8 +208,16 @@ def render(args):
 
 
 def save_mask(args):
-    pdf = get_job_source(args.job) if args.job else args.pdf
-    gray, pages = page_gray(pdf, args.page)
+    pseudo = getattr(args, "pseudo", None)
+    if pseudo:
+        source, group, real_page = pseudo_page(pseudo)
+        if args.page != 1:
+            raise ValueError("pseudo 頁面只有一頁")
+        pdf, pages, gray, page_for_store = pseudo_identity(group), 1, cv2.imread(source, cv2.IMREAD_GRAYSCALE), real_page
+    else:
+        pdf = get_job_source(args.job) if args.job else args.pdf
+        gray, pages = page_gray(pdf, args.page)
+        page_for_store = args.page
     with open(args.mask, "rb") as file:
         raw = file.read()
     if raw.startswith(b"data:"):
@@ -128,7 +225,7 @@ def save_mask(args):
     mask = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE)
     if mask is None or mask.shape != gray.shape:
         raise ValueError("遮罩尺寸不符")
-    stem = manual_store.save_manual_page(MANUAL, pdf, args.page, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
+    stem = manual_store.save_manual_page(MANUAL, pdf, page_for_store, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
     return {"saved": stem, "pages": pages, "submittedPages": submitted_pages(pdf, pages), "stats": stats()}
 
 
@@ -231,10 +328,12 @@ def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="cmd", required=True)
     subparsers.add_parser("list")
+    subparsers.add_parser("queue")
     for command in ("render", "save-mask"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--pdf")
         subparser.add_argument("--job")
+        subparser.add_argument("--pseudo")
         subparser.add_argument("--page", type=int, required=True)
         if command == "save-mask":
             subparser.add_argument("--mask", required=True)
@@ -251,7 +350,7 @@ def main():
     subparser.add_argument("--view", choices=["original", "dehand"], default="original")
     args = parser.parse_args()
     actions = {"render": render, "save-mask": save_mask, "draft": draft, "save-questions": save_questions, "rebuild": rebuild, "job-page": job_page}
-    result = list_jobs() if args.cmd == "list" else actions[args.cmd](args)
+    result = list_jobs() if args.cmd == "list" else queue(args) if args.cmd == "queue" else actions[args.cmd](args)
     emit({"ok": True, **result})
 
 

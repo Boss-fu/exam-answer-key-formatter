@@ -37,7 +37,8 @@ fs.mkdirSync(LABEL_OUTPUT, { recursive: true });
 function runLabel(args) {
   return new Promise((resolve, reject) => execFile(pyBin(), [path.join(__dirname, "..", "ocr", "label_api.py"), ...args], { cwd: path.join(__dirname, ".."), maxBuffer: 48 * 1024 * 1024, timeout: 120000 }, (err, out, stderr) => {
     let data; try { data = JSON.parse(String(out).trim().split("\n").pop()); } catch {}
-    if (err || !data || !data.ok) return reject(new Error((data && data.error) || String(stderr || err && err.message || "工作台處理失敗").slice(-400)));
+    // Python/ONNX 的 stderr 可能只有 CoreML 警告；工作台協定只認退出碼與 stdout JSON。
+    if (err || !data || !data.ok) return reject(new Error((data && data.error) || (err && err.message) || "工作台處理失敗"));
     resolve(data);
   }));
 }
@@ -132,6 +133,8 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
     }
     if (req.method === "GET" && url.pathname === "/label.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "label.html")));
+    if (req.method === "GET" && url.pathname === "/manifest.webmanifest") return send(res, 200, "application/manifest+json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "manifest.webmanifest")));
+    if (req.method === "GET" && url.pathname === "/sw.js") return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "sw.js")));
     if (req.method === "GET" && url.pathname === "/eraser.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "eraser.html")));
     if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js", "/dehand-web.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
@@ -153,6 +156,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/logo.png") {
       return send(res, 200, "image/png", fs.readFileSync(path.join(PUBLIC, "logo.png")));
     }
+    if (req.method === "GET" && url.pathname === "/apple-touch-icon.png") return send(res, 200, "image/png", fs.readFileSync(path.join(PUBLIC, "apple-touch-icon.png")));
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
@@ -194,6 +198,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/label/list") {
       return sendJson(res, 200, await runLabel(["list"]));
     }
+    if (req.method === "POST" && url.pathname === "/api/label/queue") return sendJson(res, 200, await runLabel(["queue"]));
     if (req.method === "POST" && url.pathname === "/api/label/upload") {
       const { dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少 PDF" });
@@ -204,18 +209,20 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, id });
     }
     if (req.method === "POST" && url.pathname === "/api/label/render") {
-      const { id, job, page } = JSON.parse(await readBody(req) || "{}");
+      const { id, job, pseudo, page } = JSON.parse(await readBody(req) || "{}");
+      if (pseudo) return sendJson(res, 200, await runLabel(["render", "--pseudo", String(pseudo), "--page", String(Number(page) || 1)]));
       if (job) {
         return sendJson(res, 200, await runLabel(["render", "--job", safeJobId(job), "--page", String(Number(page) || 1)]));
       }
       return sendJson(res, 200, await runLabel(["render", "--pdf", labelPdf(id), "--page", String(Number(page) || 1)]));
     }
     if (req.method === "POST" && url.pathname === "/api/label/save-mask") {
-      const { id, job, page, mask } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      const { id, job, pseudo, page, mask } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!mask) return sendJson(res, 400, { ok: false, error: "缺少遮罩" });
       const temporary = path.join(LABEL_OUTPUT, safeJobId(id || job) || "bad", "mask.png");
       fs.mkdirSync(path.dirname(temporary), { recursive: true });
       fs.writeFileSync(temporary, Buffer.from(String(mask).split(",").pop(), "base64"));
+      if (pseudo) return sendJson(res, 200, await runLabel(["save-mask", "--pseudo", String(pseudo), "--page", String(Number(page) || 1), "--mask", temporary]));
       if (job) {
         return sendJson(res, 200, await runLabel(["save-mask", "--job", safeJobId(job), "--page", String(Number(page) || 1), "--mask", temporary]));
       }
