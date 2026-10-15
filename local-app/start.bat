@@ -30,6 +30,8 @@ REM set ANTHROPIC_API_KEY=sk-ant-...
 REM 若主機已安裝並登入 Codex CLI，改用：
 REM set ENGINE=codex
 REM 若 codex 不在 PATH，可加：set CODEX_BIN=C:\完整\路徑\codex.cmd
+REM 理化詳解的 ChatGPT 對答案也用 Codex CLI；Codex App 內附的 codex.exe 在隨版本變動的資料夾，取最新一個。
+if not defined CODEX_BIN if exist "%LOCALAPPDATA%\OpenAI\Codex\bin" for /f "delims=" %%D in ('dir /b /ad /o-d "%LOCALAPPDATA%\OpenAI\Codex\bin"') do if not defined CODEX_BIN if exist "%LOCALAPPDATA%\OpenAI\Codex\bin\%%D\codex.exe" set "CODEX_BIN=%LOCALAPPDATA%\OpenAI\Codex\bin\%%D\codex.exe"
 
 REM 本機 OCR 試跑需要 Tesseract 與 Poppler 的 pdftoppm；有標準安裝位置時自動使用。
 if not defined TESSERACT_BIN if exist "C:\Program Files\Tesseract-OCR\tesseract.exe" set "TESSERACT_BIN=C:\Program Files\Tesseract-OCR\tesseract.exe"

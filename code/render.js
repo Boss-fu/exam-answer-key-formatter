@@ -57,13 +57,9 @@ async function buildCleanExamBuffer(csvText) {
 
 // 答案一致性自檢：每題「以正確開頭」的選項 label 必須等於 answer。
 // 回傳不一致的題號陣列（空陣列代表通過）。
+const { isMismatch } = require('../local-app/public/answer-rules');
 function checkAnswers(questions) {
-  const mismatches = [];
-  (questions || []).forEach((q) => {
-    const correctOpt = (q.options || []).find((o) => /^\s*正確/.test(o.text || ""));
-    if (!correctOpt || correctOpt.label !== q.answer) mismatches.push(q.no);
-  });
-  return mismatches;
+  return (questions || []).filter(isMismatch).map(q => q.no);
 }
 
 // 由題目答案組出簡答速查列（每 5 題一組，以 / 分隔）。

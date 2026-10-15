@@ -57,8 +57,8 @@ const OUTPUT_SPEC = `
 }
 規則：每題「以正確開頭」的選項其 label 必須等於 answer；公式用單一錢號 $...$；資訊不足處在該欄位文字內標「需人工確認」，不要自己捏造。`;
 
-function buildPrompt(examText) {
-  return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 以下是考卷內容 ==========\n${examText}`;
+function buildPrompt(examText, extraInstructions) {
+  return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 以下是考卷內容 ==========\n${examText}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
 }
 
 // 從模型輸出的字串裡把 JSON 抽出來（容忍前後雜訊或 code fence）。
@@ -74,10 +74,10 @@ function extractJson(text) {
 }
 
 // --- 引擎一：Claude Code headless ---
-function generateWithClaudeCode(examText) {
+function generateWithClaudeCode(examText, extraInstructions) {
   return new Promise((resolve, reject) => {
     const bin = process.env.CLAUDE_BIN || "claude";
-    const child = spawn(bin, ["-p", buildPrompt(examText)], {
+    const child = spawn(bin, ["-p", buildPrompt(examText, extraInstructions)], {
       cwd: REPO,
       env: process.env,
     });
@@ -94,9 +94,9 @@ function generateWithClaudeCode(examText) {
   });
 }
 
-function generateWithCodex(examText) {
+function generateWithCodex(examText, extraInstructions) {
   return new Promise((resolve, reject) => {
-    const cmd = localAgentCommand(buildPrompt(examText));
+    const cmd = localAgentCommand(buildPrompt(examText, extraInstructions));
     const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
     let out = "", err = "";
     child.stdout.on("data", (d) => { out += d; });
@@ -111,7 +111,7 @@ function generateWithCodex(examText) {
 }
 
 // --- 引擎二：Anthropic API ---
-async function generateWithApi(examText) {
+async function generateWithApi(examText, extraInstructions) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ENGINE=api 需要環境變數 ANTHROPIC_API_KEY");
   const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
@@ -125,7 +125,7 @@ async function generateWithApi(examText) {
     body: JSON.stringify({
       model,
       max_tokens: 8000,
-      messages: [{ role: "user", content: buildPrompt(examText) }],
+      messages: [{ role: "user", content: buildPrompt(examText, extraInstructions) }],
     }),
   });
   if (!res.ok) throw new Error(`API 錯誤 ${res.status}：${(await res.text()).slice(0, 500)}`);
@@ -134,12 +134,12 @@ async function generateWithApi(examText) {
   return extractJson(text);
 }
 
-async function generate(examText) {
+async function generate(examText, extraInstructions) {
   if (!examText || !examText.trim()) throw new Error("考卷內容是空的");
   const engine = selectedEngine();
-  if (engine === "api") return generateWithApi(examText);
-  if (engine === "codex") return generateWithCodex(examText);
-  return generateWithClaudeCode(examText);
+  if (engine === "api") return generateWithApi(examText, extraInstructions);
+  if (engine === "codex") return generateWithCodex(examText, extraInstructions);
+  return generateWithClaudeCode(examText, extraInstructions);
 }
 
 function generateDirtyExam({ sourcePath, workDir, outputDir }) {
@@ -301,7 +301,7 @@ function imagePrompt() {
 function rmDir(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 
 // 引擎一（claude-code）：把圖片寫成暫存檔，prompt 附上路徑讓 Claude Code 讀圖。
-function generateFromImagesClaudeCode(images) {
+function generateFromImagesClaudeCode(images, extraInstructions) {
   return new Promise((resolve, reject) => {
     let dir;
     try {
@@ -313,7 +313,7 @@ function generateFromImagesClaudeCode(images) {
         return p;
       });
       const bin = process.env.CLAUDE_BIN || "claude";
-      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}`;
+      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
       // --allowedTools Read：授權讀檔工具，否則 headless 模式會停下來要權限、產不出 JSON。
       const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read"], { cwd: REPO, env: process.env });
       let out = "", err = "";
@@ -331,7 +331,7 @@ function generateFromImagesClaudeCode(images) {
   });
 }
 
-function generateFromImagesCodex(images) {
+function generateFromImagesCodex(images, extraInstructions) {
   return new Promise((resolve, reject) => {
     let dir;
     try {
@@ -341,7 +341,7 @@ function generateFromImagesCodex(images) {
         fs.writeFileSync(p, Buffer.from(img.dataBase64, "base64"));
         return p;
       });
-      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀圖工具檢視這些考卷圖片）：\n${paths.join("\n")}`;
+      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀圖工具檢視這些考卷圖片）：\n${paths.join("\n")}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
       const cmd = localAgentCommand(prompt);
       const child = spawn(cmd.bin, cmd.args, { cwd: REPO, env: process.env });
       let out = "", err = "";
@@ -359,7 +359,7 @@ function generateFromImagesCodex(images) {
 }
 
 // 引擎二（api）：用 image content blocks 傳給 Claude。
-async function generateFromImagesApi(images) {
+async function generateFromImagesApi(images, extraInstructions) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ENGINE=api 需要環境變數 ANTHROPIC_API_KEY");
   const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
@@ -367,7 +367,7 @@ async function generateFromImagesApi(images) {
     type: "image",
     source: { type: "base64", media_type: imgMediaType(img), data: img.dataBase64 },
   }));
-  content.push({ type: "text", text: imagePrompt() });
+  content.push({ type: "text", text: imagePrompt() + (extraInstructions ? "\n\n" + extraInstructions : "") });
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -379,12 +379,12 @@ async function generateFromImagesApi(images) {
   return extractJson(text);
 }
 
-async function generateFromImages(images) {
+async function generateFromImages(images, extraInstructions) {
   if (!images || !images.length) throw new Error("沒有圖片");
   const engine = selectedEngine();
-  if (engine === "api") return generateFromImagesApi(images);
-  if (engine === "codex") return generateFromImagesCodex(images);
-  return generateFromImagesClaudeCode(images);
+  if (engine === "api") return generateFromImagesApi(images, extraInstructions);
+  if (engine === "codex") return generateFromImagesCodex(images, extraInstructions);
+  return generateFromImagesClaudeCode(images, extraInstructions);
 }
 
-module.exports = { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages, buildPrompt, extractJson };
+module.exports = { generateWithClaudeCode, generateFromImagesClaudeCode, generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages, buildPrompt, extractJson };

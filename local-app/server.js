@@ -8,6 +8,8 @@ const { applyCors } = require("./cors");
 const portalConfig = require("./public/server-config");
 const { generate, generateDirtyExam, generateCleanExam, generateExamPackage, generateFromImages } = require("./engine");
 const { extractText } = require("./extract");
+const { runEnsemble } = require("./ensemble");
+const { createAnswerKey } = require("./answer-key");
 const { preflight } = require("./ocr-preflight");
 const { runPyOcr, pyBin } = require("./py-ocr");
 const { execFile } = require("child_process");
@@ -69,11 +71,13 @@ function send(res, code, type, body) {
 }
 function sendJson(res, code, obj) { send(res, code, "application/json; charset=utf-8", JSON.stringify(obj)); }
 
-function readBody(req, limit = 24 * 1024 * 1024) {
+function readBody(req, limit = 24 * 1024 * 1024, keepConnection = false) {
   return new Promise((resolve, reject) => {
     let data = "", size = 0;
     req.on("data", (c) => {
+      if (keepConnection && size > limit) return;
       size += c.length;
+      if (keepConnection && size > limit) { reject(Object.assign(new Error("檔案太大，請縮小檔案或分批上傳。"), { statusCode: 413 })); return; }
       if (size > limit) { reject(new Error("內容過大")); req.destroy(); return; }
       data += c;
     });
@@ -129,6 +133,7 @@ const server = http.createServer(async (req, res) => {
 
 
     // --- 靜態首頁 ---
+    if (req.method === "GET" && url.pathname === "/answer.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "answer.html")));
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
     }
@@ -160,7 +165,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: portalConfig.service, apiVersion: portalConfig.apiVersion, revision,
         host: require("os").hostname(), platform: process.platform, engine: process.env.ENGINE || "claude-code",
-        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word", "py-ocr"] });
+        ocrEngine: "tesseract", capabilities: ["ocr-preflight", "ocr-review", "extract", "exam-package", "generate", "render", "csv-to-word", "py-ocr", "answer-key"] });
     }
 
     // --- 本機考卷清理：沿用 dehand 模型，輸出影像 PDF，不上傳外部服務 ---
@@ -533,6 +538,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- 產生詳解：examText（文字）或 images（拍照/圖片，讓 Claude 讀圖）→ JSON ---
+    if (req.method === "POST" && url.pathname === "/api/answer-key") {
+      try {
+        const input = JSON.parse(await readBody(req, 48 * 1024 * 1024, true) || "{}");
+        if (!input || typeof input.filename !== "string") return sendJson(res, 400, { ok: false, error: "請選擇一份考卷檔案。" });
+        const result = await createAnswerKey(input, OUTPUT, { extractText, runEnsemble, checkAnswers: questions => renderer().checkAnswers(questions) });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const message = [400, 413].includes(error.statusCode) ? error.message
+          : error instanceof SyntaxError ? "上傳資料格式不正確，請重新選擇檔案。"
+          : /^(PDF 轉圖片失敗|讀取考卷失敗)/.test(error.message) ? error.message
+          : "產生詳解失敗，請稍後再試；若持續失敗，請管理員檢查公司電腦的解題引擎。";
+        return sendJson(res, error.statusCode || (error instanceof SyntaxError ? 400 : 500), { ok: false, error: message });
+      }
+    }
     if (req.method === "POST" && url.pathname === "/api/generate") {
       const { examText, images } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       const data = (images && images.length) ? await generateFromImages(images) : await generate(examText);
