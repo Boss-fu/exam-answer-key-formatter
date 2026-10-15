@@ -80,7 +80,7 @@ function buildSummaryLine(data) {
   const answerString = questions.map((q) => q.answer).join("");
   const groups = [];
   for (let i = 0; i < answerString.length; i += 5) groups.push(answerString.slice(i, i + 5));
-  return normalizeHeading(data.unitName) ? groups.join("/") : `${data.summaryLabel || "需人工確認"} ${groups.join("/")}`;
+  return data.answerKeyMode === true || normalizeHeading(data.unitName) ? groups.join("/") : `${data.summaryLabel || "需人工確認"} ${groups.join("/")}`;
 }
 
 function normalizeHeading(value) {

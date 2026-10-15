@@ -5,7 +5,7 @@
 (function (root) {
   'use strict';
 
-  var STORAGE_KEY = 'tzutzu-patch-notes-last-read';
+  var options = { url: 'changelog.json', storageKey: 'tzutzu-patch-notes-last-read', title: '近期功能更新' };
   var CHECK_INTERVAL = 60 * 1000;
   var state = { notes: null, shownAutomatically: false, initialVersion: null, timer: null, dialog: null };
 
@@ -49,7 +49,7 @@
 
   function loadNotes() {
     if (state.notes) return Promise.resolve(state.notes);
-    return fetchJson('changelog.json').then(function (data) {
+    return fetchJson(options.url).then(function (data) {
       state.notes = Array.isArray(data) ? data : (data.entries || []);
       return state.notes;
     });
@@ -72,7 +72,7 @@
       }).join('');
       var backdrop = document.createElement('div');
       backdrop.className = 'tz-patch-backdrop';
-      backdrop.innerHTML = '<section class="tz-patch-dialog" role="dialog" aria-modal="true" aria-label="近期功能更新"><header class="tz-patch-hero"><button class="tz-patch-close" aria-label="關閉">×</button><p class="tz-patch-kicker">PATCH NOTES</p><h2>近期功能更新</h2><span class="tz-patch-date">更新至 ' + esc(date) + '</span></header><main class="tz-patch-body">' + cards + '</main><footer class="tz-patch-footer"><button class="tz-patch-ok">好的</button></footer></section>';
+      backdrop.innerHTML = '<section class="tz-patch-dialog" role="dialog" aria-modal="true" aria-label="' + esc(options.title) + '"><header class="tz-patch-hero"><button class="tz-patch-close" aria-label="關閉">×</button><p class="tz-patch-kicker">PATCH NOTES</p><h2>' + esc(options.title) + '</h2><span class="tz-patch-date">更新至 ' + esc(date) + '</span></header><main class="tz-patch-body">' + cards + '</main><footer class="tz-patch-footer"><button class="tz-patch-ok">好的</button></footer></section>';
       backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeDialog(); });
       backdrop._tzKeyHandler = function (event) { if (event.key === 'Escape') closeDialog(); };
       document.addEventListener('keydown', backdrop._tzKeyHandler);
@@ -80,7 +80,7 @@
       backdrop.querySelector('.tz-patch-ok').addEventListener('click', closeDialog);
       document.body.appendChild(backdrop);
       state.dialog = backdrop;
-      if (newest) safeSet(STORAGE_KEY, newest);
+      if (newest) safeSet(options.storageKey, newest);
       return backdrop;
   }
   function showNotes() {
@@ -109,14 +109,24 @@
       if (data.version !== state.initialVersion) showUpdateToast();
     }).catch(function () { /* 離線時安靜略過，下一輪會再檢查 */ });
   }
-  function mountButton(element) {
+  // 在 DOMContentLoaded、自動讀取公告之前設定；每頁使用一組公告設定。
+  function configure(settings) {
+    settings = settings || {};
+    ['url', 'storageKey', 'title'].forEach(function (key) {
+      if (typeof settings[key] === 'string' && settings[key]) options[key] = settings[key];
+    });
+    state.notes = null;
+    state.shownAutomatically = false;
+  }
+  function mountButton(element, settings) {
+    if (settings) configure(settings);
     injectStyles();
     if (!element || !element.appendChild) return null;
     var button = document.createElement('button');
     button.className = 'tz-patch-button';
     button.type = 'button';
-    button.title = '近期功能更新';
-    button.setAttribute('aria-label', '開啟近期功能更新');
+    button.title = options.title;
+    button.setAttribute('aria-label', '開啟' + options.title);
     button.innerHTML = icons.gift;
     button.addEventListener('click', function (event) { event.stopPropagation(); showNotes(); });
     element.appendChild(button);
@@ -125,7 +135,7 @@
   function start() {
     checkVersion();
     loadNotes().then(function (notes) {
-      var newest = latestNoteVersion(notes), lastRead = safeGet(STORAGE_KEY);
+      var newest = latestNoteVersion(notes), lastRead = safeGet(options.storageKey);
       var notesDisabled = /(?:[?&])notes=0(?:&|$)/.test(root.location.search || '');
       if (!notesDisabled && !state.shownAutomatically && newest && (!lastRead || compareVersions(newest, lastRead) > 0)) { state.shownAutomatically = true; showNotes(); }
     }).catch(function () {});
@@ -133,6 +143,6 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) checkVersion(); });
   }
 
-  root.TzutzuPatchNotes = { mountButton: mountButton, show: showNotes, checkVersion: checkVersion };
+  root.TzutzuPatchNotes = { configure: configure, mountButton: mountButton, show: showNotes, checkVersion: checkVersion };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
 })(window);

@@ -38,7 +38,10 @@ async function createAnswerKey({ filename, dataBase64, officialAnswers }, output
   let data, ensemble;
   async function solve(source, value) {
     deps.beforeAI?.();
-    if (!deps.runEnsemble) return source === 'text' ? deps.generate(value) : deps.generateFromImages(value);
+    if (!deps.runEnsemble) {
+      const instructions = 'summaryLabel 一律回傳空字串，不推測單元名稱、作業名稱或頁碼；docTitle、unitName 由使用者自行輸入，不要產生。';
+      return source === 'text' ? deps.generate(value, instructions) : deps.generateFromImages(value, instructions);
+    }
     const result = await deps.runEnsemble({ source, ...(source === 'text' ? { text: value } : { images: value }), officialAnswers, onUsage: deps.onUsage });
     ensemble = result.ensemble;
     return result.data;

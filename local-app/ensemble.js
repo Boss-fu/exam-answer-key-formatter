@@ -63,8 +63,8 @@ async function runValidator(name, input, env = process.env) {
 async function runEnsemble(input, deps = {}) {
   const env = deps.env || process.env;
   const write = extra => input.source === 'images'
-    ? (deps.generateFromImages || engine.generateFromImagesClaudeCode)(input.images, extra, {onUsage:input.onUsage})
-    : (deps.generate || engine.generateWithClaudeCode)(input.text, extra, {onUsage:input.onUsage});
+    ? (deps.generateFromImages || engine.generateFromImagesClaudeCode)(input.images, extra, {onUsage:input.onUsage, answerKeyMode:true})
+    : (deps.generate || engine.generateWithClaudeCode)(input.text, extra, {onUsage:input.onUsage, answerKeyMode:true});
   let official;
   try { official = officialMap(input.officialAnswers); }
   catch (e) { e.statusCode = 400; throw e; }

@@ -29,11 +29,11 @@ function applyCors(req, res) {
     if (!origin) { res.writeHead(400); res.end(); return false; }
     const headers = (req.headers["access-control-request-headers"] || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
     const method = req.headers["access-control-request-method"] || "GET";
-    if (!["GET", "POST"].includes(method) || headers.some((h) => h !== "content-type")) {
+    if (!["GET", "POST"].includes(method) || headers.some((h) => !["content-type", "authorization"].includes(h))) {
       res.writeHead(403); res.end(); return false;
     }
     res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-    res.setHeader("access-control-allow-headers", "content-type");
+    res.setHeader("access-control-allow-headers", "content-type, authorization");
     res.setHeader("access-control-max-age", "600");
     if (req.headers["access-control-request-private-network"] === "true") res.setHeader("access-control-allow-private-network", "true");
     res.writeHead(204); res.end(); return false;

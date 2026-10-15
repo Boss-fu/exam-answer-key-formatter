@@ -37,7 +37,8 @@
         detail = data.error || "";
       }
       if (!detail && response.status === 404) detail = "這台電腦的程式版本太舊，還沒有這個功能；請重新啟動它的 OCR 服務以更新。";
-      throw new Error("HTTP " + response.status + "：" + (detail || "處理失敗，請稍後再試；一直失敗請聯絡管理員。"));
+      var failure = new Error("HTTP " + response.status + "：" + (detail || "處理失敗，請稍後再試；一直失敗請聯絡管理員。"));
+      failure.status = response.status; failure.detail = detail; throw failure;
     }
     if (type.indexOf("text/html") !== -1) {
       throw new Error("主機回傳網頁而不是處理結果，請確認選的是正確的 OCR 主機。");

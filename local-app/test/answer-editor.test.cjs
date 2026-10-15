@@ -24,7 +24,7 @@ function browser() {
   }
   const document = { getElementById(id) { if (!ids.has(id)) { const e = new Element('div'); e.id = id; } return ids.get(id); }, createElement: tag => new Element(tag) };
   const context = vm.createContext({ document, OcrServerConfig: { servers: { company: {} } }, AnswerRules: require('../public/answer-rules'), console, localStorage: { setItem() {} } });
-  vm.runInContext(source.replace('restoreDraft();connect();', ''), context);
+  vm.runInContext(source.replace('void initialize();', ''), context);
   return { context, document };
 }
 

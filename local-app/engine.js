@@ -57,8 +57,12 @@ const OUTPUT_SPEC = `
 }
 計算題：需要計算才能得到答案（例如數值選項）時，q.kind="calc"，統一詳解只寫在 q.detail，q.options=[]，不要逐選項解說。正確／錯誤代表選項敘述本身的真偽，不是是否為答案。否定問法（何者錯誤／不正確／不對／非／不是／不可能／不適當／不合理）設 q.negative=true，答案集合等於以「錯誤」開頭的選項集合；一般問法設 q.negative=false，答案集合等於以「正確」開頭的選項集合。多選題同樣比對全部字母集合。公式規則：公式用單一錢號 $...$；資訊不足處在該欄位文字內標「需人工確認」，不要自己捏造。`;
 
-function buildPrompt(examText, extraInstructions) {
-  return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 以下是考卷內容 ==========\n${examText}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
+function outputSpec(options) {
+  return options?.answerKeyMode ? OUTPUT_SPEC.replace('【單元/作業名稱】頁碼範圍，若不確定填 需人工確認', '') +
+    '\n本詳解流程覆蓋上方簡答標頭規則：summaryLabel 一律回傳空字串，不推測單元、作業名稱或頁碼，也不產生 docTitle、unitName；標題與單元由使用者自行輸入。' : OUTPUT_SPEC;
+}
+function buildPrompt(examText, extraInstructions, options) {
+  return `${loadRules()}\n\n${outputSpec(options)}\n\n========== 以下是考卷內容 ==========\n${examText}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
 }
 
 // 從模型輸出的字串裡把 JSON 抽出來（容忍前後雜訊或 code fence）。
@@ -77,7 +81,7 @@ function extractJson(text) {
 function generateWithClaudeCode(examText, extraInstructions, telemetry) {
   return new Promise((resolve, reject) => {
     const bin = process.env.CLAUDE_BIN || "claude";
-    const child = spawn(bin, ["-p", buildPrompt(examText, extraInstructions), ...(telemetry ? ["--output-format", "json"] : [])], {
+    const child = spawn(bin, ["-p", buildPrompt(examText, extraInstructions, telemetry), ...(telemetry ? ["--output-format", "json"] : [])], {
       cwd: REPO,
       env: process.env,
     });
@@ -295,8 +299,8 @@ function imgMediaType(img) {
     : e === ".webp" ? "image/webp"
     : e === ".gif" ? "image/gif" : "image/jpeg";
 }
-function imagePrompt() {
-  return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 考卷在圖片中 ==========\n請先仔細閱讀圖片裡的每一題（題幹、選項、圖表、公式都要看），再依規範產出 JSON。同一份考卷可能有多張圖（多頁），請合併處理。`;
+function imagePrompt(options) {
+  return `${loadRules()}\n\n${outputSpec(options)}\n\n========== 考卷在圖片中 ==========\n請先仔細閱讀圖片裡的每一題（題幹、選項、圖表、公式都要看），再依規範產出 JSON。同一份考卷可能有多張圖（多頁），請合併處理。`;
 }
 function rmDir(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 
@@ -313,7 +317,7 @@ function generateFromImagesClaudeCode(images, extraInstructions, telemetry) {
         return p;
       });
       const bin = process.env.CLAUDE_BIN || "claude";
-      const prompt = `${imagePrompt()}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
+      const prompt = `${imagePrompt(telemetry)}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
       // --allowedTools Read：授權讀檔工具，否則 headless 模式會停下來要權限、產不出 JSON。
       const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read", ...(telemetry ? ["--output-format", "json"] : [])], { cwd: REPO, env: process.env });
       let out = "", err = "";

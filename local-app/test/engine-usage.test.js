@@ -11,9 +11,18 @@ test('answer-key Claude 文字、圖片、重算皆使用 JSON telemetry；舊�
  assert.equal((await engine.generateFromImagesClaudeCode([image],undefined,{onUsage})).questions[0].kind,'calc');
  await runEnsemble({source:'text',text:'題目',onUsage},{chatgpt:async()=>({'1':'A'}),env:{}});
  assert.equal(invocations.length,4);assert.ok(invocations.every(a=>a.includes('--output-format') && a.includes('json')));
+ for(const args of invocations.slice(2))assert.match(args[1], /"summaryLabel": ""/);
+ assert.match(invocations[0][1], /單元\/作業名稱/);
  assert.equal(total.claude.calls,4);assert.equal(total.claude.input,40);assert.equal(total.claude.cacheRead,12);assert.equal(total.claude.costUsd,0.4);
  reply=JSON.stringify({questions:[q]});await engine.generateWithClaudeCode('舊功能');assert.ok(!invocations.at(-1).includes('--output-format'));
  reply=JSON.stringify({result:JSON.stringify({questions:[q]})});await engine.generateFromImagesClaudeCode([image],undefined,{onUsage});assert.equal(total.claude.calls,5);
+});
+test('詳解圖片與官方答案 prompt 不猜標頭，舊文字 prompt 維持原規格',async()=>{
+ reply=JSON.stringify({result:JSON.stringify({questions:[]})});
+ await runEnsemble({source:'images',images:[{filename:'exam.png',dataBase64:'YQ=='}],officialAnswers:{1:'A'}});
+ assert.match(invocations.at(-1)[1], /"summaryLabel": ""/);
+ assert.match(invocations.at(-1)[1], /不推測單元/);
+ assert.match(engine.buildPrompt('題目'), /"summaryLabel": "【單元\/作業名稱】頁碼範圍/);
 });
 test('Codex validator tokens used 由 stderr 讀取',async()=>{
  reply='';tokenLog='tokens used\n12,345';const total=emptyUsage();const answers=await runValidator('chatgpt',{source:'text',text:'考卷',onUsage:u=>addUsage(total,u)},{});assert.deepEqual(answers,{'1':'B'});assert.equal(total.chatgpt.tokens,12345);

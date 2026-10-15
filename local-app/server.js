@@ -1,3 +1,4 @@
+const auth = require('./auth').createAuth();
 const answerQuota = require('./quota').createQuota();
 const {emptyUsage,addUsage}=require('./usage');
 // 本機小網頁應用：在你自己的電腦跑 `npm start`，瀏覽器開 http://localhost:8787
@@ -129,11 +130,36 @@ function readProgress(resultDir, since) {
 
 const server = http.createServer(async (req, res) => {
   if (!applyCors(req, res)) return;
-  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
+
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const token = (req.headers.authorization || '').replace(/^Bearer /i, '');
+    let identity;
+    if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || ['/api/answer-key', '/api/answer-key/quota', '/api/answer-key/render'].includes(url.pathname)) {
+      try {
+        if (req.method === 'POST' && ['/api/auth/admin', '/api/auth/invite'].includes(url.pathname)) {
+  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
+          let body;
+          try { body = JSON.parse(await readBody(req, 4096, true) || '{}'); } catch { return sendJson(res, 400, { error: '登入資料格式不正確。' }); }
+          return sendJson(res, 200, url.pathname.endsWith('/admin') ? auth.adminLogin(body?.password, req.socket.remoteAddress) : auth.inviteLogin(body?.code, req.socket.remoteAddress));
+        }
+        identity = auth.authenticate(token);
+  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
+        if (url.pathname.startsWith('/api/admin/') && identity.role !== 'admin') return sendJson(res, 403, { error: '只有管理員可以管理邀請碼。' });
+        if (req.method === 'GET' && url.pathname === '/api/auth/me') return sendJson(res, 200, { role: identity.role, label: identity.label });
+        if (req.method === 'POST' && url.pathname === '/api/auth/logout') { auth.logout(token); return sendJson(res, 200, { ok: true }); }
+        if (req.method === 'GET' && url.pathname === '/api/admin/invites') return sendJson(res, 200, { invites: auth.listInvites() });
+        if (req.method === 'POST' && ['/api/admin/invites', '/api/admin/invites/disable', '/api/admin/invites/enable'].includes(url.pathname)) {
+          let body;
+          try { body = JSON.parse(await readBody(req, 4096, true) || '{}'); } catch { return sendJson(res, 400, { error: '邀請碼資料格式不正確。' }); }
+          return sendJson(res, 200, url.pathname === '/api/admin/invites' ? auth.createInvite(body?.label) : auth.setDisabled(body?.id, url.pathname.endsWith('/disable')));
+        }
+      } catch (error) { return sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : '登入資料暫時無法讀寫，請聯絡管理員。' }); }
+    }
 
 
+
+  if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
     // --- 靜態首頁 ---
     if (req.method === "GET" && url.pathname === "/answer.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "answer.html")));
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -143,7 +169,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/manifest.webmanifest") return send(res, 200, "application/manifest+json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "manifest.webmanifest")));
     if (req.method === "GET" && url.pathname === "/sw.js") return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "sw.js")));
     if (req.method === "GET" && url.pathname === "/eraser.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "eraser.html")));
-    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/patch-notes.js", "/dehand-web.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/answer-rules.js", "/patch-notes.js", "/dehand-web.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
     if (req.method === "GET" && url.pathname.startsWith("/models/")) {
@@ -549,6 +575,7 @@ const server = http.createServer(async (req, res) => {
         input = JSON.parse(await readBody(req, 48 * 1024 * 1024, true) || "{}");
         if (!input || typeof input.filename !== "string") return sendJson(res, 400, { ok: false, error: "請選擇一份考卷檔案。" });
         result = await createAnswerKey(input, OUTPUT, { extractText, runEnsemble, beforeAI:()=>lease.charge(), onUsage:part=>addUsage(usage,part), checkAnswers: questions => renderer().checkAnswers(questions) });
+        auth.recordJob(identity);
         usage.seconds=Math.round((Date.now()-start)/1000);
         return sendJson(res, 200, {...result,usage});
       } catch (error) {
@@ -558,7 +585,7 @@ const server = http.createServer(async (req, res) => {
           : "產生詳解失敗，請稍後再試；若持續失敗，請管理員檢查公司電腦的解題引擎。";
         return sendJson(res, error.statusCode || (error instanceof SyntaxError ? 400 : 500), { ok: false, error: message });
       } finally {
-        try { if(lease?.charged) lease.record({time:new Date().toISOString(),filename:input?.filename,pages:result?.pages??null,seconds:Math.round((Date.now()-start)/1000),mode:result?.ensemble?.mode || 'failed',...usage,disputed:result?.ensemble?.disputed?.length||0,recalculated:result?.ensemble?.disputed?.filter(d=>d.recalculated).length||0}); }
+        try { if(lease?.charged) lease.record({who:identity.label,time:new Date().toISOString(),filename:input?.filename,pages:result?.pages??null,seconds:Math.round((Date.now()-start)/1000),mode:result?.ensemble?.mode || 'failed',...usage,disputed:result?.ensemble?.disputed?.length||0,recalculated:result?.ensemble?.disputed?.filter(d=>d.recalculated).length||0}); }
         catch (error) { console.error("寫入詳解用量紀錄失敗：", error.message); }
         finally { lease?.release(); }
       }
@@ -571,10 +598,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- 產出 Word 並存到本機 output/，同時回傳檔案供下載 ---
-    if (req.method === "POST" && url.pathname === "/api/render") {
+    if (req.method === "POST" && ["/api/render", "/api/answer-key/render"].includes(url.pathname)) {
       const { data, filename } = JSON.parse(await readBody(req) || "{}");
       if (!data || !Array.isArray(data.questions)) return sendJson(res, 400, { ok: false, error: "缺少 questions" });
-      const buf = await renderer().buildDocxBuffer(data);
+      const answerKeyMode = url.pathname === "/api/answer-key/render";
+      const buf = await renderer().buildDocxBuffer({ ...data, answerKeyMode });
       const name = safeName(filename || data.summaryLabel) + ".docx";
       const outPath = path.join(OUTPUT, name);
       fs.writeFileSync(outPath, buf);

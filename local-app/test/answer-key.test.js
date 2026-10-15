@@ -73,6 +73,8 @@ test('圖片引擎失敗後仍清除 PDF 暫存', async () => {
 });
 
 test('HTTP health、獨立頁面及中文輸入錯誤', async () => {
+  const authModule=require('../auth'), authDir=fs.mkdtempSync(path.join(require('os').tmpdir(),'answer-http-auth-'));
+  const auth=authModule.createAuth({dir:authDir});authModule.createAuth=()=>auth;const invite=auth.createInvite('測試老師'),token=auth.inviteLogin(invite.code,'test').token;
   const server = require('../server');
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -81,14 +83,14 @@ test('HTTP health、獨立頁面及中文輸入錯誤', async () => {
     assert.ok(health.capabilities.includes('answer-key'));
     assert.match(await (await fetch(base + '/answer.html')).text(), /理化詳解產生器/);
     for (const body of ['{', '{}', JSON.stringify({ filename: 'exam.exe', dataBase64: 'YQ==' }), JSON.stringify({ filename: 'exam.txt', dataBase64: '?!' })]) {
-      const response = await fetch(base + '/api/answer-key', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      const response = await fetch(base + '/api/answer-key', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer '+token }, body });
       assert.equal(response.status, 400);
       const result = await response.json();
       assert.equal(result.ok, false);
       assert.match(result.error, /[\u4e00-\u9fff]/);
       assert.doesNotMatch(result.error, /stack|SyntaxError| at /);
     }
-  } finally { await new Promise(resolve => server.close(resolve)); }
+  } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(authDir,{recursive:true,force:true}); }
 });
 
 test('有文字 PDF 12 頁看圖，13 頁退回文字；200 字門檻去空白', async () => {
