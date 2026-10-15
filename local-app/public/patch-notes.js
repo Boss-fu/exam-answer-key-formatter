@@ -94,7 +94,8 @@
     }).catch(function () { /* 網路暫時不可用時不打斷操作 */ });
   }
   function showUpdateToast() {
-    if (document.querySelector('.tz-version-toast')) return;
+    var existing = document.querySelector('.tz-version-toast');
+    if (existing) { existing.querySelector('span').textContent = root.TzutzuBusy ? '工作完成後即可更新' : '有新版本可以更新'; existing.querySelector('button').textContent = root.TzutzuBusy ? '稍後更新' : '立即更新'; return; }
     injectStyles();
     var toast = document.createElement('div');
     toast.className = 'tz-version-toast';
@@ -112,7 +113,7 @@
   // 在 DOMContentLoaded、自動讀取公告之前設定；每頁使用一組公告設定。
   function configure(settings) {
     settings = settings || {};
-    ['url', 'storageKey', 'title'].forEach(function (key) {
+    ['url', 'storageKey', 'title', 'buttonText'].forEach(function (key) {
       if (typeof settings[key] === 'string' && settings[key]) options[key] = settings[key];
     });
     state.notes = null;
@@ -128,6 +129,7 @@
     button.title = options.title;
     button.setAttribute('aria-label', '開啟' + options.title);
     button.innerHTML = icons.gift;
+    if (options.buttonText) button.appendChild(document.createTextNode(options.buttonText));
     button.addEventListener('click', function (event) { event.stopPropagation(); showNotes(); });
     element.appendChild(button);
     return button;

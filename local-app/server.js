@@ -1,4 +1,5 @@
 const auth = require('./auth').createAuth();
+const feedback = require('./feedback').createFeedback();
 const answerQuota = require('./quota').createQuota();
 const {emptyUsage,addUsage}=require('./usage');
 // 本機小網頁應用：在你自己的電腦跑 `npm start`，瀏覽器開 http://localhost:8787
@@ -135,7 +136,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = (req.headers.authorization || '').replace(/^Bearer /i, '');
     let identity;
-    if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || ['/api/answer-key', '/api/answer-key/quota', '/api/answer-key/render'].includes(url.pathname)) {
+    if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || ['/api/feedback', '/api/answer-key', '/api/answer-key/quota', '/api/answer-key/render'].includes(url.pathname)) {
       try {
         if (req.method === 'POST' && ['/api/auth/admin', '/api/auth/invite'].includes(url.pathname)) {
   if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
@@ -145,9 +146,14 @@ const server = http.createServer(async (req, res) => {
         }
         identity = auth.authenticate(token);
   if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
-        if (url.pathname.startsWith('/api/admin/') && identity.role !== 'admin') return sendJson(res, 403, { error: '只有管理員可以管理邀請碼。' });
+        if (url.pathname.startsWith('/api/admin/') && identity.role !== 'admin') return sendJson(res, 403, { error: '只有管理員可以使用管理功能。' });
         if (req.method === 'GET' && url.pathname === '/api/auth/me') return sendJson(res, 200, { role: identity.role, label: identity.label });
         if (req.method === 'POST' && url.pathname === '/api/auth/logout') { auth.logout(token); return sendJson(res, 200, { ok: true }); }
+        if (req.method === 'GET' && url.pathname === '/api/admin/feedback') return sendJson(res,200,feedback.list(identity));
+        if (req.method === 'POST' && ['/api/feedback','/api/admin/feedback/read'].includes(url.pathname)) {
+          let body;try{body=JSON.parse(await readBody(req,16384,true)||'{}');}catch{return sendJson(res,400,{error:'回饋資料格式不正確。'});}
+          return sendJson(res,200,url.pathname==='/api/feedback'?feedback.submit(identity,body):feedback.markRead(identity,body?.id));
+        }
         if (req.method === 'GET' && url.pathname === '/api/admin/invites') return sendJson(res, 200, { invites: auth.listInvites() });
         if (req.method === 'POST' && ['/api/admin/invites', '/api/admin/invites/disable', '/api/admin/invites/enable'].includes(url.pathname)) {
           let body;
@@ -583,12 +589,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- 產生詳解：examText（文字）或 images（拍照/圖片，讓 Claude 讀圖）→ JSON ---
-    if (req.method === "GET" && url.pathname === "/api/answer-key/quota") return sendJson(res, 200, answerQuota.status());
+    if (req.method === "GET" && url.pathname === "/api/answer-key/quota") return sendJson(res, 200, answerQuota.status(identity));
     if (req.method === "POST" && url.pathname === "/api/answer-key") {
       let lease, input, result;
       const start=Date.now(), usage=emptyUsage();
       try {
-        lease=answerQuota.acquire();
+        lease=answerQuota.acquire(identity);
         input = JSON.parse(await readBody(req, 48 * 1024 * 1024, true) || "{}");
         if (!input || typeof input.filename !== "string") return sendJson(res, 400, { ok: false, error: "請選擇一份考卷檔案。" });
         result = await createAnswerKey(input, OUTPUT, { extractText, runEnsemble, beforeAI:()=>lease.charge(), onUsage:part=>addUsage(usage,part), checkAnswers: questions => renderer().checkAnswers(questions) });

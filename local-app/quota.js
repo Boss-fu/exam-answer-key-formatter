@@ -28,13 +28,15 @@ function createQuota({ dir = path.join(__dirname, 'output', 'usage'), limit = pr
     fs.writeFileSync(temp, JSON.stringify(data, null, 2));
     fs.renameSync(temp, file(data.date));
   }
-  function status() {
+  function status(identity) {
     const day = date(), data = read(day);
-    return { limit, used: data.used, remaining: Math.max(0, limit - data.used), busy, date: day, tokens: tokenTotals(data.records) };
+    const unlimited = identity?.role === 'admin';
+    return { limit: unlimited ? null : limit, used: data.used, remaining: unlimited ? null : Math.max(0, limit - data.used), unlimited, busy, date: day, tokens: tokenTotals(data.records) };
   }
-  function acquire() {
+  function acquire(identity) {
+    const unlimited = identity?.role === 'admin';
     if (busy) throw busyError();
-    if (status().remaining === 0) throw limitError(limit);
+    if (!unlimited && status().remaining === 0) throw limitError(limit);
     busy = true;
     let chargedDate = null, released = false;
     return {
@@ -42,15 +44,15 @@ function createQuota({ dir = path.join(__dirname, 'output', 'usage'), limit = pr
       charge() {
         if (chargedDate) return;
         const day = date(), data = read(day);
-        if (data.used >= limit) throw limitError(limit);
-        data.used++;
+        if (!unlimited && data.used >= limit) throw limitError(limit);
+        if (!unlimited) data.used++;
         save(data);
         chargedDate = day;
       },
       record(record) {
         if (!chargedDate) return;
         const data = read(chargedDate);
-        data.records.push(record); // Keep jobs that cross midnight with their original charge.
+        data.records.push({ ...record, quotaExempt: unlimited }); // Keep jobs that cross midnight with their original charge.
         save(data);
       },
       release() {
