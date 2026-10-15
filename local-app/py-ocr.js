@@ -20,11 +20,11 @@ function pyBin() {
 }
 
 // 回傳 { text, txtFile, docxFile, reviewFile, figures[], stats, log }（檔名為 outDir 內相對路徑）。
-function runPyOcr({ sourcePath, outDir, dpi = 350, timeout = 900000, progress = false }) {
+function runPyOcr({ sourcePath, outDir, dpi = 350, timeout = 900000, progress = false, skipClean = false }) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(outDir, { recursive: true });
     const args = [SCRIPT, sourcePath, "-o", outDir, "--dpi", String(dpi)];
-    const env = progress ? { ...process.env, OCR_PROGRESS: "1" } : process.env;
+    const env = { ...process.env, OCR_SKIP_CLEAN: skipClean ? "1" : "0", ...(progress ? { OCR_PROGRESS: "1" } : {}) };
     execFile(pyBin(), args, { cwd: REPO, env, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
         if (err.code === "ENOENT") {

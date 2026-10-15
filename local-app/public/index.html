@@ -224,17 +224,16 @@
 
   <!-- 1 去除筆跡：獨立入口，完成後再進第 2 步轉 Word。 -->
   <div class="stage active" id="eraserStage">
-    <div class="stage-head"><div class="stage-no">1</div><div><h2>去除筆跡<span class="badge local">本機模型</span></h2><p>先把掃描考卷上的手寫答案清掉，原始檔不會被覆蓋；完成後可在第 2 步沿用同一份清理結果轉成 Word。</p></div></div>
-    <div class="notice done" style="margin:18px 0"><b>考卷清理室</b><p style="margin:6px 0 12px">支援 PDF、JPG、PNG，可一次處理多頁。清理結果會保留在本機工作紀錄，之後不用重新上傳。</p><a class="btn primary" href="./eraser.html">開始去除筆跡 →</a></div>
+    <iframe id="eraserWorkspace" title="考卷清理室：選檔、清理與下載" src="./eraser.html?embed=1" style="display:block;width:100%;height:760px;border:0"></iframe>
   </div>
 
   <!-- 2 OCR 轉成茲茲格式 Word（同一 job 全程沿用）-->
   <div class="stage" id="localocr">
     <div class="stage-head"><div class="stage-no">2</div><div><h2>轉成 Word<span class="badge local">AI 只判斷一次</span></h2><p>把第 1 步下載的乾淨 PDF 或圖片放進來，系統會分欄、認字、裁圖、重建表格並輸出茲茲格式 Word。</p></div></div>
     <div class="ocr-workspace">
-    <div class="workspace-steps" aria-label="考卷清理到 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">1</span><span>匯入考卷</span></div><div class="ocr-step" id="ocrStepProcessing"><span class="step-dot">2</span><span>清理筆跡</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">3</span><span>OCR 預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">4</span><span>人工修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">5</span><span>匯出 Word</span></div></div>
-    <div class="workspace-state workspace-upload active" id="uploadRow"><div class="upload-center"><div class="upload-icon">↑</div><h2>匯入考卷，先進清理室</h2><p>支援 PDF、JPG、PNG；上傳一次後，系統先清除筆跡，再 OCR 並排成 Word。</p><div class="drop-row upload-drop" id="uploadDrop"><input class="upload-file" type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary upload-choose" id="chooseFileBtn" type="button">選擇考卷檔案</button><span class="upload-name" id="uploadFileName">或直接把檔案拖進來</span></div><div class="upload-actions"><button class="btn primary" id="pyBtn">開始清理並轉 Word</button><span class="status" id="pyStatus" role="status"></span></div><div class="recent-strip" id="recentRow" style="display:none"><div class="recent-title">最近的考卷</div><div class="recent-row"><select id="recentJobs"><option value="">讀取中…</option></select><button class="btn" id="openRecentBtn">開啟</button></div></div></div></div>
-    <div id="processingModal" class="workspace-state workspace-processing hide" role="status"><div class="processing-card"><h2>正在整理考卷</h2><span id="processingElapsed" class="elapsed">0 秒</span><p id="processingStage">準備卷面中</p><div class="live-process"><div><div class="live-sheet"><img id="livePageImage" alt="目前這一頁的卷面" style="display:none"></div><div id="livePages" class="live-pages"></div></div><ol id="liveSteps" class="live-steps"><li data-stage="clean">轉正與清筆跡 <small></small></li><li data-stage="ocr">辨識文字 <small></small></li><li data-stage="ai">判斷題目 <small></small></li><li data-stage="word">組成 Word <small></small></li></ol></div><div class="ocr-progress" id="pyProgress"><b>等待上傳</b></div></div></div>
+    <div class="workspace-steps" aria-label="辨識與轉 Word 工作步驟"><div class="ocr-step active" id="ocrStepUpload"><span class="step-dot">1</span><span>匯入考卷</span></div><div class="ocr-step" id="ocrStepPreview"><span class="step-dot">2</span><span>OCR 預覽</span></div><div class="ocr-step" id="ocrStepFix"><span class="step-dot">3</span><span>人工修正</span></div><div class="ocr-step" id="ocrStepDownload"><span class="step-dot">4</span><span>匯出 Word</span></div></div>
+    <div class="workspace-state workspace-upload active" id="uploadRow"><div class="upload-center"><div class="upload-icon">↑</div><h2>匯入清理後的考卷，轉成 Word</h2><p>支援 PDF、JPG、PNG；直接辨識文字、檢查並轉成 Word，不再重複清理筆跡。</p><div class="drop-row upload-drop" id="uploadDrop"><input class="upload-file" type="file" id="pyFile" accept=".pdf,.png,.jpg,.jpeg"><button class="btn primary upload-choose" id="chooseFileBtn" type="button">選擇考卷檔案</button><span class="upload-name" id="uploadFileName">或直接把檔案拖進來</span></div><div class="upload-actions"><button class="btn primary" id="pyBtn">開始辨識並轉 Word</button><span class="status" id="pyStatus" role="status"></span></div><div class="recent-strip" id="recentRow" style="display:none"><div class="recent-title">最近的考卷</div><div class="recent-row"><select id="recentJobs"><option value="">讀取中…</option></select><button class="btn" id="openRecentBtn">開啟</button></div></div></div></div>
+    <div id="processingModal" class="workspace-state workspace-processing hide" role="status"><div class="processing-card"><h2>正在整理考卷</h2><span id="processingElapsed" class="elapsed">0 秒</span><p id="processingStage">準備卷面中</p><div class="live-process"><div><div class="live-sheet"><img id="livePageImage" alt="目前這一頁的卷面" style="display:none"></div><div id="livePages" class="live-pages"></div></div><ol id="liveSteps" class="live-steps"><li data-stage="ocr">辨識文字 <small></small></li><li data-stage="ai">判斷題目 <small></small></li><li data-stage="word">組成 Word <small></small></li></ol></div><div class="ocr-progress" id="pyProgress"><b>等待上傳</b></div></div></div>
     <div id="previewContainer" class="workspace-state workspace-preview hide">
       <div class="preview-toolbar"><strong class="job-name" id="ocrJobName">掃描卷預覽</strong>
         <div id="previewTabs" class="preview-tabs">
@@ -387,7 +386,7 @@ $("#changeExamBtn").addEventListener("click",function(){setWorkspaceState("uploa
   }
   tabs.forEach(function(tab){tab.addEventListener('click',function(){activate(tab.getAttribute('data-target'));});});
   if(location.hash==='#solution'||new URL(location.href).searchParams.has('invite'))activate('solution');
-  window.addEventListener('message',function(event){var frame=document.getElementById('answerWorkspace');if(event.source!==frame.contentWindow||event.origin!==location.origin)return;var data=event.data||{};if(data.type==='tzutzu-answer-busy')window.TzutzuBusy=!!data.busy;});
+  window.addEventListener('message',function(event){var eraser=document.getElementById('eraserWorkspace');if(event.source===eraser.contentWindow&&event.origin===location.origin&&event.data?.type==='tzutzu-eraser-busy'){window.TzutzuBusy=!!event.data.busy;return;}var frame=document.getElementById('answerWorkspace');if(event.source!==frame.contentWindow||event.origin!==location.origin)return;var data=event.data||{};if(data.type==='tzutzu-answer-busy')window.TzutzuBusy=!!data.busy;});
 })();
 
 /* ===== 第 1 步：手動截圖（pdf.js 渲染 + canvas 裁切）===== */
@@ -452,7 +451,7 @@ $("#pkgBtn").addEventListener("click",async function(){
   if(!f){st.className="status err";st.textContent="請先選擇掃描 PDF 或圖片。";return;}
   st.className="status";st.textContent="AI 處理中，約需 4–5 分鐘，請不要關閉此頁…";box.classList.add("hide");$("#pkgBtn").disabled=true;
   try{var data=await readAsDataURL(f);data=data.split(",")[1]||"";
-    var res=await apiFetch("/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data})},server);
+    var res=await apiFetch("/api/exam-package",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({filename:f.name,dataBase64:data,skipClean:true})},server);
     var j=await res.json();if(!j.ok)throw new Error(j.error||"產生失敗");
     st.className="status ok";st.textContent="已完成："+(j.summary||"考卷已處理");
     var links="";if(j.docxUrl)links+='<a class="btn primary" href="'+esc(apiUrl(j.docxUrl,server))+'">⬇ 下載考卷 Word</a> ';if(j.csvUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.csvUrl,server))+'">⬇ 下載題庫 CSV</a>';
@@ -636,7 +635,7 @@ $("#openRecentBtn").addEventListener("click", async function() {
     } catch (e) { console.error(e); $("#pyStatus").className="status err"; $("#pyStatus").textContent="無法開啟舊考卷："+e.message; }
 });
 </script>
-<script src="./dehand-web.js"></script><script>
+<script>
 /* Show a first-page browser cleanup while the server OCR runs in parallel. */
 document.getElementById('pyBtn').addEventListener('click',async function(){var f=document.getElementById('pyFile').files[0],out=document.getElementById('livePageImage');if(!f||!window.DehandWeb)return;try{var c=document.createElement('canvas'),ctx=c.getContext('2d');if(/pdf$/i.test(f.name)&&window.pdfjsLib){var pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise,p=await pdf.getPage(1),v=p.getViewport({scale:1240/p.getViewport({scale:1}).width});c.width=v.width;c.height=v.height;await p.render({canvasContext:ctx,viewport:v}).promise}else{var im=await createImageBitmap(f);c.width=1240;c.height=Math.round(im.height*1240/im.width);ctx.drawImage(im,0,0,c.width,c.height)}var r=await DehandWeb.suggest(ctx.getImageData(0,0,c.width,c.height));var d=ctx.createImageData(c.width,c.height);for(var i=0;i<r.gray.length;i++){var j=i*4,v=r.mask[i]?255:r.gray[i];d.data[j]=d.data[j+1]=d.data[j+2]=v;d.data[j+3]=255}ctx.putImageData(d,0,0);out.src=c.toDataURL('image/jpeg',.88);out.style.display='block';document.getElementById('processingStage').textContent='瀏覽器已先完成第 1 頁去筆跡，後端 OCR 同步進行中'}catch(e){/* Server progress remains the fallback. */}} ,true);
 </script><script>try{TzutzuPatchNotes.mountButton(document.querySelector(".header-buttons"))}catch(e){}</script></body>

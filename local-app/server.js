@@ -439,7 +439,7 @@ const server = http.createServer(async (req, res) => {
 
     // --- 即時掃描卷：立即建立工作，後續由 progress 取得新的畫面與步驟。---
     if (req.method === "POST" && url.pathname === "/api/py-ocr/start") {
-      const { filename, dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
+      const { filename, dataBase64, skipClean } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少考卷檔案" });
       const ext = path.extname(filename || "").toLowerCase();
       if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) return sendJson(res, 400, { ok: false, error: "只接受 PDF、PNG 或 JPG 檔案" });
@@ -449,7 +449,7 @@ const server = http.createServer(async (req, res) => {
       const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
       fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
       fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "running" }));
-      runPyOcr({ sourcePath: source, outDir: resultDir, progress: true }).then((result) => {
+      runPyOcr({ sourcePath: source, outDir: resultDir, progress: true, skipClean: skipClean === true }).then((result) => {
         const report = { txt: result.txtFile, docx: result.docxFile, review: result.reviewFile, figures: result.figures, stats: result.stats };
         fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
         fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "done" }));

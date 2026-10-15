@@ -910,6 +910,7 @@ def tidy_text(txt):
 def _ocr_one_page(job):
     """單頁 OCR（可在子程序裡跑）：回傳這一頁的文字區塊、報告、表格、版面位置；附圖直接寫檔。"""
     pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q, pages, started = job
+    skip_clean = os.environ.get("OCR_SKIP_CLEAN") == "1"
     n = i + 1
     page = pymupdf.open(pdf_path)[i]
     # 即使是有文字層的 PDF，也輸出卷面小圖，讓處理畫面逐頁可見。
@@ -919,7 +920,8 @@ def _ocr_one_page(job):
     native = page.get_text("text").strip()
     if len(native) > 40:  # 有真文字層：直接用，免 OCR
         clean_img = _save_preview(rendered, out_dir, f"p{n}_clean")
-        _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
+        if not skip_clean:
+            _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
         _progress(out_dir, started, "ocr", n, pages, "已讀取本頁文字", clean_img)
         return {"n": n, "text": f"\n【第 {n} 頁（數位文字層）】\n{native}", "report": f"p{n}: 文字層 {len(native)} 字（免 OCR）",
                 "tables": {}, "geo": [], "lines": []}
@@ -929,11 +931,13 @@ def _ocr_one_page(job):
     turned, inked = 0, 0.0
     if eng_name == "ppocr":
         bgr, turned = fix_orientation(bgr)
-        bgr, inked = remove_color_ink(bgr)
-        bgr, dehanded = dehand.erase(bgr, dpi)       # 黑筆筆跡（模型判斷，沒模型時不動）
-        inked += dehanded
+        if not skip_clean:
+            bgr, inked = remove_color_ink(bgr)
+            bgr, dehanded = dehand.erase(bgr, dpi)
+            inked += dehanded
     clean_img = _save_preview(bgr, out_dir, f"p{n}_clean")
-    _progress(out_dir, started, "clean", n, pages, "已轉正並清除筆跡", clean_img)
+    if not skip_clean:
+        _progress(out_dir, started, "clean", n, pages, "已轉正並清除筆跡", clean_img)
     binimg = preprocess(bgr, upscale=upscale)
     H, W = bgr.shape[:2]
     lines = []
