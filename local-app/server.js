@@ -155,10 +155,10 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res,200,url.pathname==='/api/feedback'?feedback.submit(identity,body):feedback.markRead(identity,body?.id));
         }
         if (req.method === 'GET' && url.pathname === '/api/admin/invites') return sendJson(res, 200, { invites: auth.listInvites() });
-        if (req.method === 'POST' && ['/api/admin/invites', '/api/admin/invites/disable', '/api/admin/invites/enable'].includes(url.pathname)) {
+        if (req.method === 'POST' && ['/api/admin/invites', '/api/admin/invites/disable', '/api/admin/invites/enable', '/api/admin/invites/delete'].includes(url.pathname)) {
           let body;
           try { body = JSON.parse(await readBody(req, 4096, true) || '{}'); } catch { return sendJson(res, 400, { error: '邀請碼資料格式不正確。' }); }
-          return sendJson(res, 200, url.pathname === '/api/admin/invites' ? auth.createInvite(body?.label) : auth.setDisabled(body?.id, url.pathname.endsWith('/disable')));
+          return sendJson(res, 200, url.pathname === '/api/admin/invites' ? auth.createInvite(body?.label) : url.pathname === '/api/admin/invites/delete' ? auth.deleteInvite(body?.id) : auth.setDisabled(body?.id, url.pathname.endsWith('/disable')));
         }
       } catch (error) { return sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : '登入資料暫時無法讀寫，請聯絡管理員。' }); }
     }

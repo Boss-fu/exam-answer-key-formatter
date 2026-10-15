@@ -18,6 +18,15 @@ test('HTTP 授權邊界與 CORS',async()=>{
  const created=await(await post('/api/admin/invites',{label:'新老師'},admin.token)).json();assert.ok(created.code);
  const listing=await(await fetch(base+'/api/admin/invites',{headers:{authorization:'Bearer '+admin.token}})).json();assert.ok(listing.invites.some(i=>i.id===created.id));assert.ok(!JSON.stringify(listing).includes(created.code));
  assert.equal((await post('/api/admin/invites/disable',{id:created.id},admin.token)).status,200);assert.equal((await post('/api/auth/invite',{code:created.code})).status,401);assert.equal((await post('/api/admin/invites/enable',{id:created.id},admin.token)).status,200);assert.equal((await post('/api/auth/invite',{code:created.code})).status,200);
+ const deletedTeacher=await(await post('/api/auth/invite',{code:created.code})).json();
+ assert.equal((await post('/api/admin/invites/delete',{id:created.id},deletedTeacher.token)).status,403);
+ assert.equal((await post('/api/admin/invites/delete',{id:created.id})).status,401);
+ assert.equal((await post('/api/admin/invites/delete',{id:'missing'},admin.token)).status,404);
+ assert.equal((await post('/api/admin/invites/delete',{id:created.id},admin.token)).status,200);
+ assert.equal((await fetch(base+'/api/auth/me',{headers:{authorization:'Bearer '+deletedTeacher.token}})).status,401);
+ assert.equal((await post('/api/auth/invite',{code:created.code})).status,401);
+ assert.equal((await post('/api/admin/invites/enable',{id:created.id},admin.token)).status,404);
+ const persisted=createAuth({dir});assert.ok(!persisted.listInvites().some(i=>i.id===created.id));assert.equal(persisted.authenticate(admin.token).role,'admin');
  assert.equal((await post('/api/auth/logout',{},admin.token)).status,200);assert.equal((await fetch(base+'/api/auth/me',{headers:{authorization:'Bearer '+admin.token}})).status,401);
  const cors=await fetch(base+'/api/answer-key',{method:'OPTIONS',headers:{origin:'https://tzutzu-ocr.vercel.app','access-control-request-method':'POST','access-control-request-headers':'content-type, authorization'}});assert.equal(cors.status,204);assert.match(cors.headers.get('access-control-allow-headers'),/authorization/);
  }finally{await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}

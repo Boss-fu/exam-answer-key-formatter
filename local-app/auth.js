@@ -78,6 +78,13 @@ function createAuth({ dir = path.join(__dirname, 'output', 'auth'), now = Date.n
       const invite = { id: crypto.randomUUID(), label: label.trim(), codeHash: hash(raw), last4: raw.slice(-4), createdAt: new Date(now()).toISOString(), disabled: false, lastUsedAt: null, jobs: 0, expiresAt: null, jobLimit: null };
       data.invites.push(invite); save(data); return { ...publicInvite(invite), code: raw.slice(0, 4) + '-' + raw.slice(4) };
     },
+    deleteInvite(id) {
+      const data = read();
+      if (!data.invites.some(i => i.id === id)) fail('找不到這組邀請碼。', 404);
+      data.invites = data.invites.filter(i => i.id !== id);
+      data.sessions = data.sessions.filter(s => s.inviteId !== id);
+      save(data); return { ok: true };
+    },
     setDisabled(id, disabled) {
       const data = read(), invite = data.invites.find(i => i.id === id);
       if (!invite) fail('找不到這組邀請碼。', 404);
