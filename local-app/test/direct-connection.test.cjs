@@ -4,7 +4,7 @@ test('直連靜態檔白名單與影片 Range',async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const base='http://127.0.0.1:'+server.address().port;
  try{
- const notes=await fetch(base+'/answer-changelog.json');assert.equal(notes.status,200);assert.match(notes.headers.get('content-type'),/application\/json/);assert.equal((await notes.json()).entries[0].version,'2026.10.15.8');
+ const notes=await fetch(base+'/answer-changelog.json');assert.equal(notes.status,200);assert.match(notes.headers.get('content-type'),/application\/json/);assert.deepEqual((await notes.json()).entries,require('../public/answer-changelog.json').entries);
  const bytes=fs.readFileSync(path.join(__dirname,'../public/answer-tutorial.mp4'));
  const full=await fetch(base+'/answer-tutorial.mp4');assert.equal(full.status,200);assert.equal(full.headers.get('content-type'),'video/mp4');assert.deepEqual(Buffer.from(await full.arrayBuffer()),bytes);
  for(const [range,start,end] of [['bytes=0-9',0,9],['bytes=10-',10,bytes.length-1],['bytes=-8',bytes.length-8,bytes.length-1]]){
