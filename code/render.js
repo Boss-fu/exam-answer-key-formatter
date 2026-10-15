@@ -80,13 +80,33 @@ function buildSummaryLine(data) {
   const answerString = questions.map((q) => q.answer).join("");
   const groups = [];
   for (let i = 0; i < answerString.length; i += 5) groups.push(answerString.slice(i, i + 5));
-  return `${data.summaryLabel || "需人工確認"} ${groups.join("/")}`;
+  return normalizeHeading(data.unitName) ? groups.join("/") : `${data.summaryLabel || "需人工確認"} ${groups.join("/")}`;
+}
+
+function normalizeHeading(value) {
+  return Array.from(typeof value === 'string' ? value.trim() : '').slice(0, 60).join('');
 }
 
 // data → docx Buffer。簡答速查列在最上方，接著逐題詳解表格（同一份文件）。
 async function buildDocxBuffer(data) {
   const questions = data.questions || [];
   const children = [];
+  const docTitle = normalizeHeading(data.docTitle), unitName = normalizeHeading(data.unitName);
+  // Template: title 22pt in a text box (3.75pt outline), unit 14pt.
+  // Use the requested single paragraph border; 3.6pt padding matches the box inset.
+  if (docTitle) children.push(new Paragraph({
+    alignment: 'center', keepNext: true,
+    border: Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side =>
+      [side, { style: 'single', size: 30, color: '000000', space: 4 }])),
+    spacing: { before: 0, after: 72, line: LINE_SPACING, lineRule: LINE_RULE },
+    children: [new TextRun({ text: docTitle, bold: true, size: 44,
+      font: { ascii: '華康細圓體', hAnsi: '華康細圓體', eastAsia: '華康細圓體', cs: 'Times New Roman' } })],
+  }));
+  if (unitName) children.push(new Paragraph({
+    alignment: 'center', keepNext: true,
+    spacing: { before: 0, after: 0, line: LINE_SPACING, lineRule: LINE_RULE },
+    children: [new TextRun({ text: `【 ${unitName} 詳解 】`, bold: true, size: 28, font: FONT })],
+  }));
   children.push(new Paragraph({
     alignment: "center",
     spacing: { before: 0, after: 180, line: LINE_SPACING, lineRule: LINE_RULE },

@@ -53,3 +53,25 @@ test('否定題核取即時重算一致性；修改答案及選項同樣生效',
   assert.equal(card.querySelector('.answer-value').value, 'A');
   assert.equal(vm.runInContext('issues(draft.data.questions[0]).mismatch', context), true);
 });
+
+test('標題與單元可還原、修改並存回草稿，舊草稿顯示空值', () => {
+  const { context, document } = browser();
+  let saved;
+  context.localStorage.setItem = (key, value) => { saved = JSON.parse(value); };
+  vm.runInContext(`draft={key:'draft',official:[],data:{docTitle:'講義',unitName:'3-1',questions:[]}};showReview();`, context);
+  assert.equal(document.getElementById('review-docTitle').value, '講義');
+  assert.equal(document.getElementById('review-unitName').value, '3-1');
+  for (const key of ['docTitle', 'unitName']) {
+    const input = document.getElementById('review-' + key);
+    input.value = '  ' + '新'.repeat(65) + '  ';
+    input.oninput(); input.onchange();
+    assert.equal(saved.data[key], '新'.repeat(60));
+    assert.equal(input.value, '新'.repeat(60));
+    input.value = '   '; input.oninput(); input.onchange();
+    assert.equal(saved.data[key], '');
+    assert.equal(input.value, '');
+  }
+  vm.runInContext('draft={official:[],data:{questions:[]}};showReview();', context);
+  assert.equal(document.getElementById('review-docTitle').value, '');
+  assert.equal(document.getElementById('review-unitName').value, '');
+});
