@@ -25,9 +25,9 @@
       response = await env.fetch(url, Object.assign({ credentials: "omit", cache: "no-store" }, options));
     } catch (error) {
       if (error.name === "TimeoutError" || error.name === "AbortError") {
-        throw new Error(target.label + "太久沒回應，可能還在處理上一份工作或已離線。請稍等再按「重新連線」，不要重複送出。");
+        throw Object.assign(new Error(target.label + "太久沒回應，可能還在處理上一份工作或已離線。請稍等再按「重新連線」，不要重複送出。"), { connectionFailure: true });
       }
-      throw new Error("無法連線至" + target.label + "。請確認那台電腦已開機並啟動 OCR 服務、你的電腦已登入 Tailscale；若瀏覽器詢問「區域網路存取」，請按允許。");
+      throw Object.assign(new Error("無法連線至" + target.label + "。請確認那台電腦已開機並啟動 OCR 服務、你的電腦已登入 Tailscale；若瀏覽器詢問「區域網路存取」，請按允許。"), { connectionFailure: true });
     }
     var type = response.headers.get("content-type") || "";
     if (!response.ok) {

@@ -7,14 +7,14 @@ const source = fs.readFileSync(path.join(__dirname, '../public/patch-notes.js'),
 
 test('詳解公告欄位完整、版本遞減、圖示為既有集合', () => {
   const { entries } = require('../public/answer-changelog.json');
-  assert.equal(entries.length, 7);
+  assert.equal(entries.length, 8);
   const icons = ['clock', 'gift', 'edit', 'spark', 'shield', 'image'];
   entries.forEach((entry, i) => {
     for (const key of ['version', 'date', 'tag', 'icon', 'title', 'body']) {
       assert.equal(typeof entry[key], 'string');
       assert.ok(entry[key].trim());
     }
-    assert.equal(entry.version, '2026.10.15.' + (7 - i));
+    assert.equal(entry.version, '2026.10.15.' + (8 - i));
     assert.equal(entry.date, '2026 年 10 月 15 日');
     assert.ok(icons.includes(entry.icon));
     assert.ok(source.includes('    ' + entry.icon + ':'));

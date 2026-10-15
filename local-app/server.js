@@ -161,6 +161,23 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
     // --- 靜態首頁 ---
+    if (req.method === "GET" && url.pathname === "/answer-tutorial.mp4") {
+      const file = path.join(PUBLIC, "answer-tutorial.mp4"), size = fs.statSync(file).size;
+      const headers = { "content-type": "video/mp4", "accept-ranges": "bytes", "cache-control": "no-store" };
+      let start = 0, end = size - 1, status = 200;
+      if (req.headers.range) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
+        if (!match || (!match[1] && !match[2])) { res.writeHead(416, { ...headers, "content-range": 'bytes */' + size }); return res.end(); }
+        if (!match[1]) start = Math.max(0, size - Number(match[2]));
+        else { start = Number(match[1]); if (match[2]) end = Math.min(end, Number(match[2])); }
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= size) { res.writeHead(416, { ...headers, "content-range": 'bytes */' + size }); return res.end(); }
+        status = 206; headers["content-range"] = 'bytes ' + start + '-' + end + '/' + size;
+      }
+      headers["content-length"] = end - start + 1;
+      res.writeHead(status, headers);
+      fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/answer.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "answer.html")));
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "index.html")));
@@ -179,7 +196,7 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(file)) return send(res, 404, "text/plain", "Not found");
       return send(res, 200, name.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream", fs.readFileSync(file));
     }
-    if (req.method === "GET" && ["/changelog.json", "/version.json"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/changelog.json", "/version.json", "/answer-changelog.json"].includes(url.pathname)) {
       res.setHeader("cache-control", "no-store");     // 更新公告／版本偵測要拿最新的
       return send(res, 200, "application/json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
