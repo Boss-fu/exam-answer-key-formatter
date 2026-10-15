@@ -5,7 +5,7 @@ function answerSet(value){return [...new Set(String(value || '').match(/[A-Z]/g)
 function needsReview(q){return /需(?:要)?人工確認/.test(String(q.answer || ''));}
 function isMismatch(q){
  if(needsReview(q) || !q.options || !q.options.length || !answerSet(q.answer))return false;
- const correct=q.options.filter(o=>/^\s*正確/.test(o.text || '')).map(o=>o.label).join('');
+ const correct=q.options.filter(o=>(q.negative ? /^\s*錯誤/ : /^\s*正確/).test(o.text || '')).map(o=>o.label).join('');
  return answerSet(correct)!==answerSet(q.answer);
 }
 function sameAnswers(a,b){return answerSet(a)===answerSet(b);}

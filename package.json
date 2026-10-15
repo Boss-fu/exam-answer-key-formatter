@@ -9,6 +9,7 @@
     "build:json": "node code/build_from_json.js"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "docx": "^9.0.0",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1"

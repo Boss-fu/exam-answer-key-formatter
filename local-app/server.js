@@ -1,3 +1,5 @@
+const answerQuota = require('./quota').createQuota();
+const {emptyUsage,addUsage}=require('./usage');
 // 本機小網頁應用：在你自己的電腦跑 `npm start`，瀏覽器開 http://localhost:8787
 // 丟考卷文字 → 產生詳解 JSON → 產出 Word(.docx) 並存到 local-app/output/。
 // 這是「本機」伺服器，才有權限讀寫你的檔案；沙箱 artifact 做不到這件事。
@@ -538,18 +540,27 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- 產生詳解：examText（文字）或 images（拍照/圖片，讓 Claude 讀圖）→ JSON ---
+    if (req.method === "GET" && url.pathname === "/api/answer-key/quota") return sendJson(res, 200, answerQuota.status());
     if (req.method === "POST" && url.pathname === "/api/answer-key") {
+      let lease, input, result;
+      const start=Date.now(), usage=emptyUsage();
       try {
-        const input = JSON.parse(await readBody(req, 48 * 1024 * 1024, true) || "{}");
+        lease=answerQuota.acquire();
+        input = JSON.parse(await readBody(req, 48 * 1024 * 1024, true) || "{}");
         if (!input || typeof input.filename !== "string") return sendJson(res, 400, { ok: false, error: "請選擇一份考卷檔案。" });
-        const result = await createAnswerKey(input, OUTPUT, { extractText, runEnsemble, checkAnswers: questions => renderer().checkAnswers(questions) });
-        return sendJson(res, 200, result);
+        result = await createAnswerKey(input, OUTPUT, { extractText, runEnsemble, beforeAI:()=>lease.charge(), onUsage:part=>addUsage(usage,part), checkAnswers: questions => renderer().checkAnswers(questions) });
+        usage.seconds=Math.round((Date.now()-start)/1000);
+        return sendJson(res, 200, {...result,usage});
       } catch (error) {
-        const message = [400, 413].includes(error.statusCode) ? error.message
+        const message = [400, 413, 429].includes(error.statusCode) ? error.message
           : error instanceof SyntaxError ? "上傳資料格式不正確，請重新選擇檔案。"
           : /^(PDF 轉圖片失敗|讀取考卷失敗)/.test(error.message) ? error.message
           : "產生詳解失敗，請稍後再試；若持續失敗，請管理員檢查公司電腦的解題引擎。";
         return sendJson(res, error.statusCode || (error instanceof SyntaxError ? 400 : 500), { ok: false, error: message });
+      } finally {
+        try { if(lease?.charged) lease.record({time:new Date().toISOString(),filename:input?.filename,pages:result?.pages??null,seconds:Math.round((Date.now()-start)/1000),mode:result?.ensemble?.mode || 'failed',...usage,disputed:result?.ensemble?.disputed?.length||0,recalculated:result?.ensemble?.disputed?.filter(d=>d.recalculated).length||0}); }
+        catch (error) { console.error("寫入詳解用量紀錄失敗：", error.message); }
+        finally { lease?.release(); }
       }
     }
     if (req.method === "POST" && url.pathname === "/api/generate") {

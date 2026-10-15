@@ -20,6 +20,7 @@ function routeAnswerKey(filename, text = '', pages = 0) {
 
 async function createAnswerKey({ filename, dataBase64, officialAnswers }, output, deps) {
   routeAnswerKey(filename);
+  if (deps.runEnsemble) require('./ensemble').officialMap(officialAnswers);
   if (typeof dataBase64 !== 'string' || !dataBase64 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(dataBase64)) {
     throw inputError('缺少考卷檔案或檔案資料不完整，請重新上傳。');
   }
@@ -36,8 +37,9 @@ async function createAnswerKey({ filename, dataBase64, officialAnswers }, output
   let source = routeAnswerKey(filename, text);
   let data, ensemble;
   async function solve(source, value) {
+    deps.beforeAI?.();
     if (!deps.runEnsemble) return source === 'text' ? deps.generate(value) : deps.generateFromImages(value);
-    const result = await deps.runEnsemble({ source, ...(source === 'text' ? { text: value } : { images: value }), officialAnswers });
+    const result = await deps.runEnsemble({ source, ...(source === 'text' ? { text: value } : { images: value }), officialAnswers, onUsage: deps.onUsage });
     ensemble = result.ensemble;
     return result.data;
   }

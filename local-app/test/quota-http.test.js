@@ -1,0 +1,10 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),os=require('os'),path=require('path');
+test('HTTP quota、busy 429、預處理不扣與 AI 失敗仍記錄用量',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quota-http-'));
+ const quotaModule=require('../quota'),quota=quotaModule.createQuota({dir,limit:2});quotaModule.createQuota=()=>quota;
+ const answer=require('../answer-key'),original=answer.createAnswerKey;let finish;
+ answer.createAnswerKey=async(input,output,deps)=>{if(input.filename==='bad')throw Object.assign(new Error('格式錯誤'),{statusCode:400});deps.beforeAI();deps.onUsage({claude:{calls:1,input:7}});if(input.filename==='fail')throw Error('AI failure');await new Promise(r=>finish=r);return {ok:true,pages:1,data:{questions:[]},ensemble:{mode:'official',disputed:[]}};};
+ const server=require('../server');await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+ const post=filename=>fetch(base+'/api/answer-key',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename})});
+ try{assert.equal((await post('bad')).status,400);assert.equal(quota.status().used,0);const first=post('ok');while(!finish)await new Promise(r=>setTimeout(r,5));const busy=await post('ok');assert.equal(busy.status,429);assert.match((await busy.json()).error,/目前已有一份/);assert.equal((await (await fetch(base+'/api/answer-key/quota')).json()).busy,true);finish();const success=await first;assert.equal(success.status,200);assert.equal((await success.json()).usage.claude.input,7);assert.equal((await post('fail')).status,500);const status=await (await fetch(base+'/api/answer-key/quota')).json();assert.equal(status.used,2);assert.equal(status.busy,false);assert.equal(status.tokens.claude,14);assert.equal((await post('ok')).status,429);const records=JSON.parse(fs.readFileSync(path.join(dir,status.date+'.json'))).records;assert.equal(records.length,2);assert.equal(records[1].mode,'failed');}finally{await new Promise(r=>server.close(r));answer.createAnswerKey=original;fs.rmSync(dir,{recursive:true,force:true});}
+});

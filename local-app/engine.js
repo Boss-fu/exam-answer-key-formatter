@@ -55,7 +55,7 @@ const OUTPUT_SPEC = `
     }
   ]
 }
-規則：每題「以正確開頭」的選項其 label 必須等於 answer；公式用單一錢號 $...$；資訊不足處在該欄位文字內標「需人工確認」，不要自己捏造。`;
+計算題：需要計算才能得到答案（例如數值選項）時，q.kind="calc"，統一詳解只寫在 q.detail，q.options=[]，不要逐選項解說。正確／錯誤代表選項敘述本身的真偽，不是是否為答案。否定問法（何者錯誤／不正確／不對／非／不是／不可能／不適當／不合理）設 q.negative=true，答案集合等於以「錯誤」開頭的選項集合；一般問法設 q.negative=false，答案集合等於以「正確」開頭的選項集合。多選題同樣比對全部字母集合。公式規則：公式用單一錢號 $...$；資訊不足處在該欄位文字內標「需人工確認」，不要自己捏造。`;
 
 function buildPrompt(examText, extraInstructions) {
   return `${loadRules()}\n\n${OUTPUT_SPEC}\n\n========== 以下是考卷內容 ==========\n${examText}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
@@ -74,10 +74,10 @@ function extractJson(text) {
 }
 
 // --- 引擎一：Claude Code headless ---
-function generateWithClaudeCode(examText, extraInstructions) {
+function generateWithClaudeCode(examText, extraInstructions, telemetry) {
   return new Promise((resolve, reject) => {
     const bin = process.env.CLAUDE_BIN || "claude";
-    const child = spawn(bin, ["-p", buildPrompt(examText, extraInstructions)], {
+    const child = spawn(bin, ["-p", buildPrompt(examText, extraInstructions), ...(telemetry ? ["--output-format", "json"] : [])], {
       cwd: REPO,
       env: process.env,
     });
@@ -88,7 +88,7 @@ function generateWithClaudeCode(examText, extraInstructions) {
       `無法啟動 Claude Code（${bin}）：${e.message}。請確認本機已安裝 claude CLI，或設 CLAUDE_BIN 指向它。`)));
     child.on("close", (code) => {
       if (code !== 0 && !out) return reject(new Error(`Claude Code 結束碼 ${code}：${err.slice(0, 500)}`));
-      try { resolve(extractJson(out)); }
+      try { resolve(extractJson(telemetry ? require('./usage').parseClaude(out, telemetry.onUsage) : out)); }
       catch (e) { reject(new Error(`${e.message}\n引擎原始輸出前 500 字：${out.slice(0, 500)}`)); }
     });
   });
@@ -301,7 +301,7 @@ function imagePrompt() {
 function rmDir(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 
 // 引擎一（claude-code）：把圖片寫成暫存檔，prompt 附上路徑讓 Claude Code 讀圖。
-function generateFromImagesClaudeCode(images, extraInstructions) {
+function generateFromImagesClaudeCode(images, extraInstructions, telemetry) {
   return new Promise((resolve, reject) => {
     let dir;
     try {
@@ -315,7 +315,7 @@ function generateFromImagesClaudeCode(images, extraInstructions) {
       const bin = process.env.CLAUDE_BIN || "claude";
       const prompt = `${imagePrompt()}\n\n圖片檔（請用讀取工具開啟這些檔案來看考卷）：\n${paths.join("\n")}${extraInstructions ? "\n\n" + extraInstructions : ""}`;
       // --allowedTools Read：授權讀檔工具，否則 headless 模式會停下來要權限、產不出 JSON。
-      const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read"], { cwd: REPO, env: process.env });
+      const child = spawn(bin, ["-p", prompt, "--allowedTools", "Read", ...(telemetry ? ["--output-format", "json"] : [])], { cwd: REPO, env: process.env });
       let out = "", err = "";
       child.stdout.on("data", (d) => { out += d; });
       child.stderr.on("data", (d) => { err += d; });
@@ -324,7 +324,7 @@ function generateFromImagesClaudeCode(images, extraInstructions) {
       child.on("close", (code) => {
         rmDir(dir);
         if (code !== 0 && !out) return reject(new Error(`Claude Code 結束碼 ${code}：${err.slice(0, 500)}`));
-        try { resolve(extractJson(out)); }
+        try { resolve(extractJson(telemetry ? require('./usage').parseClaude(out, telemetry.onUsage) : out)); }
         catch (e) { reject(new Error(`${e.message}\n引擎原始輸出前 500 字：${out.slice(0, 500)}`)); }
       });
     } catch (e) { if (dir) rmDir(dir); reject(e); }

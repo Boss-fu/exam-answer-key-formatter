@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const engine = require('./engine');
 const rules = require('./public/answer-rules');
+const {codexTokens}=require('./usage');
 const REPO = path.resolve(__dirname, '..');
 const TIMEOUT = 360000;
 
@@ -48,6 +49,7 @@ async function runValidator(name, input, env = process.env) {
       child.on('error', e => { clearTimeout(timer); reject(e); });
       child.on('close', code => {
         clearTimeout(timer);
+        input.onUsage?.({chatgpt:{tokens:name==='chatgpt'?codexTokens(out+'\n'+err):0}});
         if (code !== 0) return reject(new Error(`驗證失敗（${code}）：${err.slice(0, 300)}`));
         try { resolve(name === 'chatgpt' ? fs.readFileSync(output, 'utf8') : out); } catch (e) { reject(e); }
       });
@@ -61,8 +63,8 @@ async function runValidator(name, input, env = process.env) {
 async function runEnsemble(input, deps = {}) {
   const env = deps.env || process.env;
   const write = extra => input.source === 'images'
-    ? (deps.generateFromImages || engine.generateFromImagesClaudeCode)(input.images, extra)
-    : (deps.generate || engine.generateWithClaudeCode)(input.text, extra);
+    ? (deps.generateFromImages || engine.generateFromImagesClaudeCode)(input.images, extra, {onUsage:input.onUsage})
+    : (deps.generate || engine.generateWithClaudeCode)(input.text, extra, {onUsage:input.onUsage});
   let official;
   try { official = officialMap(input.officialAnswers); }
   catch (e) { e.statusCode = 400; throw e; }
@@ -72,7 +74,7 @@ async function runEnsemble(input, deps = {}) {
     return { data, ensemble: report };
   }
   const names = ['chatgpt', ...(env.ENSEMBLE_GEMINI === '1' ? ['gemini'] : [])];
-  const [data, ...validators] = await Promise.all([write(), ...names.map(async name => {
+  const [written, ...validators] = await Promise.all([Promise.resolve().then(() => write()).then(data => ({data}), error => ({error})), ...names.map(async name => {
     let timer;
     try {
       const answers = await Promise.race([
@@ -84,10 +86,13 @@ async function runEnsemble(input, deps = {}) {
     } catch (e) { return { name, ok: false, error: String(e.message) }; }
     finally { clearTimeout(timer); }
   })]);
+  // Wait for validators to settle even if Claude failed: their usage belongs to this job.
+  if (written.error) throw written.error;
+  const data = written.data;
   report.engines.push(...validators.map(({ name, ok, error }) => ({ name, ok, ...(error ? { error } : {}) })));
   if (!data || !Array.isArray(data.questions)) throw new Error('Claude 沒有回傳題目資料');
   for (const q of data.questions) {
-    if (!q.options?.length || !rules.answerSet(q.answer) || rules.needsReview(q)) continue;
+    if (!rules.answerSet(q.answer) || rules.needsReview(q)) continue;
     const votes = { claude: q.answer };
     for (const v of validators) if (v.ok && typeof v.answers[q.no] === 'string' && /^[A-Z\s,，()]+$/i.test(v.answers[q.no]) && rules.answerSet(v.answers[q.no].toUpperCase())) votes[v.name] = v.answers[q.no].toUpperCase();
     if (Object.keys(votes).length < 2) continue;
@@ -102,7 +107,8 @@ async function runEnsemble(input, deps = {}) {
     for (const d of report.disputed) {
       const index = data.questions.findIndex(q => String(q.no) === String(d.no));
       const replacement = revised?.questions?.find(q => String(q.no) === String(d.no));
-      const valid = replacement && rules.answerSet(replacement.answer) && Array.isArray(replacement.options) && replacement.options.length && typeof replacement.detail === 'string';
+      const valid = replacement && rules.answerSet(replacement.answer) && Array.isArray(replacement.options) && (replacement.options.length || replacement.kind === 'calc') && typeof replacement.detail === 'string';
+      d.recalculated=!!valid;
       if (valid) data.questions[index] = replacement;
       const q = data.questions[index];
       d.final = q.answer;
@@ -113,4 +119,4 @@ async function runEnsemble(input, deps = {}) {
   }
   return { data, ensemble: report };
 }
-module.exports = { runEnsemble, runValidator };
+module.exports = { runEnsemble, runValidator, officialMap };

@@ -1,10 +1,22 @@
 // 可重用的產檔模組（供本機網頁應用 local-app 與未來 qbank 整合使用）。
-// 不改動 build_from_json.js（那是 bundle 定案的 CLI），這裡把同樣的邏輯抽成函式輸出。
+// 網頁與 build_from_json.js CLI 共用此 renderer。
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 const {
-  buildQuestionTable, spacer, run, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN,
+  buildQuestionsTable, run, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN,
 } = require("./lib3");
 
+// docx-js has no paragraph API for these Word settings; normalize every paragraph.
+async function normalizeParagraphs(buffer) {
+  const zip=await require('jszip').loadAsync(buffer);
+  for(const name of ['word/document.xml','word/styles.xml']) {
+  let xml=await zip.file(name).async('string');
+  const settings='<w:snapToGrid w:val="0"/><w:adjustRightInd w:val="0"/><w:contextualSpacing w:val="0"/>';
+  xml=xml.replace(/<w:pPr\b[^>]*\/>/g,'<w:pPr>'+settings+'</w:pPr>').replace(/<w:pPr>([\s\S]*?)<\/w:pPr>/g,(_,body)=>'<w:pPr>'+body.replace(/<w:(?:snapToGrid|adjustRightInd|contextualSpacing)\b[^>]*\/>/g,'')+settings+'</w:pPr>');
+  xml=xml.replace(/<w:p>(?!<w:pPr>)/g,'<w:p><w:pPr>'+settings+'<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>');
+  zip.file(name,xml);
+ }
+ return zip.generateAsync({type:'nodebuffer'});
+}
 // 極簡 CSV 解析（支援雙引號欄位內的換行、逗號、"" 轉義）——不外加相依套件。
 function parseCsv(text) {
   const rows = []; let row = [], field = "", q = false;
@@ -52,10 +64,10 @@ async function buildCleanExamBuffer(csvText) {
     properties: { page: { size: { width: 11906, height: 16838 },
       margin: { top: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN, right: PAGE_MARGIN, gutter: 0 } } },
     children }] });
-  return Packer.toBuffer(doc);
+  return normalizeParagraphs(await Packer.toBuffer(doc));
 }
 
-// 答案一致性自檢：每題「以正確開頭」的選項 label 必須等於 answer。
+// 答案一致性自檢：正向題比對「正確」、否定題比對「錯誤」的選項集合。
 // 回傳不一致的題號陣列（空陣列代表通過）。
 const { isMismatch } = require('../local-app/public/answer-rules');
 function checkAnswers(questions) {
@@ -76,15 +88,14 @@ async function buildDocxBuffer(data) {
   const questions = data.questions || [];
   const children = [];
   children.push(new Paragraph({
-    spacing: { after: 200, line: LINE_SPACING, lineRule: LINE_RULE },
+    alignment: "center",
+    spacing: { before: 0, after: 180, line: LINE_SPACING, lineRule: LINE_RULE },
     children: [run(buildSummaryLine(data), { bold: true })],
   }));
-  questions.forEach((q, i) => {
-    children.push(buildQuestionTable(q));
-    if (i < questions.length - 1) children.push(spacer());
-  });
+  if (questions.length) children.push(buildQuestionsTable(questions));
 
   const doc = new Document({
+    styles: { default: { document: { run: { font: FONT, size: FONT_SIZE } } } },
     sections: [{
       properties: {
         page: {
@@ -95,7 +106,7 @@ async function buildDocxBuffer(data) {
       children,
     }],
   });
-  return Packer.toBuffer(doc);
+  return normalizeParagraphs(await Packer.toBuffer(doc));
 }
 
 module.exports = { checkAnswers, buildSummaryLine, buildDocxBuffer, buildCleanExamBuffer, parseCsv };
