@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
-const source = fs.readFileSync(path.join(__dirname, '../public/answer.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+const source = fs.readFileSync(path.join(__dirname, '../public/answer-workspace.js'), 'utf8').split('/* ANSWER_CORE_START */')[1].split('/* ANSWER_CORE_END */')[0];
 
 function browser() {
   const ids = new Map();

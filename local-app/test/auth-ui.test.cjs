@@ -1,5 +1,5 @@
 ﻿const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-const source=fs.readFileSync(path.join(__dirname,'../public/answer.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+const source=fs.readFileSync(path.join(__dirname,'../public/answer-workspace.js'),'utf8').split('/* ANSWER_CORE_START */')[1].split('/* ANSWER_CORE_END */')[0];
 test('前端 Bearer、401 清除 token 與邀請連結移除',async()=>{
  const elements=new Map(),storage=new Map();let options,historyUrl;
  const element=id=>{if(!elements.has(id))elements.set(id,{value:'',hidden:false,textContent:'',disabled:false,addEventListener(){},replaceChildren(){},classList:{},setAttribute(){}});return elements.get(id);};

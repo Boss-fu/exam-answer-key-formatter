@@ -1,0 +1,96 @@
+/* Scoped native solution step: the OCR page owns all navigation and scrolling. */
+[hidden]{display:none!important}
+.solution-active main>.hero{display:none}
+.solution-active main{padding-top:20px}
+#solutionStatus,#solutionActions{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+#solutionStatus>span{display:inline-flex;align-items:center;min-height:34px;padding:5px 10px;border:1px solid #e6ded3;border-radius:9px;background:#fff;color:#716b62;font-size:12px;white-space:nowrap}
+#solutionActions button,.answer-workspace button,.answer-workspace .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:9px 16px;border:1px solid #e4d8c6;border-radius:10px;background:linear-gradient(180deg,#fff,#faf4ea);color:var(--ink);font:600 13px/1.4 var(--ui);cursor:pointer;box-shadow:0 1px 2px #2b201c12;transition:background .15s,border-color .15s}
+#solutionActions button:hover:not(:disabled),.answer-workspace button:hover:not(:disabled){border-color:#bd7972;background:#fff8f5;color:#850103}
+#solutionActions svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7}
+#feedbackBell span:not(:empty){padding:2px 6px;border-radius:99px;background:#850103;color:#fff;font-size:11px}
+.answer-workspace{min-width:0;overflow-wrap:anywhere;padding:24px!important;scroll-margin-top:100px}
+.answer-workspace .answer-heading{margin-bottom:24px}
+.answer-heading h2{font-size:23px;margin:0 0 6px;color:#2d3038}
+.answer-heading p,.answer-workspace .muted{font-size:13px;color:#807a73;line-height:1.6}
+.answer-workspace section{border:0;border-radius:0;background:transparent;box-shadow:none;padding:0;margin:0 0 24px}
+.answer-workspace h2{font-size:20px;margin:0 0 12px}
+.answer-workspace p{margin:8px 0}
+.answer-workspace label{display:block;margin:18px 0 7px;font-size:14px;font-weight:700}
+.answer-workspace input,.answer-workspace textarea{font:400 16px/1.6 var(--ui);color:#2d3038}
+.answer-workspace input[type=text],.answer-workspace input[type=password],.answer-workspace textarea{box-sizing:border-box;width:100%;padding:11px 12px;border:1px solid #ded6ca;border-radius:9px;background:#fff}
+.answer-workspace textarea{min-height:110px;resize:vertical;overflow:hidden}
+.answer-workspace :focus-visible,#solutionActions :focus-visible{outline:3px solid #b9844c88;outline-offset:3px}
+.answer-workspace button:disabled{opacity:.45;cursor:not-allowed}
+.answer-workspace button.primary{background:linear-gradient(180deg,#960205,#6d0002);color:#fff;border-color:#6d0002;min-height:48px;padding:12px 24px;box-shadow:0 3px 9px #85010324}
+.answer-workspace button.primary:hover:not(:disabled){color:#fff;background:#7c0104}
+.answer-workspace #generate,.answer-workspace #loginButton{margin-top:20px;min-width:160px}
+.answer-workspace #login{max-width:520px}
+.answer-workspace [role=tablist]{display:flex;gap:8px;margin:16px 0}
+.answer-workspace [role=tab]{border-radius:999px;min-height:36px;padding:7px 20px;box-shadow:none}
+.answer-workspace [role=tab][aria-selected=true]{background:#850103;color:#fff;border-color:#850103}
+.answer-workspace .drop{position:relative;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;min-height:180px;margin:0 0 22px;padding:24px 16px;border:1.5px dashed #d8b8aa;border-radius:12px;background:#fffaf6;text-align:center;cursor:pointer}
+.answer-workspace .drop strong{display:block;border-radius:9px;padding:10px 18px;background:#850103;color:white;font-size:14px}
+.answer-workspace .drop input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.answer-workspace .drop:focus-within{outline:3px solid #b9844c88;outline-offset:3px}
+.answer-workspace .drop.over{background:#fff0e8;border-color:#850103}
+.answer-upload-icon{font-size:26px;line-height:1;color:#850103}
+.answer-workspace .answer-options,.answer-workspace #instructions,.answer-workspace #inviteManager{margin:20px 0;border:1px solid #e6ded3;border-radius:10px;background:#fffdf9}
+.answer-workspace summary{cursor:pointer;font-size:14px;font-weight:700;min-height:44px;padding:13px 16px}
+.answer-workspace .answer-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;padding:0 16px 18px}
+.answer-wide{grid-column:1/-1}
+.answer-workspace .answer-field-grid label{margin-top:5px}
+.answer-workspace .guide-body,.answer-workspace .answer-admin-body{padding:0 18px 20px;font-size:14px;line-height:1.7}
+.answer-workspace video{display:block;width:100%;max-height:420px;border-radius:8px;background:#eee}
+.answer-workspace #inviteForm{display:grid;gap:12px;margin:12px 0 24px}
+.answer-workspace #inviteForm label{margin:0}
+.answer-workspace #inviteForm button{justify-self:start}
+.answer-workspace #inviteList article{border-top:1px solid #e6ded3;padding:20px 0}
+.answer-workspace .invite-actions{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+.answer-workspace button.danger{background:#fff7f6;color:#a11c24;border-color:#e1b4b5}
+.answer-workspace #createdInvite input{margin-bottom:12px}
+.answer-workspace #confirmation{position:sticky;top:90px;z-index:30;padding:16px;border:2px solid #850103;border-radius:10px;background:#fff9f0;scroll-margin-top:110px}
+.answer-workspace #confirmation button{margin:8px 12px 0 0}
+.answer-workspace .bad,.answer-workspace .warning{color:#9d3b20}
+.answer-workspace .ok{color:#1f735d}
+.answer-workspace #progress,.answer-workspace #error,.answer-workspace #downloadStatus{white-space:pre-line;font-size:14px}
+.answer-connection{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 20px;padding:12px 16px;background:#fff8e9;border:1px solid #eddbb7;border-radius:9px;font-size:13px}
+.answer-workspace #result>h2{padding-top:12px}
+.answer-workspace #list>details{margin:12px 0;border:1px solid #e6ded3;border-radius:10px;background:#fff}
+.answer-workspace #list>details.attention{border-color:#bd7c23;background:#fffaf0}
+.answer-workspace .preview,.answer-workspace .warning{display:block;font-size:13px;line-height:1.7;white-space:pre-wrap}
+.answer-workspace .preview{color:#807a73;font-weight:400}
+.answer-workspace .editor{padding:0 16px 20px}
+.answer-workspace fieldset{border:0;padding:0;margin:16px 0;min-width:0}
+.answer-workspace legend{font-size:14px;font-weight:700}
+.answer-workspace .answers{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.answer-workspace .answers button{min-width:44px}
+.answer-workspace .answers button[aria-pressed=true]{background:#850103;color:#fff}
+.answer-workspace .filter{display:flex;gap:9px;align-items:center;min-height:44px}
+.answer-workspace .filter input{width:20px;height:20px}
+.answer-workspace #downloadBar{position:sticky;bottom:0;z-index:15;background:#fffefbf5;border-top:1px solid #e6ded3;margin:18px -24px -24px;padding:14px 24px calc(14px + env(safe-area-inset-bottom))}
+.answer-workspace #downloadBar>div{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.answer-workspace #downloadStatus{margin:0;flex:1}
+.answer-workspace dialog{width:min(600px,calc(100% - 32px));box-sizing:border-box;max-height:85vh;overflow:auto;padding:24px;border:1px solid #e4d8c6;border-radius:14px;background:#fffefb;color:#2d3038}
+.answer-workspace dialog::backdrop{background:#20181266}
+.answer-workspace .feedback-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}
+.answer-workspace .feedback-head h2{margin:0}
+.answer-workspace .feedback-item{padding:18px 0;border-bottom:1px solid #e6ded3}
+.answer-workspace #feedbackMessage{min-height:160px}
+.answer-workspace #feedbackState{margin:12px 0}
+@media(max-width:680px){
+ .solution-active header .bar{gap:8px}.solution-active .header-actions{gap:8px}.solution-active .header-status,.solution-active .header-buttons{gap:6px}
+ .solution-active #solutionStatus,.solution-active #solutionActions{gap:6px}
+ .solution-active #solutionActions button{min-height:36px;padding:7px 10px;font-size:12px}
+ .solution-active .brand-sub{display:none}
+ .answer-workspace{padding:18px 16px!important}
+ .answer-heading h2{font-size:21px}.answer-heading p{margin-bottom:0}
+ .answer-workspace .answer-heading{margin-bottom:20px}
+ .answer-workspace .answer-field-grid{grid-template-columns:1fr}.answer-wide{grid-column:auto}
+ .answer-workspace #generate,.answer-workspace #loginButton{width:100%}
+ .answer-workspace #downloadBar{margin:16px -16px -18px;padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+ .answer-workspace #downloadBar>div{flex-direction:column;align-items:stretch;gap:8px}
+ .answer-workspace #downloadBar p:empty{display:none}
+ .answer-workspace .drop{min-height:170px}
+ .answer-workspace #confirmation{top:12px}
+}
+@media(prefers-reduced-motion:reduce){.answer-workspace button{transition:none}}

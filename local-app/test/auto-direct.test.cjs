@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const html=fs.readFileSync(require('node:path').join(__dirname,'../public/answer.html'),'utf8');
-const source=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const html=fs.readFileSync(require('node:path').join(__dirname,'../public/answer-workspace.js'),'utf8');
+const source=html.split('/* ANSWER_CORE_START */')[1].split('/* ANSWER_CORE_END */')[0];
 function browser({ua='Chrome',platform='',touch=0,image=true,health=false,same=false,storageError=false}={}){
  const elements=new Map(),storage=new Map(),calls=[],images=[],timers=[];
  const el=id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);};
@@ -10,14 +10,14 @@ function browser({ua='Chrome',platform='',touch=0,image=true,health=false,same=f
  sessionStorage:{getItem(k){if(storageError)throw Error();return storage.get(k);},setItem(k,v){if(storageError)throw Error();storage.set(k,v);}},
  Image:class{set src(url){images.push(url);if(image!==null)queueMicrotask(()=>image?this.onload():this.onerror());}},
  setTimeout(fn,ms){timers.push({fn,ms});return timers.length;},clearTimeout(){},setInterval(){return 1;},timeoutSignal(){},
- updateButton(){},async refreshQuota(){},OcrApi:{async request(){calls.push('health');if(!health)throw Object.assign(Error('offline'),{connectionFailure:true});return {json:async()=>({ok:true,capabilities:['answer-key']})};}}
+ syncHostConnection(){},updateButton(){},async refreshQuota(){},OcrApi:{async request(){calls.push('health');if(!health)throw Object.assign(Error('offline'),{connectionFailure:true});return {json:async()=>({ok:true,capabilities:['answer-key']})};}}
  });
  vm.runInContext(source.slice(source.indexOf('function directAnswerUrl'),source.indexOf("let token=''"))+ '\nlet quotaPoll=0,ready=false,busy=false,quota=null;\n'+source.slice(source.indexOf('async function connect(){'),source.indexOf('function choose(')),context);
  return {context,calls,images,timers,storage,el,connect:()=>vm.runInContext('connect()',context)};
 }
 test('iOS / iPadOS WebKit: image success redirects before fetch and retains query/hash',async()=>{
  for(const options of [{ua:'iPhone Safari'},{ua:'iPad Safari'},{ua:'iPhone CriOS'},{ua:'iPhone FxiOS'},{ua:'Mac browser',platform:'MacIntel',touch:5}]){
-  const b=browser(options);await b.connect();assert.equal(b.calls.length,1);assert.equal(b.calls[0],'https://company.test:8443/answer.html?invite=A%2BB&other=1&other=2#review');assert.match(b.images[0],/\/logo.png\?probe=\d+$/);assert.equal(b.timers[0].ms,6000);assert.equal(b.el('connection').textContent,'正在切換到公司電腦直連頁面…');
+  const b=browser(options);await b.connect();assert.equal(b.calls.length,1);assert.equal(b.calls[0],'https://company.test:8443/index.html?invite=A%2BB&other=1&other=2#solution');assert.match(b.images[0],/\/logo.png\?probe=\d+$/);assert.equal(b.timers[0].ms,6000);assert.equal(b.el('connection').textContent,'正在切換到公司電腦直連頁面…');
  }
 });
 test('desktop redirects only on fetch failure with successful image probe',async()=>{

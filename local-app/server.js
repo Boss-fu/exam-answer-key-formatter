@@ -166,6 +166,7 @@ const server = http.createServer(async (req, res) => {
 
 
   if (req.method === "POST" && !(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendJson(res, 415, { ok: false, error: "API 僅接受 application/json" });
+    if(req.method === 'GET' && url.pathname === '/answer-workspace.css') return send(res,200,'text/css; charset=utf-8',fs.readFileSync(path.join(PUBLIC,'answer-workspace.css')));
     // --- 靜態首頁 ---
     if (req.method === "GET" && url.pathname === "/answer-tutorial.mp4") {
       const file = path.join(PUBLIC, "answer-tutorial.mp4"), size = fs.statSync(file).size;
@@ -192,7 +193,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/manifest.webmanifest") return send(res, 200, "application/manifest+json; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "manifest.webmanifest")));
     if (req.method === "GET" && url.pathname === "/sw.js") return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "sw.js")));
     if (req.method === "GET" && url.pathname === "/eraser.html") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(PUBLIC, "eraser.html")));
-    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/answer-rules.js", "/patch-notes.js", "/dehand-web.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/api-client.js", "/server-config.js", "/answer-rules.js", "/patch-notes.js", "/answer-workspace.js", "/dehand-web.js"].includes(url.pathname)) {
       return send(res, 200, "application/javascript; charset=utf-8", fs.readFileSync(path.join(PUBLIC, url.pathname.slice(1))));
     }
     if (req.method === "GET" && url.pathname.startsWith("/models/")) {
