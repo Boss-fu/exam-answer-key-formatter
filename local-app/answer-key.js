@@ -69,6 +69,10 @@ async function createAnswerKey({ filename, dataBase64, officialAnswers }, output
       else data = await solve('images', files.map(name => ({ filename: name, dataBase64: fs.readFileSync(path.join(dir, name)).toString('base64') })));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  // Review UI still reads data.questions; retain original sections for Word output.
+  if (Array.isArray(data?.sections) && !Array.isArray(data.questions)) {
+    data.questions = data.sections.flatMap(section => section.questions || section.items || []);
+  }
   return { ok: true, source, pages, data, ...(ensemble ? { ensemble } : {}), mismatches: deps.checkAnswers(data.questions) };
 }
 

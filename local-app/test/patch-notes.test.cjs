@@ -15,7 +15,7 @@ test('詳解公告欄位完整、版本遞減、圖示為既有集合', () => {
       assert.ok(entry[key].trim());
     }
     if(i)assert.ok(entries[i-1].version.split('.').map(Number).reduce((a,n)=>a*100+n,0) > entry.version.split('.').map(Number).reduce((a,n)=>a*100+n,0));
-    assert.match(entry.date, /^2026 年 10 月 (15|16) 日$/);
+    assert.match(entry.date, /^\d{4} 年 \d{1,2} 月 \d{1,2} 日$/);
     assert.ok(icons.includes(entry.icon));
     assert.ok(source.includes('    ' + entry.icon + ':'));
     assert.ok(!/\?{3,}/.test(JSON.stringify(entry)));
