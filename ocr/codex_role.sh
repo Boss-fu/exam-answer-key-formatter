@@ -6,7 +6,7 @@
 #   ocr/codex_role.sh supervisor "審查 HEAD~3..HEAD 的改動能不能推"
 #   ocr/codex_role.sh worker     "依 ocr-supervisor 報告修好 ocr/to_zizi_word.py 的問題"   ← 會改檔，不會 commit
 #
-# 換成 Gemini（Antigravity CLI agy）：AI=gemini ocr/codex_role.sh tester "…"（預設模型 gemini-3.1-pro-high，可用 GEMINI_MODEL 換）
+# 換成 Gemini（Antigravity CLI agy）：AI=gemini ocr/codex_role.sh tester "…"（預設模型 gemini-4-argon-high，可用 GEMINI_MODEL 換）
 #   適合：看圖（原稿 vs 輸出、介面截圖）、第二意見審查、讀長文件。Codex 額度用完時也可以頂上。
 # tester／supervisor：唯讀沙箱（tester 需要寫快取，所以給 workspace-write，但角色規則禁止改程式）
 # AI 與它跑的測試一律 nice 15（低優先）：使用者在網站轉檔永遠優先，不會被測試拖慢。
@@ -51,7 +51,7 @@ if [ "$AI" = "gemini" ]; then
   AGY="${AGY_BIN:-$HOME/.local/bin/agy}"
   MODE_ARGS=(--dangerously-skip-permissions)
   [ "$SANDBOX" = "read-only" ] && MODE_ARGS+=(--sandbox)
-  (cd "$ROOT" && nice -n 15 "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-3.1-pro-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
+  (cd "$ROOT" && nice -n 15 "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-4-argon-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
     || echo "（Gemini 結束碼 $?，細節看 $(basename "$LOG")）"
 else
   nice -n 15 "$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \

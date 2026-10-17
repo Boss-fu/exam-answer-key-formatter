@@ -51,11 +51,16 @@ function nativeFormulaRuns(latex, { bold } = {}) {
 function textRuns(text, { bold } = {}) {
   const value = String(text ?? '');
   const runs = [];
-  const formula = /(\$\$?)([\s\S]*?)\1/g;
+  // Chinese must never enter MathType TeX.  AI output may use the safe HTML
+  // spelling (F<sub>甲</sub>), while older JSON used $F_{甲}$; support both.
+  const formula = /(\$\$?)([\s\S]*?)\1|<(sub|sup)>([\s\S]*?)<\/\3>/gi;
   let last = 0, match;
   while ((match = formula.exec(value))) {
     if (match.index > last) runs.push(run(value.slice(last, match.index), { bold }));
-    if (CJK_RE.test(match[2])) runs.push(...nativeFormulaRuns(match[2], { bold }));
+    if (match[3]) {
+      runs.push(new TextRun({ text: match[4], bold: !!bold, font: FONT, size: FONT_SIZE,
+        ...(match[3].toLowerCase() === 'sub' ? { subScript: true } : { superScript: true }) }));
+    } else if (CJK_RE.test(match[2])) runs.push(...nativeFormulaRuns(match[2], { bold }));
     else runs.push(run(match[0], { bold }));
     last = formula.lastIndex;
   }
@@ -118,4 +123,4 @@ function sectionTitle(title) {
   });
 }
 
-module.exports = { buildQuestionsTable, buildQuestionTable, spacer, run, sectionTitle, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN };
+module.exports = { buildQuestionsTable, buildQuestionTable, spacer, run, textRuns, sectionTitle, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN };
