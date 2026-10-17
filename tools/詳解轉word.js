@@ -43,12 +43,15 @@ function jsonObjectsIn(text) {
 }
 
 function validate(data) {
-  if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
-    throw new Error("找不到含 questions 陣列的 JSON。請確認 AI 回覆有完整輸出。");
+  const sections = Array.isArray(data && data.sections) && data.sections.length
+    ? data.sections.map((s) => s.questions || s.items || []) : [data && data.questions];
+  const questions = sections.flat();
+  if (!data || !questions.length) {
+    throw new Error("找不到含 questions 陣列或 sections 大題的 JSON。請確認 AI 回覆有完整輸出。");
   }
-  data.questions.forEach((question, index) => {
+  questions.forEach((question, index) => {
     const where = `第${index + 1}筆`;
-    if (!Number.isInteger(question.no) || question.no < 1) throw new Error(`${where} 的 no 必須是正整數。`);
+    if ((typeof question.no !== "number" && typeof question.no !== "string") || String(question.no).trim() === "") throw new Error(`${where} 缺少原始 no 題號。`);
     if (typeof question.answer !== "string" || !question.answer.trim()) throw new Error(`${where} 缺少 answer。`);
     if (typeof question.detail !== "string" || !question.detail.trim()) throw new Error(`${where} 缺少 detail。`);
     if (!Array.isArray(question.options) || question.options.length === 0) throw new Error(`${where} 缺少 options。`);
@@ -61,7 +64,7 @@ function validate(data) {
 
 try {
   const source = fs.readFileSync(inputPath, "utf8").replace(/^\uFEFF/, "");
-  const candidates = jsonObjectsIn(source).filter((item) => Array.isArray(item.questions));
+  const candidates = jsonObjectsIn(source).filter((item) => Array.isArray(item.questions) || Array.isArray(item.sections));
   if (!candidates.length) throw new Error("找不到 JSON 物件。請把 AI 回覆完整存成 UTF-8 文字檔。");
   const data = candidates[0];
   validate(data);

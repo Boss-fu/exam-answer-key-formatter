@@ -617,7 +617,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/generate") {
       const { examText, images } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");
       const data = (images && images.length) ? await generateFromImages(images) : await generate(examText);
-      const mismatches = renderer().checkAnswers(data.questions);
+      const mismatches = renderer().checkAnswers(data);
       return sendJson(res, 200, { ok: true, data, mismatches });
     }
 

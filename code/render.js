@@ -2,7 +2,7 @@
 // 網頁與 build_from_json.js CLI 共用此 renderer。
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 const {
-  buildQuestionsTable, run, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN,
+  buildQuestionsTable, run, sectionTitle, FONT, FONT_SIZE, LINE_SPACING, LINE_RULE, PAGE_MARGIN,
 } = require("./lib3");
 
 // docx-js has no paragraph API for these Word settings; normalize every paragraph.
@@ -71,12 +71,15 @@ async function buildCleanExamBuffer(csvText) {
 // 回傳不一致的題號陣列（空陣列代表通過）。
 const { isMismatch } = require('../local-app/public/answer-rules');
 function checkAnswers(questions) {
-  return (questions || []).filter(isMismatch).map(q => q.no);
+  const items = Array.isArray(questions) ? questions : (Array.isArray(questions && questions.sections)
+    ? questions.sections.flatMap((section) => section.questions || section.items || []) : (questions && questions.questions) || []);
+  return items.filter(isMismatch).map((q) => q.no);
 }
 
 // 由題目答案組出簡答速查列（每 5 題一組，以 / 分隔）。
 function buildSummaryLine(data) {
-  const questions = data.questions || [];
+  const questions = Array.isArray(data.sections) && data.sections.length
+    ? data.sections.flatMap((section) => section.questions || section.items || []) : (data.questions || []);
   const answerString = questions.map((q) => q.answer).join("");
   const groups = [];
   for (let i = 0; i < answerString.length; i += 5) groups.push(answerString.slice(i, i + 5));
@@ -89,7 +92,9 @@ function normalizeHeading(value) {
 
 // data → docx Buffer。簡答速查列在最上方，接著逐題詳解表格（同一份文件）。
 async function buildDocxBuffer(data) {
-  const questions = data.questions || [];
+  const sections = Array.isArray(data.sections) && data.sections.length
+    ? data.sections.map((section) => ({ title: String(section.title || ""), questions: section.questions || section.items || [] }))
+    : [{ title: "", questions: data.questions || [] }];
   const children = [];
   const docTitle = normalizeHeading(data.docTitle), unitName = normalizeHeading(data.unitName);
   // Template: title 22pt in a text box (3.75pt outline), unit 14pt.
@@ -112,7 +117,15 @@ async function buildDocxBuffer(data) {
     spacing: { before: 0, after: 180, line: LINE_SPACING, lineRule: LINE_RULE },
     children: [run(buildSummaryLine(data), { bold: true })],
   }));
-  if (questions.length) children.push(buildQuestionsTable(questions));
+  if (!sections.some((section) => section.title)) {
+    const questions = sections.flatMap((section) => section.questions);
+    if (questions.length) children.push(buildQuestionsTable(questions));
+  } else {
+    sections.forEach((section) => {
+      if (section.title) children.push(sectionTitle(section.title));
+      if (section.questions.length) children.push(buildQuestionsTable(section.questions));
+    });
+  }
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: FONT_SIZE } } } },
