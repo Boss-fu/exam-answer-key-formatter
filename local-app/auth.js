@@ -70,13 +70,14 @@ function createAuth({ dir = path.join(__dirname, 'output', 'auth'), now = Date.n
       return { role: 'teacher', label: invite.label, inviteId: invite.id };
     },
     logout(token) { const data = read(); data.sessions = data.sessions.filter(s => s.hash !== hash(token || '')); save(data); },
-    listInvites() { return read().invites.map(publicInvite); },
+    listInvites() { return read().invites.map(i => ({ ...publicInvite(i), code: i.code || null })); },   // 只給管理員 API；完整碼方便隨時複製給該位老師
     createInvite(label) {
       if (typeof label !== 'string' || !label.trim() || Array.from(label.trim()).length > 30) fail('請填寫老師名稱，最多 30 個字。');
       const data = read(), alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; let raw;
       do { raw = Array.from({ length: 8 }, () => alphabet[crypto.randomInt(alphabet.length)]).join(''); } while (data.invites.some(i => i.codeHash === hash(raw)));
-      const invite = { id: crypto.randomUUID(), label: label.trim(), codeHash: hash(raw), last4: raw.slice(-4), createdAt: new Date(now()).toISOString(), disabled: false, lastUsedAt: null, jobs: 0, expiresAt: null, jobLimit: null };
-      data.invites.push(invite); save(data); return { ...publicInvite(invite), code: raw.slice(0, 4) + '-' + raw.slice(4) };
+      const code = raw.slice(0, 4) + '-' + raw.slice(4);
+      const invite = { id: crypto.randomUUID(), label: label.trim(), codeHash: hash(raw), code, last4: raw.slice(-4), createdAt: new Date(now()).toISOString(), disabled: false, lastUsedAt: null, jobs: 0, expiresAt: null, jobLimit: null };
+      data.invites.push(invite); save(data); return { ...publicInvite(invite), code };
     },
     deleteInvite(id) {
       const data = read();
