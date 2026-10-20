@@ -8,7 +8,7 @@
 
 用法：
     python3 ocr/dehand/pairs_build.py <資料夾…> --out ocr/dehand/data
-輸出：<out>/<配對名>/p<頁>_x.png（原稿灰階）、p<頁>_m.png（筆跡遮罩 0/255）、<out>/manifest.json
+輸出：<out>/<配對名>/p<頁>_x.png（原稿灰階）、p<頁>_c.png（對齊乾淨版）、p<頁>_m.png（筆跡遮罩 0/255）、<out>/manifest.json
 全部在本機處理；data 資料夾含學生考卷，已 gitignore。
 """
 import argparse
@@ -179,6 +179,7 @@ def main():
             od = os.path.join(a.out, name)
             os.makedirs(od, exist_ok=True)
             cv2.imwrite(os.path.join(od, f"p{i + 1}_x.png"), op[i])
+            cv2.imwrite(os.path.join(od, f"p{i + 1}_c.png"), w)
             cv2.imwrite(os.path.join(od, f"p{i + 1}_m.png"), m)
             manifest.append({"pair": name, "page": i + 1, "group": group, "agree": round(s, 3),
                              "hand_ratio": round(float((m > 0).mean()), 4), "orig": o, "clean": c})

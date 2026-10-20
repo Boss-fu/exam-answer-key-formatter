@@ -10,7 +10,7 @@ import tarfile
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_DRIVE = Path("/Users/chiafuchang/Library/CloudStorage/GoogleDrive-sandy880507@gmail.com/My Drive/OCR訓練資料")
-PAGE_SUFFIXES = ("_x.png", "_m.png", "_q.png")
+PAGE_SUFFIXES = ("_x.png", "_c.png", "_m.png", "_q.png")
 
 
 def archive_members(data: Path):
@@ -53,7 +53,7 @@ def main():
 
     code_dir = drive / "code"
     code_dir.mkdir(exist_ok=True)
-    for name in ("train.py", "pairs_build.py"):
+    for name in ("train.py", "train_img2img.py", "pairs_build.py"):
         shutil.copy2(HERE / name, code_dir / name)
     size = target.stat().st_size / (1024 * 1024)
     print(f"完成：{target}")
