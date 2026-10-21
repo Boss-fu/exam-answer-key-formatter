@@ -513,6 +513,36 @@ const server = http.createServer(async (req, res) => {
       if (view === "dehand") args.push("--view", "dehand");
       return sendJson(res, 200, await runLabel(args));
     }
+    if (req.method === "POST" && url.pathname === "/api/label/export-std") {
+      const { job } = JSON.parse(await readBody(req) || "{}");
+      const safeJob = safeJobId(job);
+      if (!safeJob) return sendJson(res, 400, { ok: false, error: "Invalid job" });
+      let result;
+      try { result = await runLabel(["export-std", "--job", safeJob]); }
+      catch (error) {
+        if (error.message === "這份考卷還沒有提交任何頁") return sendJson(res, 404, { ok: false, error: error.message });
+        throw error;
+      }
+      // ZIP 名稱與資料夾都由標註工作重算；前端不可指定其他考卷的檔案。
+      return sendJson(res, 200, { ...result, downloadUrl: "/api/label/export-std/download?job=" + encodeURIComponent(safeJob) });
+    }
+    if (req.method === "GET" && url.pathname === "/api/label/export-std/download") {
+      const safeJob = safeJobId(url.searchParams.get("job"));
+      if (!safeJob) return send(res, 400, "text/plain; charset=utf-8", "Invalid job");
+      // 重新執行 export-std，確保下載的 ZIP 必定屬於這個已驗證的 job。
+      let result;
+      try { result = await runLabel(["export-std", "--job", safeJob]); }
+      catch (error) {
+        if (error.message === "這份考卷還沒有提交任何頁") return send(res, 404, "text/plain; charset=utf-8", error.message);
+        throw error;
+      }
+      const filename = path.basename(result.filename || "");
+      if (!filename.endsWith("_訓練資料.zip")) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const file = path.join(__dirname, "..", "ocr", "dehand", "data", "std", "_exports", filename);
+      if (!fs.existsSync(file)) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      res.writeHead(200, { "content-type": "application/zip", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`, "cache-control": "no-store" });
+      return fs.createReadStream(file).pipe(res);
+    }
 
     if (req.method === "POST" && url.pathname === "/api/py-ocr/job") {
       const { job } = JSON.parse(await readBody(req) || "{}");

@@ -41,6 +41,7 @@ ocr/holdout/
 ocr/dehand/data/
 ocr/dehand/runs/
 ocr/labels/
+scratch/
 
 # Codex 執行時產生的暫存檔、ONNX 外部權重
 :memory:*

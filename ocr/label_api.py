@@ -2,12 +2,14 @@
 """人工修正工作台的本機資料 API。所有輸出均為 JSON，學生資料只留在 gitignore 路徑。"""
 import argparse
 import base64
+import glob
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import zipfile
 from datetime import datetime, timezone
 
 import cv2
@@ -25,6 +27,7 @@ os.environ.pop("DEHAND", None)   # 工作台一律用模型當「建議」（人
 import apply as dehand  # noqa: E402
 import manual_store
 import to_zizi_word as Z
+from std_format import exam_name, paths as std_paths, write_page
 
 MANUAL = os.path.join(HERE, "dehand", "data", "_manual")
 QUESTIONS = os.path.join(HERE, "labels", "questions")
@@ -33,6 +36,14 @@ PSEUDO = os.path.join(HERE, "dehand", "data", "_pseudo")
 QUEUE = os.path.join(HERE, "dehand", "data", "_queue.json")
 QUEUE_LOCK = QUEUE + ".building"
 QUEUE_MAX_AGE = 24 * 60 * 60
+STD = os.path.join(HERE, "dehand", "data", "std")
+
+
+class Utf8ZipInfo(zipfile.ZipInfo):
+    """即使檔名全為 ASCII，也固定寫出 ZIP 的 UTF-8 language encoding flag。"""
+
+    def _encodeFilenameFlags(self):
+        return self.filename.encode("utf-8"), self.flag_bits | 0x800
 
 
 def emit(value):
@@ -226,7 +237,37 @@ def save_mask(args):
     if mask is None or mask.shape != gray.shape:
         raise ValueError("遮罩尺寸不符")
     stem = manual_store.save_manual_page(MANUAL, pdf, page_for_store, gray, (mask > 127).astype(np.uint8) * 255, absolute_hash=True)
+    clean = gray.copy()
+    clean[mask > 127] = 255
+    exam = exam_name(os.path.basename(pdf))
+    write_page(STD, exam, page_for_store, gray, clean, repaired=True, source="人工")
     return {"saved": stem, "pages": pages, "submittedPages": submitted_pages(pdf, pages), "stats": stats()}
+
+
+def export_std(args):
+    pdf = get_job_source(args.job)
+    exam = exam_name(os.path.basename(pdf))
+    directory, _in_path, _gt_path, _info_path = std_paths(STD, exam, 1)
+    if not os.path.isdir(directory):
+        raise ValueError("這份考卷還沒有提交任何頁")
+    pages = []
+    for info in sorted(glob.glob(os.path.join(directory, "*_info.txt"))):
+        prefix = info[:-9]
+        files = [prefix + "_in.jpg", prefix + "_gt.png", info]
+        if all(os.path.isfile(item) for item in files): pages.extend(files)
+    if not pages:
+        raise ValueError("這份考卷還沒有提交任何頁")
+    exports = os.path.join(STD, "_exports"); os.makedirs(exports, exist_ok=True)
+    filename = exam + "_訓練資料.zip"; output = os.path.join(exports, filename)
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        for item in pages:
+            # 標準資料格式要求三檔直接平放在 ZIP 根目錄；卷名只用於 ZIP 檔名。
+            entry = Utf8ZipInfo(os.path.basename(item))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.flag_bits |= 0x800  # 即使日後檔名含非 ASCII 字元，也明確標示 UTF-8。
+            with open(item, "rb") as source:
+                archive.writestr(entry, source.read())
+    return {"filename": filename, "pages": len(pages) // 3}
 
 
 def job_page(args):
@@ -344,12 +385,14 @@ def main():
     subparser.add_argument("--data", required=True)
     subparser = subparsers.add_parser("rebuild")
     subparser.add_argument("--job", required=True)
+    subparser = subparsers.add_parser("export-std")
+    subparser.add_argument("--job", required=True)
     subparser = subparsers.add_parser("job-page")
     subparser.add_argument("--job", required=True)
     subparser.add_argument("--page", type=int, required=True)
     subparser.add_argument("--view", choices=["original", "dehand"], default="original")
     args = parser.parse_args()
-    actions = {"render": render, "save-mask": save_mask, "draft": draft, "save-questions": save_questions, "rebuild": rebuild, "job-page": job_page}
+    actions = {"render": render, "save-mask": save_mask, "draft": draft, "save-questions": save_questions, "rebuild": rebuild, "job-page": job_page, "export-std": export_std}
     result = list_jobs() if args.cmd == "list" else queue(args) if args.cmd == "queue" else actions[args.cmd](args)
     emit({"ok": True, **result})
 

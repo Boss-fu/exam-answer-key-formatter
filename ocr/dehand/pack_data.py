@@ -10,7 +10,7 @@ import tarfile
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_DRIVE = Path("/Users/chiafuchang/Library/CloudStorage/GoogleDrive-sandy880507@gmail.com/My Drive/OCR訓練資料")
-PAGE_SUFFIXES = ("_x.png", "_c.png", "_m.png", "_q.png")
+PAGE_SUFFIXES = ("_x.png", "_c.png", "_m.png", "_q.png", "_in.jpg", "_gt.png", "_info.txt")
 
 
 def archive_members(data: Path):
@@ -39,11 +39,13 @@ def main():
         parser.error(f"無法建立或寫入 Drive 資料夾：{drive}（{exc}）")
     target = drive / f"dehand_data_{args.date}.tar"
     members = list(archive_members(data))
-    x_pages = sum(path.name.endswith("_x.png") for path in members)
+    x_pages = sum(path.name.endswith(("_x.png", "_in.jpg")) for path in members)
     paired_pages = sum((path.parent / (path.name[:-6] + "_m.png")).is_file()
-                       for path in members if path.name.endswith("_x.png"))
+                       for path in members if path.name.endswith("_x.png")) + sum(
+                           (path.parent / (path.name[:-7] + "_gt.png")).is_file()
+                           for path in members if path.name.endswith("_in.jpg"))
     if not x_pages:
-        parser.error(f"{data} 沒有 *_x.png 訓練頁")
+        parser.error(f"{data} 沒有可用訓練頁")
 
     # 以 repo 相對路徑封裝，Colab 解到 /content 後可直接得到 ocr/dehand/data/。
     repo = HERE.parents[1]
@@ -53,12 +55,13 @@ def main():
 
     code_dir = drive / "code"
     code_dir.mkdir(exist_ok=True)
-    for name in ("train.py", "train_img2img.py", "pairs_build.py"):
+    # train_img2img.py 會直接 import 這三個同目錄模組；Colab 解壓後可直接執行。
+    for name in ("train.py", "train_img2img.py", "pairs_build.py", "std_format.py"):
         shutil.copy2(HERE / name, code_dir / name)
     size = target.stat().st_size / (1024 * 1024)
     print(f"完成：{target}")
     print(f"大小：{size:.1f} MiB；訓練頁：{x_pages} 頁（有遮罩配對：{paired_pages} 頁）")
-    print(f"程式：{code_dir / 'train.py'}、{code_dir / 'pairs_build.py'}")
+    print(f"程式：{code_dir / 'train.py'}、{code_dir / 'train_img2img.py'}、{code_dir / 'pairs_build.py'}、{code_dir / 'std_format.py'}")
 
 
 if __name__ == "__main__":

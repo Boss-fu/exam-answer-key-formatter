@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from train import UNet
 from pairs_build import ink
+from std_format import iter_pages
 
 PATCH = 256
 
@@ -40,6 +41,14 @@ def load_pages(data):
         if ci is None: continue
         grp=synth.get((parent,stem),parent) if source=='synth' else (manual.get(stem, 'manual:'+stem.rsplit('_p',1)[0]) if source=='manual' else real.get((parent,stem),parent))
         pages.append(dict(x=xi,c=ci,m=mi,group=grp,w=weight,name=rel,source=source))
+    for exam, page, x_path, c_path, info_path, info in iter_pages(os.path.join(data, 'std')):
+        xi=cv2.imread(str(x_path),0); ci=cv2.imread(str(c_path),0)
+        if xi is None or ci is None or xi.shape != ci.shape: continue
+        mi=np.abs(xi.astype('int16')-ci.astype('int16')) > 8
+        repaired=info.get('修補過') == '是'
+        # 修補過的頁只在抽樣時加倍；loss 不再乘權重，避免實際變成 ×4。
+        pages.append(dict(x=xi,c=ci,m=mi,group='std:'+exam,w=2.0 if repaired else 1.0,
+                          name=os.path.relpath(str(x_path),data),source='std-人工' if repaired else 'std'))
     return pages
 
 def crop(p, rng):
@@ -48,7 +57,7 @@ def crop(p, rng):
         k=rng.randrange(len(ys)); y=int(np.clip(ys[k]-ps//2,0,h-ps)); x=int(np.clip(xs[k]-ps//2,0,w-ps))
     else: y=rng.randint(0,h-ps); x=rng.randint(0,w-ps)
     def rs(a, interp): return cv2.resize(a[y:y+ps,x:x+ps],(PATCH,PATCH),interpolation=interp)
-    return rs(p['x'],cv2.INTER_AREA)/255., rs(p['c'],cv2.INTER_AREA)/255., rs(p['m'].astype('uint8'),cv2.INTER_NEAREST), p['w']
+    return rs(p['x'],cv2.INTER_AREA)/255., rs(p['c'],cv2.INTER_AREA)/255., rs(p['m'].astype('uint8'),cv2.INTER_NEAREST)
 
 def sobel(x):
     k=torch.tensor([[-1.,0,1],[-2,0,2],[-1,0,1]],device=x.device).view(1,1,3,3)
@@ -78,8 +87,8 @@ def main():
         model.train(); total=0.
         for _ in range(a.steps):
             b=[crop(rng.choices(tr,weights=[p['w'] for p in tr])[0],rng) for _ in range(a.batch)]
-            x=torch.tensor(np.stack([z[0] for z in b]))[:,None].float().to(dev); c=torch.tensor(np.stack([z[1] for z in b]))[:,None].float().to(dev); m=torch.tensor(np.stack([z[2] for z in b]))[:,None].float().to(dev); sw=torch.tensor([z[3] for z in b],device=dev).view(-1,1,1,1)
-            y=model(x); printed=(c<.78).float(); l1=(torch.abs(y-c)*(1+4*printed+2*m)*sw).mean(); sy,sx=sobel(y); cy,cx=sobel(c); loss=l1+.25*(torch.abs(sy-cy).mean()+torch.abs(sx-cx).mean())
+            x=torch.tensor(np.stack([z[0] for z in b]))[:,None].float().to(dev); c=torch.tensor(np.stack([z[1] for z in b]))[:,None].float().to(dev); m=torch.tensor(np.stack([z[2] for z in b]))[:,None].float().to(dev)
+            y=model(x); printed=(c<.78).float(); l1=(torch.abs(y-c)*(1+4*printed+2*m)).mean(); sy,sx=sobel(y); cy,cx=sobel(c); loss=l1+.25*(torch.abs(sy-cy).mean()+torch.abs(sx-cx).mean())
             opt.zero_grad(); loss.backward(); opt.step(); total+=loss.item()
         model.eval(); score=metrics(model,va,dev); print(f'epoch {ep}/{a.epochs} loss {total/a.steps:.4f} PSNR {score[0]:.2f} 印刷保留 {score[1]:.1%} 筆跡殘留 {score[2]:.1%}',flush=True)
         if score[0]>-best[0]: best=(-score[0],{k:v.detach().cpu().clone() for k,v in model.state_dict().items()})
