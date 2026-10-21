@@ -58,7 +58,7 @@ def sobel(x):
 def metrics(model,pages,dev):
     ps=[]; keep=[]; remain=[]
     for p in pages:
-        x=torch.from_numpy(p['x'][None,None].astype('float32')/255).to(dev); y=model(x)[0,0].cpu().numpy()
+        h,w=p['x'].shape; x=torch.from_numpy(p['x'][None,None].astype('float32')/255).to(dev); x=F.pad(x,(0,(16-w%16)%16,0,(16-h%16)%16),value=1.0); y=model(x)[0,0,:h,:w].cpu().numpy()  # 整頁補到 16 的倍數（U-Net 下採樣四次）
         c=p['c']/255.; ps.append(np.mean((y-c)**2))
         printed=ink(p['c']); outink=y<.78; keep += [np.logical_and(printed,outink).sum(),printed.sum()]
         # 僅在筆跡區評估殘留（輸出仍暗），GT 筆畫壓字也依此嚴格計入。
