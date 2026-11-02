@@ -1,0 +1,7 @@
+ocr/dehand/data/std/114上-高一數學-二段-明道高中(直線與圓)(原稿)/002_in.jpg
+ocr/dehand/data/std/112下-高二數A-二段-高雄中山高中(空間平面+條件機率)【原稿】/002_in.jpg
+ocr/dehand/data/std/112上-高二數A-二段-北一女中(指對數)/003_in.jpg
+ocr/dehand/data/std/112下-高二數A-一段-中山女中(空間向量)【原稿】/002_in.jpg
+ocr/dehand/data/std/114上-高二數A-二段-鼓山高中(指對數)(原檔)/001_in.jpg
+ocr/dehand/data/std/114上-高一數學-一段-立人高中(數與式+指對數)(原稿)/002_in.jpg
+ocr/dehand/data/std/112下-高二數A-一段-竹東高中(空間向量)【原稿】/002_in.jpg

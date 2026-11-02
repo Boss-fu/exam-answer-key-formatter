@@ -19,7 +19,7 @@ model: opus
 4. **評測誠信**：`ocr/eval_gt.py`、`ocr/qcount.py`、`ocr/testset/`、`*.gt.docx`、門檻常數有沒有被改？有改必須有充分理由，否則退回。
 5. **資料安全**：
    - `git status --short` 與 diff 裡不能有考卷 PDF、學生圖片、`ocr/dehand/data/`、`ocr/testset/`、`ocr/holdout/`；
-   - 不能用俊瑋（卷土重來／zizi-exam）的程式碼或 `dehand.onnx` 權重——我們只能自己寫、自己訓練；
+   - 不能用俊瑋（卷土重來／zizi-exam）的程式碼或 `dehand.onnx` 權重；**例外**：俊瑋 2026-11-03 口頭授權他的去筆跡模型 handwriting-eraser-v10（`ocr/models/jw/`，見該資料夾 README），可載入、微調、比對。
    - 茲茲詳解 skill 是內部資料，不能外流。
 6. **測試證據**：有沒有 `ocr-tester` 的報告或等價數據（改動前後、逐份）？沒有就要求先跑 `ocr-tester`，不要憑感覺放行。
 7. **可維護性**：註解密度、命名跟周圍程式一致；沒有留下除錯用 print、暫存檔、寫死的個人路徑。
