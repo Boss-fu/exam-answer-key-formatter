@@ -74,6 +74,12 @@ def group_range(text):
     return (start, end) if start <= end else None
 
 
+def group_left(text, fallback):
+    """題組尚可套用的小題數；未印範圍時保守使用呼叫端的既有上限。"""
+    bounds = group_range(text)
+    return bounds[1] - bounds[0] + 1 if bounds else fallback
+
+
 def recover_truncated_qnum(text, current):
     """復原 OCR 把兩位題號後半吃掉的極少數情形。
 
@@ -508,8 +514,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         C.extend(cur["figs_after"])
         if len(re.sub(r"\W", "", spill)) >= 12:   # (D) 後面多出來的段落：下一個題組的引言，放在本題之後
             C.append(B.p_intro(markup_safe(spill)))
-            bounds = group_range(spill)
-            group = new_group(spill, bounds[1] - bounds[0] + 1 if bounds else 3)
+            group = new_group(spill, group_left(spill, 3))
         if not opts:
             review.append(f"第 {n_q} 題：沒抓到 (A)(B)(C)(D) 選項（可能是非選題，或選項在圖上）")
         if "⚠" in raw:
@@ -684,8 +689,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             # 這行才是那一題。不這樣接，後面每一題都會因「題號沒有變大」被拒，整串黏在一起
             C.append(B.p_intro(markup_safe(cur["stem"])))
             C.extend(cur["figs_mid"] + cur["figs_after"])
-            bounds = group_range(cur["stem"])
-            group = new_group(cur["stem"], bounds[1] - bounds[0] + 1 if bounds else 3)
+            group = new_group(cur["stem"], group_left(cur["stem"], 3))
             cur = None
             qn -= 1
             start_q(qn + 1, t[m0.end():])
@@ -731,8 +735,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             flush()
             in_header = False
             C.append(B.p_intro(markup_safe(t)))
-            bounds = group_range(t)
-            group = new_group(t, bounds[1] - bounds[0] + 1 if bounds else 2)
+            group = new_group(t, group_left(t, 2))
             continue
         # 題號被手寫蓋掉、認不出來：用結構判斷新題——上一題選項已經完整（或還沒有任何題目），
         # 這一行不是選項、不是上一個選項的換行尾巴，且後面接著 (A) 開頭的選項
@@ -767,8 +770,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             # (D) 之後、沒有題號的一行引言口吻 → 下一個題組的引言，不是 (D) 的尾巴
             flush()
             C.append(B.p_intro(markup_safe(t)))
-            bounds = group_range(t)
-            group = new_group(t, bounds[1] - bounds[0] + 1 if bounds else 3)
+            group = new_group(t, group_left(t, 3))
         elif cur["opts"]:
             if opts_done() or len(cur["opts"]) >= 3:
                 cur.setdefault("tail", []).append(t)    # 先記著：可能是選項尾巴，也可能是下一題被蓋掉題號的題幹

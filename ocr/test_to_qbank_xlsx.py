@@ -91,6 +91,13 @@ class FixOcrTest(unittest.TestCase):
         one_passage_per_group(rs)
         self.assertEqual([r["題組文章"] for r in rs], ["引言", "", ""])
 
+    def test_explicit_range_uses_excel_question_numbers(self):
+        from to_qbank_xlsx import apply_explicit_group_ranges
+        rows = [{"題號": str(n), "_gid": None} for n in range(40, 45)]
+        questions = [{"gid": 9, "group": "請根據附圖回答40～42題"}]
+        apply_explicit_group_ranges(rows, questions, [40])
+        self.assertEqual([r["_gid"] is not None for r in rows], [True, True, True, False, False])
+
 
 if __name__ == "__main__":
     unittest.main()

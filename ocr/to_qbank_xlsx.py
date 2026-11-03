@@ -201,6 +201,29 @@ def split_trailing_intro(rs):
                 break
 
 
+def apply_explicit_group_ranges(rs, questions, numbers):
+    """以引言明示的題號範圍校正題組成員。
+
+    Word 切題遇到漏題或大題重編時，不能用「已收幾題」推算範圍；Excel
+    題號才是題庫的共同座標。只採用卷面明示的範圍，避免把一般同圖題誤併。
+    """
+    ranges = []
+    for q, num in zip(questions, numbers):
+        bounds = Z.group_range(q.get("group", ""))
+        if bounds and q.get("gid") is not None and bounds[0] <= num <= bounds[1]:
+            ranges.append((bounds, q["gid"]))
+    for bounds, gid in ranges:
+        start, end = bounds
+        key = ("range", start, end, gid)
+        for r in rs:
+            try:
+                num = int(r["題號"])
+            except (TypeError, ValueError):
+                continue
+            if start <= num <= end:
+                r["_gid"] = key
+
+
 def resolved_question_numbers(questions):
     """以相鄰題目的連續性裁決 OCR 印刷題號，避免單一誤讀帶歪後續。"""
     out, prev = [], 0
@@ -255,7 +278,8 @@ def rows(pyexam_dir, name):
         info = info_from_meta(col.get("meta", {}), open(txt, encoding="utf-8").read() if txt else "", name) or info
     out = []
     questions = col.get("questions", [])
-    for q, num in zip(questions, resolved_question_numbers(questions)):
+    numbers = resolved_question_numbers(questions)
+    for q, num in zip(questions, numbers):
         kinds = q["kinds"]
         why = []
         if q["review"]:
@@ -288,6 +312,7 @@ def rows(pyexam_dir, name):
             "_gid": q["gid"],
         })
     split_trailing_intro(out)
+    apply_explicit_group_ranges(out, questions, numbers)
     # 題組 ID 用該題組第一題的「Excel 題號」（不是 Word 流水號）
     first = {}
     for r in out:
