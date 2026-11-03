@@ -5,11 +5,11 @@
 v10 會把圖的細曲線也標成筆跡（111 石牌 pH 曲線被擦），所以這輪：
 - 筆跡標籤＝std 配對「輸入有墨、乾淨版沒有」的像素（同 finetune_jw.py）；
 - 1/4 批次是「乾淨版裡的圖」、1/4 是「乾淨版的一般印刷」，輸入就是乾淨版，筆跡目標全 0（反例：圖、字都不是筆跡）；
-- 第 0 通道拉住不偏離 v10 原本輸出（老師模型），只動筆跡判斷。
+- 第 0 通道拉住不偏離 r8／v10 融合老師輸出，只動筆跡判斷。
 挑 epoch：綜合分＝筆跡抓到率 − 3×(印刷誤標＋圖誤標)，且筆跡抓到率 ≥ 85%（v10 原版：90.6%／11.9%／5.6%，誤標是擦掉印刷與圖的主因）。
     python ocr/dehand/finetune_jw_mask.py --out ocr/dehand/runs/jw-mask-r8 [--epochs 8]
 """
-import argparse, copy, json, os, random, sys
+import argparse, json, os, random, sys
 import cv2, numpy as np, onnx, torch
 from onnx2torch import convert
 sys.path.insert(0, os.path.dirname(__file__)); sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -20,6 +20,37 @@ from pyexam import figure_candidates
 from ppocr_engine import ocr_lines
 
 TH = .35        # 乾淨卷 hand 模式的門檻
+R8_PT = 'ocr/dehand/runs/jw-mask-r8/dehand_jwmask.pt'
+R8_ONNX = 'ocr/dehand/runs/jw-mask-r8/dehand_jwmask.onnx'
+
+
+def model_from(path, dev):
+    """用 v10 的網路結構載入 ONNX 或本機 checkpoint。"""
+    if not os.path.exists(path):
+        raise RuntimeError(f'找不到模型：{path}')
+    model = convert(onnx.load(path if path.endswith('.onnx') else JW)).to(dev)
+    if path.endswith('.pt'):
+        state = torch.load(path, map_location='cpu', weights_only=True)
+        model.load_state_dict(state.get('state_dict', state))
+    return model
+
+
+def teacher_specs(names, weights):
+    """把 CLI 的老師名稱與權重解析為可記錄、可重現的規格。"""
+    paths = {'r8': R8_PT, 'v10': JW}
+    names = [n.strip().lower() for n in names.split(',') if n.strip()]
+    try:
+        weights = [float(w.strip()) for w in weights.split(',') if w.strip()]
+    except ValueError as e:
+        raise ValueError('--teacher-w 必須是逗號分隔的數字') from e
+    if not names or len(names) != len(weights):
+        raise ValueError('--teachers 與 --teacher-w 數量必須相同且不可為空')
+    if len(set(names)) != len(names) or any(n not in paths for n in names):
+        raise ValueError('--teachers 只接受不重複的 r8、v10')
+    if any(w < 0 for w in weights) or not any(weights):
+        raise ValueError('--teacher-w 必須至少有一個正權重')
+    total = sum(weights)
+    return [{'name': n, 'path': paths[n], 'weight': w / total} for n, w in zip(names, weights)]
 
 
 def figs(p):
@@ -159,6 +190,8 @@ def main():
     ap.add_argument('--epochs', type=int, default=8); ap.add_argument('--steps', type=int, default=150); ap.add_argument('--batch', type=int, default=6)
     ap.add_argument('--lr', type=float, default=2e-5); ap.add_argument('--seed', type=int, default=8)
     ap.add_argument('--init', nargs='?', const='r8', default='r8', help='起點：r8（預設）、ONNX 或 checkpoint；找不到 r8 時退回 v10')
+    ap.add_argument('--teachers', default='r8,v10', help='融合老師，逗號分隔：r8,v10')
+    ap.add_argument('--teacher-w', default='.6,.4', help='融合老師權重，逗號分隔；會正規化')
     ap.add_argument('--pseudo', action='store_true', help='加入 data/_pseudo/manifest.json 的低權重偽標註')
     ap.add_argument('--pseudo-dir', default='ocr/dehand/data/_pseudo'); ap.add_argument('--pseudo-weight', type=float, default=.3)
     ap.add_argument('--pseudo-limit', type=int, default=242, help='manifest 可用偽標註的使用上限（第 9 輪為 242）')
@@ -178,20 +211,18 @@ def main():
         tr, pseudo, va = tr[:a.limit], pseudo[:a.limit], va[:a.limit]
     for p, _ in va: figs(p)
     print(f'裝置 {dev}；訓練 {len(tr)} 頁、偽標註 {len(pseudo)} 頁、驗證 {len(va)} 頁（含圖 {sum(bool(p["figs"]) for p, _ in va)} 頁）', flush=True)
-    r8_pt = 'ocr/dehand/runs/jw-mask-r8/dehand_jwmask.pt'; r8_onnx = 'ocr/dehand/runs/jw-mask-r8/dehand_jwmask.onnx'
+    specs = teacher_specs(a.teachers, a.teacher_w)
+    r8_pt, r8_onnx = R8_PT, R8_ONNX
     init = a.init
     if init == 'r8': init = r8_pt if os.path.exists(r8_pt) else (r8_onnx if os.path.exists(r8_onnx) else JW)
-    if not os.path.exists(init):
-        raise RuntimeError(f'找不到 --init {init}')
-    model = convert(onnx.load(init if init.endswith('.onnx') else JW)).to(dev)
-    if init.endswith('.pt'):
-        state = torch.load(init, map_location='cpu', weights_only=True)
-        model.load_state_dict(state.get('state_dict', state))
-    print(f'初始化：{init}', flush=True); model.eval()
-    teacher = copy.deepcopy(model).eval()
-    for t in teacher.parameters(): t.requires_grad_(False)
+    model = model_from(init, dev)
+    teachers = [model_from(s['path'], dev).eval() for s in specs]
+    for teacher in teachers:
+        for t in teacher.parameters(): t.requires_grad_(False)
+    print(f'初始化：{init}；老師：' + '、'.join(f"{s['name']} ({s['weight']:.2f})" for s in specs), flush=True); model.eval()
     comb = lambda s: s[0] - 3 * (s[1] + s[2])
-    smoke_side = 768 if a.limit else None
+    # smoke 僅驗證資料流與存檔；CPU 沙箱下縮小驗證面積，正式訓練指標不變。
+    smoke_side = 128 if a.limit else None
     base = score(model, va, dev, max_side=smoke_side); best = (comb(base), None, TH)
     print(f'epoch 0（俊瑋原版） 筆跡抓到 {base[0]:.1%} 印刷誤標 {base[1]:.2%} 圖誤標 {base[2]:.2%}', flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-5)
@@ -199,16 +230,21 @@ def main():
     for ep in range(1, a.epochs + 1):
         model.train(); tot = 0.
         for _ in range(a.steps):
-            b = [crop(tr, pseudo, rng) for _ in range(a.batch)]
+            b = [crop(tr, pseudo, rng, s=128 if a.limit else 384) for _ in range(a.batch)]
             x = torch.tensor(np.stack([z[0] for z in b]))[:, None].float().div(255).to(dev).repeat(1, 3, 1, 1)
             m = torch.tensor(np.stack([z[1] for z in b]))[:, None].float().to(dev)
             out = model(x)
             with torch.no_grad():
-                ref = teacher(x)
+                refs = [teacher(x) for teacher in teachers]
+                # 筆跡通道先轉為機率才融合，避免不同老師的 logit 尺度互相抵消。
+                ref_hand = sum(s['weight'] * torch.sigmoid(ref[:, 1:2]) for s, ref in zip(specs, refs))
+                ref_clean = sum(s['weight'] * ref[:, :1] for s, ref in zip(specs, refs))
             # 反例（圖、印刷）上的誤標加重罰：比筆跡漏抓更不能接受
             wneg = torch.tensor([1. if z[2] == 0 else (a.pseudo_weight if z[2] == 4 else float(os.environ.get('FT_NEG', 3))) for z in b], device=dev)[:, None, None, None]
             bce = torch.nn.functional.binary_cross_entropy_with_logits(out[:, 1:2], m, pos_weight=pw, reduction='none')
-            loss = (bce * wneg).mean() + float(os.environ.get('FT_KEEP', 1)) * torch.abs(out[:, :1] - ref[:, :1]).mean()
+            distill = torch.nn.functional.binary_cross_entropy_with_logits(out[:, 1:2], ref_hand, reduction='none')
+            hand_loss = ((bce + float(os.environ.get('FT_DISTILL', 1)) * distill) * wneg).mean()
+            loss = hand_loss + float(os.environ.get('FT_KEEP', 1)) * torch.abs(out[:, :1] - ref_clean).mean()
             opt.zero_grad(); loss.backward(); opt.step(); tot += loss.item()
         # 誤標壓低後可以用更低門檻多抓筆跡：每個 epoch 掃 3 個門檻，取綜合分最高者
         model.eval(); THS = (.15, .25, .35); res = score(model, va, dev, list(THS), max_side=smoke_side)
@@ -226,7 +262,7 @@ def main():
     torch.onnx.export(model, torch.ones(1, 3, 512, 512), path, input_names=['image'], output_names=['out'], opset_version=17, dynamo=False,
                       dynamic_axes={'image': {0: 'b', 2: 'h', 3: 'w'}, 'out': {0: 'b', 2: 'h', 3: 'w'}})
     s = score(model, va, torch.device('cpu'), best[2], max_side=smoke_side)
-    json.dump({'base': base, 'final': s, 'threshold': best[2], 'metric': '(筆跡抓到率, 印刷誤標率, 圖誤標率) @ p>threshold', 'validation_exams': sorted(ve), 'init': init, 'pseudo_pages': len(pseudo), 'pseudo_weight': a.pseudo_weight if a.pseudo else 0},
+    json.dump({'base': base, 'final': s, 'threshold': best[2], 'metric': '(筆跡抓到率, 印刷誤標率, 圖誤標率) @ p>threshold', 'validation_exams': sorted(ve), 'init': init, 'teachers': specs, 'pseudo_pages': len(pseudo), 'pseudo_weight': a.pseudo_weight if a.pseudo else 0},
               open(os.path.join(a.out, 'dehand_jwmask.json'), 'w'), ensure_ascii=False, indent=2)
     print('完成：', path)
 
