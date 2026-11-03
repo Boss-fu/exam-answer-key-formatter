@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""夜間把關：比較改動前後 27 份 --xlsx 結果。通過條件：總分不降、沒有任何一份降超過 0.5 個百分點、題組文章≥90% 不降。
+"""夜間把關：比較改動前後 27 份 --xlsx 結果。通過條件：總分或題組文章至少一項上升、另一項不降、沒有任何一份降超過 0.5 個百分點、題組文章≥90% 不降。
     python tools/night/gate.py before.txt after.txt   → 印 PASS/FAIL 與摘要，結束碼 0＝通過"""
 import re, sys
 def load(p):
@@ -14,6 +14,8 @@ def load(p):
     return rows, total, grp
 b, a = load(sys.argv[1]), load(sys.argv[2])
 drops = [f"{k} {b[0][k]}→{a[0].get(k, 0)}" for k in b[0] if a[0].get(k, 0) < b[0][k] - 0.5]
-ok = a[1] is not None and b[1] is not None and a[1] >= b[1] and not drops and (a[2] or 0) >= (b[2] or 0)
+# 一定要贏前一版：總分或題組文章至少一項真的上升，另一項不降、沒有任何一份退步超過 0.5
+better = (a[1] or 0) > (b[1] or 0) or (a[2] or 0) > (b[2] or 0)
+ok = a[1] is not None and b[1] is not None and a[1] >= b[1] and not drops and (a[2] or 0) >= (b[2] or 0) and better
 print(("PASS" if ok else "FAIL") + f" 總分 {b[1]}→{a[1]} 題組≥90% {b[2]}→{a[2]}" + (" 下降：" + "、".join(drops) if drops else ""))
 sys.exit(0 if ok else 1)
