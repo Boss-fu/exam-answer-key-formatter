@@ -91,6 +91,7 @@ def xlsx_eval(a):
     for d in sorted(glob.glob(os.path.join(a.bench, "*", ""))):
         n = os.path.basename(d.rstrip("/")); x = os.path.join(a.gold, n + ".xlsx")
         if not (os.path.exists(x) and os.path.exists(os.path.join(d, n + ".txt"))): continue
+        if a.only and not any(k in n for k in a.only.split(",")): continue
         g = gold_rows(x); ours = {r["題號"]: r for r in X.rows(d, n)}
         acc = [1 - cer(norm(v["題目"]), norm(ours[q]["題目"])) if q in ours else 0.0 for q, v in g.items()]
         gi = [(v["題組ID"] == ours.get(q, {}).get("題組ID", "")) for q, v in g.items() if v["題組ID"] or ours.get(q, {}).get("題組ID")]
@@ -103,6 +104,7 @@ def xlsx_eval(a):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--bench", default="ocr/results/qbank_bench")
     ap.add_argument("--gold", default=os.path.expanduser("~/Desktop/待匯入")); ap.add_argument("-v", action="store_true")
+    ap.add_argument("--only", default="", help="只評這幾份（逗號分隔、比對檔名片段，例如 113_陽明,114_大安）；Codex 沙箱 30 秒限制用")
     ap.add_argument("--xlsx", action="store_true", help="用 to_qbank_xlsx 產生的題庫 Excel 草稿逐題號比對（同題號的題目欄字元正確率、題組ID 一致率）")
     a = ap.parse_args()
     if a.xlsx:
