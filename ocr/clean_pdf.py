@@ -23,7 +23,7 @@ from pyexam import remove_color_ink  # noqa: E402
 
 def clean_page(img: np.ndarray, dpi: int) -> tuple[np.ndarray, float]:
     # 彩色進來：先清紅藍筆與校徽浮水印（跟 OCR 同一套 remove_color_ink），再交給去筆跡模型
-    bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else remove_color_ink(img)[0]
+    bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else remove_color_ink(img, restore_text=True)[0]
     cleaned, ratio = erase(bgr, dpi=dpi)
     return cv2.cvtColor(cleaned, cv2.COLOR_BGR2GRAY), ratio
 

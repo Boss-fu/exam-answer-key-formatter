@@ -104,7 +104,7 @@ def page_to_bgr(page, dpi):
     return arr
 
 
-def remove_color_ink(bgr):
+def remove_color_ink(bgr, restore_text=False):
     """老師批改、學生作答的紅筆／藍筆塗白（印刷是黑色，彩色的幾乎都是筆跡）。
     不清的話，題號旁的紅色勾勾會讓「7.」被認成「入」、紅筆寫的答案「A」跑進內文。
     門檻依實際掃描卷量測：紅筆色相 0~10／160~179、飽和度中位數約 85；淡掉的筆畫邊緣再往外擴 2px 一起清。
@@ -116,12 +116,19 @@ def remove_color_ink(bgr):
         return bgr, 0.0
     if (s >= 45).mean() > .05:
         # 整片彩色校徽浮水印：疊在上面的黑字掃出來也帶色（暗紅、暗藍），不能整塊塗白。
-        # 改用亮度 V（三色最大值）：淺色浮水印變白、暗的字留著；只動彩色像素，不擴張
+        # 實測：疊在浮水印上的字 V 80~140（一般黑字約 7）、彩色浮水印 >170。
+        # 帶色像素（飽和度 ≥20，含淡粉紅區）取亮度 V 拉伸 110→0、170→255：浮水印變白、被染色的字補回跟其他字一樣黑。
+        # 不帶色的像素（鉛筆、圖的灰階）不拉伸，免得鉛筆字和圖內刻度被加黑後讀進題幹
         col = s >= 45
         out = bgr.copy()
-        out[col] = np.where(v[col] >= 150, 255, v[col])[:, None]
-        # 校徽的灰色部分（實測約 175）跟字同色只是較淡：中灰（150~235）塗白，
-        # 但黑字（<100）周圍 2px 不動，留住筆畫邊緣
+        if restore_text:
+            # 給人看的乾淨卷（clean_pdf、網頁）：被染色的字補黑。OCR 不用這條——
+            # 實測圖內刻度、標籤跟著變深後會被切進題幹（112 南市復興 92.6%→90.4%）
+            tint = s >= 20
+            out[tint] = np.clip((v[tint].astype(np.float32) - 110) * (255 / 60), 0, 255).astype(np.uint8)[:, None]
+        else:
+            out[col] = np.where(v[col] >= 150, 255, v[col])[:, None]
+        # 校徽的灰色部分（實測約 175）跟字同色只是較淡：中灰（150~235）塗白，但黑字（<100）周圍 2px 不動
         g = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
         near_text = cv2.dilate((g < 100).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         out[(g >= 150) & (g <= 235) & ~near_text] = 255
