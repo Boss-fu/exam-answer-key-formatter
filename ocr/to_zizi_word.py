@@ -32,6 +32,8 @@ RE_OPT = re.compile(r"[\(（]\s*([A-E])\s*[\)）]|^[\(（]?\s*([A-E])\s*[\)）]|
 RE_Q_NOANS = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*")
 RE_ANS_START = re.compile(r"^[^\u4e00-\u9fff]{0,4}?[\(（]\s*[A-Ea-e]\s*[\)）]\s*(?=[\u4e00-\u9fff「])")
 RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[\)）]\s*\d{1,2}\s*[.．、。])")
+RE_SUBQ = re.compile(r"^[(（]\s*([1-9])\s*[)）]\s*(?=\S)")     # 題組小題「(1)下列敘述何者錯誤？」
+RE_GROUP_SEC = re.compile(r"綜合|題組|非選")
 RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、。]?\s*(?=[\u4e00-\u9fff「（(])")
 RE_INTRO = re.compile(r"^\s*[◎※●■◆]|回答\s*第?\s*\d+\s*[～~至\-－—]\s*\d+\s*題|閱讀.{0,12}回答|題組")
 RE_SECTION = re.compile(r"^[一二三四五六七八九十]{1,3}\s*[、.．]\s*\S")
@@ -290,7 +292,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
     B.start(os.path.join(tmp, "build"), figdir)
     in_header = True
     qn = 0
-    num_off, sec_qn = 0, None     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
+    num_off, sec_qn = 0, None
+    group_sec, group_raw = False, 0  # 綜合題：大題號「1.」是題組引言，「(1)(2)…」小題才各算一題（題庫 Excel 也這樣算）     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
 
     def qnum(t):
         """題號（容許手寫符號黏在前面、少了點號）；號碼必須接在上一題後面 +1～+3，避免 10m/s、2.0 這類被當題號"""
@@ -351,6 +354,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             continue                          # 卷頭（每頁都可能重印）、頁碼：由茲茲橫幅取代
         if RE_SECTION.match(t) and len(t) <= 60:
             sec_qn = qn
+            group_sec, group_raw = bool(RE_GROUP_SEC.search(t)), 0
             in_header = False
             flush()
             sec = t.replace("（", "【", 1).replace("(", "【", 1) if "【" not in t else t
@@ -380,6 +384,25 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             else:
                 cur["stem"] = join(cur["stem"], t)
             continue
+        if group_sec:
+            mg = RE_Q.match(t) or RE_Q_LOOSE.match(t)
+            if mg and int(mg.group(1)) == group_raw + 1 and len(t) - mg.end() >= 4 and \
+                    any(RE_SUBQ.match(t2) for _, t2 in lines[i + 1:i + 14]):
+                group_raw += 1                      # 下一個題組（大題號照順序 1、2、3…）
+                sec_qn = None
+                start_q(qn + 1, t[mg.end():])
+                cur["group"] = True
+                continue
+            ms = RE_SUBQ.match(t)
+            if ms and cur is not None and len(t) - ms.end() >= 4:
+                if cur.get("group") and int(ms.group(1)) == 1:
+                    # 第 (1) 小題出現：剛才的「題」其實是題組引言 → 改成引言段落，不佔題號
+                    C.append(B.p_intro(markup_safe(cur["stem"])))
+                    C.extend(cur["figs_mid"] + cur["figs_after"])
+                    cur = None
+                    qn -= 1
+                start_q(qn + 1, t[ms.end():])
+                continue
         n, mq = qnum(t)
         if n is not None and sec_qn is not None:
             if n != int(mq.group(1)):
@@ -392,6 +415,11 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         # 題號被蓋掉、只剩作答括號裡的手寫答案：「(A)量筒內原有18.0mL的水…」「B (B)孟純以…」
         # 括號後面是一長句（或有問號）、同一行沒有別的選項，而且後面接著從 (A) 開始的一組選項 → 是新題，不是選項 (A)
         ma = RE_ANS_START.match(t)
+        if ma and cur and cur["opts"]:
+            last = re.search(r"[A-Ea-e]", cur["opts"][-1][:4])
+            got = re.search(r"[A-Ea-e]", t[:ma.end()])
+            if last and got and ord(got.group().upper()) == ord(last.group().upper()) + 1:
+                ma = None                    # 上一個選項是 (C)、這行是 (D)…：就是下一個選項，不是被蓋掉題號的新題
         if ma:
             rest = t[ma.end():]
             if not RE_OPT.search(rest) and (len(rest) >= 15 or re.search(r"[？?]", rest)) and opens_question(i):
