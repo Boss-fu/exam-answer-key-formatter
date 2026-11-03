@@ -103,6 +103,7 @@ HALF_ALNUM = str.maketrans("ＡＢＣＤＥａｂｃｄｅ０１２３４５６�
 RE_OPTION_MARK = re.compile(
     r"[（(]\s*[A-Da-d]\s*[）)]?|[（(]\s*[）)]|[①②③④]\s*[）)]?|[（(]\s*[1-4]\s*[）)]"
 )
+RE_LETTER_OPTION_MARK = re.compile(r"[（(]\s*[A-Da-d]\s*[）)]?")
 
 
 def rebuild_options(stem, opts):
@@ -119,7 +120,11 @@ def rebuild_options(stem, opts):
     # 換行只是可讀性，切點以整題順序為準；所以同一 OCR 行的四個
     # 全形選項，以及題幹尾端黏住的第一個選項都能一起處理。
     whole = "\n".join([stem] + opts)
-    marks = list(RE_OPTION_MARK.finditer(whole))
+    # 先只看英文字母代號。選項文字裡常有 ``(1)(甲)``，若混進
+    # 通用殘骸 regex 會把「四個 inline 選項」誤判成八個切點。
+    marks = list(RE_LETTER_OPTION_MARK.finditer(whole))
+    if len(marks) != 4:
+        marks = list(RE_OPTION_MARK.finditer(whole))
     if len(marks) != 4:
         return stem, opts, False
     head = whole[:marks[0].start()].strip()

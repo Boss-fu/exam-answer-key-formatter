@@ -38,6 +38,11 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(stem, "題幹")
         self.assertEqual(opts, ["(A)甲", "(B)", "(C)丙", "(D)丁"])
 
+    def test_rebuilds_inline_options_with_parenthesized_content(self):
+        stem, opts, rebuilt = rebuild_options("題幹(A)(1)→(甲)→b(B)(2)→(甲)→a(C)(1)→(乙)→b(D)(2)→(乙)→a", [])
+        self.assertTrue(rebuilt)
+        self.assertEqual(opts, ["(A)(1)→(甲)→b", "(B)(2)→(甲)→a", "(C)(1)→(乙)→b", "(D)(2)→(乙)→a"])
+
     def test_does_not_force_three_markers_into_four_options(self):
         stem, opts, rebuilt = rebuild_options("題幹", ["(A)甲", "(B)乙", "(C)丙"])
         self.assertFalse(rebuilt)

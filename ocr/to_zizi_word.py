@@ -27,6 +27,9 @@ RE_FIG = re.compile(r"^〔含圖 (\d+)〕$")
 RE_TAB = re.compile(r"^〔表格 (\d+)〕$")
 # 題號，含後面的作答括號：「( )1.」「1.( B )」「1. (　)」——括號裡的手寫答案一起吃掉，不能被當成選項 (B)
 RE_Q = re.compile(r"^(?:[\(（]?\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、。](?!\d)\s*(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?")
+# 正常選項多在行首或空白後；但 OCR 常吃掉 inline 選項之間的空白
+# （``…b(B)(2)…``），仍要接受 B～E 的括號代號。附圖代號另由
+# split_opts 的明確「圖」判斷排除，不能只靠放寬此 regex。
 RE_OPT = re.compile(r"[\(（]\s*([A-E])\s*[\)）]|^[\(（]?\s*([A-E])\s*[\)）]|^[\(（]\s*([A-E])(?=[\u4e00-\u9fff])"
                     r"|(?<![A-Za-z0-9(（])([B-E])[\)）](?=\S)|[\(（]([B-E])(?=[\u4e00-\u9fff])")
 RE_Q_NOANS = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*")
@@ -121,7 +124,13 @@ def join(a, b):
 
 def split_opts(line):
     """一行裡的 (A)…(B)… 拆成多個選項；回傳 (選項前的文字, [選項…])"""
-    idx = [m.start() for m in RE_OPT.finditer(line)]
+    # OCR 偶爾把「圖\n(B)的構造」斷行；這仍是「圖(B)」，不是 B 選項。
+    # 正常選項以「(B)的…」開頭極少見，寧可保住圖題的整題結構。
+    if re.match(r"^\s*[\(（]\s*[A-D]\s*[\)）]\s*(?:的|中)", line):
+        return line, []
+    # 第四個分支會由 ``B)`` 起配對；明確排除前面接「(圖」的情況。
+    idx = [m.start() for m in RE_OPT.finditer(line)
+           if line[max(0, m.start() - 2):m.start()] not in ("(圖", "（圖")]
     if not idx:
         return line, []
     head = line[:idx[0]].strip()
@@ -204,7 +213,10 @@ RE_OPT_TOKEN = re.compile(r"[（(]\s*([^()（）\s]{1,2})\s*[)）]")
 def fix_opt_labels(ln):
     """選項代號認錯（「(3)丙 (C)戊 (D)庚」的 (3) 其實是 (B)）：同一行至少兩個正確代號、
     錯的那個夾在順序上該有的位置，就依序補成正確字母。只動單一字元、且整行代號能排成連續字母時才改。"""
-    toks = list(RE_OPT_TOKEN.finditer(ln))
+    # ``(圖B)`` 不是選項 token。排除它，否則前面的「圖」會讓後面
+    # 真正的 (A)～(D) 序列整組位移，並把圖號改成選項 B。
+    toks = [m for m in RE_OPT_TOKEN.finditer(ln)
+            if len(m.group(1)) == 1 and not re.search(r"[\u4e00-\u9fff]", m.group(1))]
     good = [(i, "ABCDE".index(m.group(1).upper())) for i, m in enumerate(toks) if m.group(1).upper() in list("ABCDE")]
     if len(good) < 2 or len(toks) > 5:
         return ln

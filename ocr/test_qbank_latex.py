@@ -58,6 +58,8 @@ class ToLatexTest(unittest.TestCase):
             ("v=d/t", r"$v=\frac{d}{t}$"),
             ("密度=質量/體積", r"$\text{密度}=\frac{\text{質量}}{\text{體積}}$"),
             ("3*4，5x6，7X8", r"$3\times4$，$5\times6$，$7\times8$"),
+            ("速率=60/3=20", r"$\text{速率}=\frac{60}{3}=20$"),
+            ("5x10=50", r"$5\times10=50$"),
         ])
 
     def test_fraction_guards(self):

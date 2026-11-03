@@ -33,6 +33,14 @@ RE_NAMED_CALC = re.compile(
     r"(?P<num>[A-Za-z]|[\u4e00-\u9fff]{1,6})\s*(?P<div>/|÷)\s*"
     r"(?P<den>[A-Za-z]|[\u4e00-\u9fff]{1,6})(?![A-Za-z0-9])"
 )
+RE_NAMED_NUMERIC_CALC = re.compile(
+    rf"(?<![A-Za-z0-9])(?P<lhs>[A-Za-z]|[\u4e00-\u9fff]{{1,6}})\s*=\s*"
+    rf"(?P<num>(?:{NUMBER}))\s*(?P<div>/|÷)\s*(?P<den>(?:{NUMBER}))"
+    rf"(?P<rest>\s*=\s*(?:{NUMBER}))?(?![A-Za-z0-9./=])"
+)
+RE_NUMERIC_PRODUCT_EQ = re.compile(
+    rf"(?<![A-Za-z0-9.])(?P<a>(?:{NUMBER}))\s*[×*xX]\s*(?P<b>(?:{NUMBER}))\s*=\s*(?P<c>(?:{NUMBER}))(?![A-Za-z0-9.])"
+)
 RE_MULTIPLY = re.compile(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s*[×*xX]\s*(\d+(?:\.\d+)?)(?![A-Za-z0-9.])")
 
 ELEMENTS = ("He Li Be Ne Na Mg Al Si Cl Ar Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn Ba Pt Au Hg Pb "
@@ -99,6 +107,16 @@ def _convert_calculations(t):
     def named(m):
         return rf"${_math_name(m.group('lhs'))}=\frac{{{_math_name(m.group('num'))}}}{{{_math_name(m.group('den'))}}}$"
 
+    def named_numeric(m):
+        return (rf"${_math_name(m.group('lhs'))}=\frac{{{_num(m.group('num'))}}}{{{_num(m.group('den'))}}}"
+                + (f"={_num(m.group('rest').split('=')[-1].strip())}" if m.group("rest") else "") + "$" )
+
+    def product_eq(m):
+        return rf"${_num(m.group('a'))}\times{_num(m.group('b'))}={_num(m.group('c'))}$"
+
+    # 先處理完整連等式，避免後面的除法／乘法規則把它拆成多個 $...$。
+    t = RE_NAMED_NUMERIC_CALC.sub(named_numeric, t)
+    t = RE_NUMERIC_PRODUCT_EQ.sub(product_eq, t)
     t = RE_NAMED_CALC.sub(named, t)
     t = RE_NUMERIC_CALC.sub(numeric, t)
     return RE_MULTIPLY.sub(lambda m: rf"${m.group(1)}\times{m.group(2)}$", t)
