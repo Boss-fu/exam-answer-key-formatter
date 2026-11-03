@@ -118,7 +118,8 @@ function pyOcrResponse(job, result) {
     reviewUrl: result.reviewFile ? `/api/py-ocr/download?job=${job}&kind=review` : null,
     figures: result.figures.map((name) => ({ name, url: `/api/py-ocr/figure?job=${job}&name=${encodeURIComponent(name)}` })),
     txtUrl: result.txtFile ? `/api/py-ocr/download?job=${job}&kind=txt` : null,
-    docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null };
+    docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null,
+    qbankUrl: result.txtFile ? `/api/py-ocr/qbank-xlsx?job=${job}` : null };
 }
 function pyOcrJobPaths(job) {
   const jobDir = path.join(PYOCR_OUTPUT, job);
@@ -554,7 +555,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, job: safeJob, text,
         docxUrl: pyOcrDownloadUrl(safeJob, "docx"),
         reviewUrl: pyOcrDownloadUrl(safeJob, "review"),
-        txtUrl: pyOcrDownloadUrl(safeJob, "txt") });
+        txtUrl: pyOcrDownloadUrl(safeJob, "txt"),
+        qbankUrl: txt ? `/api/py-ocr/qbank-xlsx?job=${safeJob}` : null });
     }
 
     if (req.method === "GET" && url.pathname === "/api/py-ocr/download") {
@@ -566,6 +568,22 @@ const server = http.createServer(async (req, res) => {
       const ct = kind === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain; charset=utf-8";
       res.writeHead(200, { "content-type": ct, "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}` });
       return fs.createReadStream(file).pipe(res);
+    }
+
+    // 題庫匯入 Excel（不用 AI）：同一個 job 的 pyexam 結果直接切題，欄位同題庫「<卷>_題目.xlsx」
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/qbank-xlsx") {
+      const job = safeJobId(url.searchParams.get("job"));
+      const txt = job && pyOcrResultFile(job, "txt");
+      if (!txt) return send(res, 404, "text/plain; charset=utf-8", "Not found");
+      const resultDir = path.dirname(txt), name = path.basename(txt, ".txt");
+      const out = path.join(resultDir, name + "_題庫.xlsx");
+      try {
+        await new Promise((ok, bad) => execFile(pyBin(), [path.join(__dirname, "..", "ocr", "to_qbank_xlsx.py"), resultDir, "-o", out, "--name", name],
+          { cwd: path.join(__dirname, ".."), timeout: 180000, maxBuffer: 8 * 1024 * 1024 }, (err, _o, stderr) => err ? bad(new Error(String(stderr || err.message).slice(-400))) : ok()));
+      } catch (error) { return send(res, 500, "text/plain; charset=utf-8", "題庫 Excel 產生失敗：" + error.message); }
+      res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name + "_題庫.xlsx")}` });
+      return fs.createReadStream(out).pipe(res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/py-ocr/figure") {

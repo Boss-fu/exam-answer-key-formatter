@@ -88,11 +88,37 @@ def question_text(q):
     return fix_ocr("\n".join([stem] + opts))
 
 
+def loose_name(name):
+    """不照標準格式的檔名（「114八上一段＿華興」「華興114-8上-1段」）盡量抓：年度、年級、學期、段次、校名。"""
+    y = re.search(r"(1\d{2})", name); g = re.search(r"[國]?([七八九])\s*[年上下]?", name)
+    t = re.search(r"[七八九]?\s*([上下])", name); e = re.search(r"([一二三四1-4])\s*段", name)
+    sch = [w for w in re.split(r"[_＿\-－\s]+", name) if re.fullmatch(r"[\u4e00-\u9fff]{2,8}", w) and not re.search(r"[段上下年級題目卷]|生物|理化|地科|自然", w)]
+    return {"year": y.group(1) if y else "", "grade": g.group(1) if g else "", "term": t.group(1) if t else "",
+            "exam": e.group(1) if e else "", "school": sch[-1] if sch else ""}
+
+
+def info_from_meta(meta, text="", name=""):
+    """檔名不是「年度_學校_國七上二段_科目」格式時，合併卷頭辨識到的與寬鬆檔名解析到的學年度／學期／年級／段次／校名。"""
+    alt = loose_name(name)
+    year, term, grade, nth, school = (meta.get(k) or alt.get(k, "") for k in ("year", "term", "grade", "exam", "school"))
+    nth = "一二三四"[int(nth) - 1] if str(nth).isdigit() else nth
+    if not (year and school):
+        return None
+    grade = {"7": "七", "8": "八", "9": "九", "1": "七", "2": "八", "3": "九"}.get(str(grade), grade)
+    school = school if re.search(r"(國中|高中|中學)$", school) else school + "國中"
+    subj = next((k for k in ("生物", "理化", "地科", "自然") if k in text[:400]), "")
+    exam = f"{school}-{grade}年級-{year}-{term}學期-第{nth}次段考" + (f"-{subj}" if subj else "")
+    return {"年度": year + term, "來源學校": school, "考試名稱": exam, "gid": f"{school}-{grade}年級-{year}{term}-第{nth}次段考"}
+
+
 def rows(pyexam_dir, name):
     info = exam_info(name)
     col = {}
     with tempfile.TemporaryDirectory() as tmp:
         Z.build(pyexam_dir, tmp, dpi=300, src_name=name + ".pdf", collect=col)
+    if not info["考試名稱"]:
+        txt = next((os.path.join(pyexam_dir, f) for f in os.listdir(pyexam_dir) if f.endswith(".txt")), None)
+        info = info_from_meta(col.get("meta", {}), open(txt, encoding="utf-8").read() if txt else "", name) or info
     out = []
     prev = 0
     for q in col.get("questions", []):

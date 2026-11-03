@@ -492,7 +492,7 @@ function paintLiveProgress(events, server, started){
 }
 function finishPyOcr(j, f, server, st){
   var s=j.stats||{},job=j.jobId||j.job||j.id||"";st.className="status ok";st.textContent="完成！耗時 "+Math.round(s.sec_total||0)+" 秒。";
-  var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';links+='<a class="btn" href="#manualCrop">手動截圖</a>';
+  var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.qbankUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.qbankUrl,server))+'">題庫 Excel</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';links+='<a class="btn" href="#manualCrop">手動截圖</a>';
   $("#exportMenu").innerHTML=links;window.currentOcrJob=job;window.currentOcrServer=server;window.currentOcrText=j.text||"尚無整份文字";setOcrStep("Preview");showOcrPreview();$("#ocrJobName").textContent=f.name;fetchPages(job,1);
 }
 async function runPyOcrFallback(f,data,server){
@@ -628,7 +628,7 @@ $("#openRecentBtn").addEventListener("click", async function() {
     try {
     var response=await apiFetch("/api/py-ocr/job",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({job:job})},server);
     var j=await response.json();if(!j.ok)throw new Error(j.error||"找不到此 OCR 工作");
-    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';links+='<a class="btn" href="#manualCrop">手動截圖</a>';
+    var links="";if(j.docxUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.docxUrl,server))+'">Word</a> ';if(j.qbankUrl)links+='<a class="btn green" href="'+esc(apiUrl(j.qbankUrl,server))+'">題庫 Excel</a> ';if(j.reviewUrl)links+='<a class="btn" href="'+esc(apiUrl(j.reviewUrl,server))+'">確認清單</a> ';if(j.txtUrl)links+='<a class="btn" href="'+esc(apiUrl(j.txtUrl,server))+'">辨識原文</a>';links+='<a class="btn" href="#manualCrop">手動截圖</a>';
     $("#exportMenu").innerHTML = links;
     window.currentOcrJob = job;
     window.currentOcrServer = server;
