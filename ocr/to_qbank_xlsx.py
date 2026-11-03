@@ -238,6 +238,14 @@ def rows(pyexam_dir, name):
         if q["review"]:
             why.append("有辨識信心低的字")
         text, option_count = question_text(q, with_option_count=True)
+        group_text = fix_ocr(clean(q["group"]))
+        mid = re.search(rf"(?:[(（]\s*[)）]\s*)?(?:[(（]\s*{num}\s*[)）]|(?<!\d){num}\s*[.．、])(?=\s*[一-鿿「])", text.split("\n")[0])
+        if mid and mid.start() >= 12:
+            # 題組引言黏在題幹前面：「…試回答下列46-47問題：圖(一)46.請問…」——本題題號之前的是引言
+            head = text[:mid.start()].strip()
+            if not group_text:
+                group_text = head
+            text = text[mid.end():].lstrip()
         lead = re.match(r"(\d{1,2})\s*[.．、](?=\s*[一-鿿「])", text)
         if lead and str(num).endswith(lead.group(1)):
             text = text[lead.end():]        # 題號殘骸「7.可運輸…」（第 37 題只剩個位數）
@@ -252,7 +260,7 @@ def rows(pyexam_dir, name):
             "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
             "圖表類型": "表格" if kinds == ["表格"] else ("" if kinds else "無"),
             "判斷依據": "；".join(why), "待確認": "Y" if why else "",
-            "題目": to_latex(text), "題組文章": to_latex(fix_ocr(clean(q["group"]))),
+            "題目": to_latex(text), "題組文章": to_latex(group_text),
             "題組ID": "",
             "_gid": q["gid"],
         })
