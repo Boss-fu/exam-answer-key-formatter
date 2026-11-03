@@ -33,6 +33,39 @@ def exam_info(name):
     return {"年度": year + term, "來源學校": school, "考試名稱": exam, "gid": f"{school}-{grade}年級-{year}{term}-第{nth}次段考"}
 
 
+GAN = "甲乙丙丁戊己庚辛壬癸"
+GAN_FIX = {"王": "壬", "已": "己", "巳": "己", "Z": "乙", "T": "丁", "了": "丁", "內": "丙"}
+CJK = r"[\u4e00-\u9fff]"
+
+
+def fix_ocr(t):
+    """AI 校對統計出的固定誤認（27 份待匯入 AI 校對 vs 草稿逐字比對）；只在有上下文佐證時換，不靠 AI。"""
+    # 天干序列：前後兩字內有別的天干字才換（「丙丁己王癸」→「壬」、「(C)Z丙」→「乙」）
+    chars = list(t)
+    for i, c in enumerate(chars):
+        if c in GAN_FIX:
+            near = "".join(chars[max(0, i - 2):i] + chars[i + 1:i + 3])
+            if sum(ch in GAN for ch in near) >= 1 and (c not in "內了" or sum(ch in GAN for ch in near) >= 2):
+                chars[i] = GAN_FIX[c]
+    t = "".join(chars)
+    t = re.sub(rf"(?<={CJK})\s*-{{2,}}\s*(?={CJK})", "一", t)          # 「哪--支」→「哪一支」
+    t = re.sub(rf"(?<={CJK})[·・](?={CJK})", "、", t)                  # 「胃液·胰液」→「胃液、胰液」
+    t = re.sub(rf"(?<={CJK})O(?=\s*(?:\(|$|\n))", "。", t)            # 句尾 O →。
+    t = re.sub(rf"(?<=物質)\s*×|×(?=\s*(?:由|來自|是|為))", "X", t)    # 「物質×」是變數 X 不是乘號
+    return t
+
+
+def relabel(opts):
+    """選項代號依位置重排成 (A)(B)(C)(D)：OCR 常把 (B) 認成 (3)、(D) 認成 (C)。"""
+    if not 2 <= len(opts) <= 5:
+        return opts
+    out = []
+    for k, o in enumerate(opts):
+        m = re.match(r"^\s*[（(]\s*[^()（）\s]{1,2}\s*[)）]", o)
+        out.append(f"({'ABCDE'[k]})" + o[m.end():] if m else o)
+    return out
+
+
 def clean(t):
     t = re.sub(r"\s*⚠需確認", "", t or "")
     t = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", t)
@@ -49,10 +82,10 @@ def question_text(q):
         stem = stem[m.end():]             # 題號殘骸「40,()」「17.0)」「( )」：含括號才剝，避免吃掉「100公克…」這種題幹開頭
     if "圖片" in q["kinds"] or "表格" in q["kinds"]:
         stem += "〔含圖〕"
-    opts = [clean(o) for o in q["opts"] if clean(o)]
+    opts = relabel([clean(o) for o in q["opts"] if clean(o)])
     if q.get("tf") and not opts:
         opts = ["(A)正確", "(B)錯誤"]       # 是非題：題庫格式把正確／錯誤當成 (A)(B) 選項
-    return "\n".join([stem] + opts)
+    return fix_ocr("\n".join([stem] + opts))
 
 
 def rows(pyexam_dir, name):
