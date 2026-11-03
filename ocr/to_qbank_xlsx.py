@@ -63,6 +63,11 @@ BIOLOGY_PHRASE_FIXES = (
 )
 
 
+# 頁首頁尾：「國一生物第1頁/共4頁」「第2頁」「，共4頁」「考題範圍：2-3~3-4」不屬於題目
+RE_PAGE_MARK = re.compile(r"[，,]?\s*(?:國[一二三七八九]\S{0,4}?)?第\s*\d+\s*頁(?:\s*[/／，,]?\s*共\s*\d+\s*頁)?|[，,]?\s*共\s*\d+\s*頁"
+                          r"|考(?:題|試)範圍\s*[:：]\s*[\d\-~～、.]+")
+
+
 def fix_ocr(t):
     """AI 校對統計出的固定誤認（27 份待匯入 AI 校對 vs 草稿逐字比對）；只在有上下文佐證時換，不靠 AI。"""
     # 天干序列：前後兩字內有別的天干字才換（「丙丁己王癸」→「壬」、「(C)Z丙」→「乙」）
@@ -77,7 +82,9 @@ def fix_ocr(t):
         t = re.sub(pattern, replacement, t)
     t = re.sub(rf"(?<={CJK})\s*-{{2,}}\s*(?={CJK})", "一", t)          # 「哪--支」→「哪一支」
     t = re.sub(rf"(?<={CJK})[·・](?={CJK})", "、", t)                  # 「胃液·胰液」→「胃液、胰液」
-    t = re.sub(rf"(?<={CJK})O(?=\s*(?:\(|$|\n))", "。", t)            # 句尾 O →。
+    t = re.sub(rf"(?<={CJK})[OoＯ○](?=\s*(?:\(|$|\n))", "。", t)      # 句尾 O →。
+    t = re.sub(rf"(?<={CJK})[OoＯ○](?={CJK})", "。", t)               # 「體溫O下列」：中文夾英文 O 是句號（數字 0 不動）
+    t = RE_PAGE_MARK.sub("", t)
     t = re.sub(rf"(?<=物質)\s*×|×(?=\s*(?:由|來自|是|為))", "X", t)    # 「物質×」是變數 X 不是乘號
     t = re.sub(r"\?(?=\s*(?:$|\n|[（(]))", "？", t)                  # 題句與選項前的問號
     return t
@@ -232,7 +239,7 @@ def rows(pyexam_dir, name):
             "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
             "圖表類型": "表格" if kinds == ["表格"] else ("" if kinds else "無"),
             "判斷依據": "；".join(why), "待確認": "Y" if why else "",
-            "題目": to_latex(text), "題組文章": to_latex(clean(q["group"])),
+            "題目": to_latex(text), "題組文章": to_latex(fix_ocr(clean(q["group"]))),
             "題組ID": "",
             "_gid": q["gid"],
         })

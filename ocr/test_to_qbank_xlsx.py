@@ -53,6 +53,12 @@ class FixOcrTest(unittest.TestCase):
             {"pn": 1}, {"pn": 2}, {"pn": 17}, {"pn": 4}, {"pn": None}, {"pn": 6},
         ]), [1, 2, 3, 4, 5, 6])
 
+    def test_removes_page_marks_and_keeps_zero(self):
+        self.assertEqual(fix_ocr("(D)可以產生消化液分解養分。國一生物第1頁/共4頁"), "(D)可以產生消化液分解養分。")
+        self.assertEqual(fix_ocr("流程改成下表：夏，共4頁則溶液"), "流程改成下表：夏則溶液")
+        self.assertEqual(fix_ocr("以維持體溫O下列何者"), "以維持體溫。下列何者")
+        self.assertEqual(fix_ocr("心搏停止時，血壓為0"), "心搏停止時，血壓為0")
+
 
 if __name__ == "__main__":
     unittest.main()
