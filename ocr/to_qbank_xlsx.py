@@ -286,7 +286,7 @@ def rows(pyexam_dir, name):
             why.append("有辨識信心低的字")
         text, option_count = question_text(q, with_option_count=True)
         group_text = fix_ocr(clean(q["group"]))
-        mid = re.search(rf"(?:[(（]\s*[)）]\s*)?(?:[(（]\s*{num}\s*[)）]|(?<!\d){num}\s*[.．、])(?=\s*[一-鿿「])", text.split("\n")[0])
+        mid = re.search(rf"(?:[(（]\s*[)）]\s*)?(?:[(（]\s*{num}\s*[)）]|(?<!\d){num}\s*[.．、]\s*(?:[0Oo○(（]?\s*[)）])?)(?=\s*[一-鿿「])", text.split("\n")[0])
         if mid and mid.start() >= 12:
             # 題組引言黏在題幹前面：「…試回答下列46-47問題：圖(一)46.請問…」——本題題號之前的是引言
             head = text[:mid.start()].strip()
