@@ -142,7 +142,9 @@ def remove_color_ink(bgr, restore_text=False):
         near_text = cv2.dilate((g < 100).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         out[(g >= 150) & (g <= 235) & ~near_text] = 255
         return out, float(col.mean())
-    mask = cv2.dilate(ink.astype(np.uint8), np.ones((5, 5), np.uint8))
+    # 只拿明亮的彩色筆芯（V≥170）當外擴起點：掃描器色偏讓黑色印刷字邊緣帶紅／藍，但它們是暗的（V 約 80~150），
+    # 拿來外擴會把整排印刷字擦掉（113 陽明右欄「(A)」「在甲、」；27 份 Excel 95.7→97.0%）
+    mask = cv2.dilate((ink & (v >= 170)).astype(np.uint8), np.ones((5, 5), np.uint8))
     out = bgr.copy()
     out[mask > 0] = 255
     return out, float(ink.mean())
