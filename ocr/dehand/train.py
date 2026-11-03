@@ -34,6 +34,7 @@ sys.path.insert(0, HERE)
 MODELS = os.path.join(os.path.dirname(HERE), "models")
 PATCH = 256
 PRINT_W = 3.0
+QUESTION_W = float(os.environ.get("DEHAND_QUESTION_W", "3.0"))
 MAX_ERASE = 0.005
 
 
@@ -106,12 +107,20 @@ def load_pages(data):
         if source == "manual":                    # 人工修正頁：<檔名>_p<頁>，同一份考卷同一組
             grp = manual.get(stem, "manual:" + re.sub(r"_p\d+$", "", stem))   # 跟自動配對同一份考卷＝同一組
         elif source == "synth":
-            grp = synth_group.get((pair, stem), "synth:" + pair)
+            # 合成器中斷時可能留下尚未寫進 manifest 的半成品；不能讓它們
+            # 偷混進訓練，否則同一輪資料與分組都不可重現。
+            if (pair, stem) not in synth_group:
+                continue
+            grp = synth_group[(pair, stem)]
         elif source == "pseudo":
-            grp = pseudo_group.get((pair, stem), "pseudo:" + pair)
+            if (pair, stem) not in pseudo_group:
+                continue
+            grp = pseudo_group[(pair, stem)]
         else:
             grp = group.get((pair, stem[1:]), pair)
         img, msk = cv2.imread(x, cv2.IMREAD_GRAYSCALE), cv2.imread(m, cv2.IMREAD_GRAYSCALE) > 127
+        if source == "pseudo" and not msk.any():
+            continue  # AI 框落在空白處時不可把整頁當作無筆跡負樣本
         near = cv2.dilate(msk.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         prt = ink(img) & ~near                   # 印刷墨跡；筆跡周圍 2px 是模糊帶（筆跡壓到印刷、遮罩邊緣），不算印刷也不算筆跡
         lab = msk.astype(np.uint8) | (prt.astype(np.uint8) << 1)     # bit0＝筆跡、bit1＝印刷（省記憶體：一頁一張）
@@ -245,9 +254,11 @@ def main():
             xs, ms, ps = zip(*[sample(rng.choices(tr, weights)[0], rng) for _ in range(a.batch)])
             x = torch.tensor(np.stack(xs))[:, None].float().to(dev)
             m = torch.tensor(np.stack(ms))[:, None].to(dev)
-            pw = torch.tensor(np.stack(ps))[:, None].to(dev)
+            pflags = torch.tensor(np.stack(ps))[:, None].to(dev)
+            pw = (pflags.remainder(2)).float()
+            qw = (pflags >= 2).float()
             logit = model(x)
-            w = 1.0 + (PRINT_W - 1.0) * pw + 2.0 * m        # 印刷字誤判重罰；筆跡少，正樣本加權
+            w = 1.0 + (PRINT_W - 1.0) * pw + QUESTION_W * qw + 2.0 * m
             bce = F.binary_cross_entropy_with_logits(logit, m, weight=w)
             p = torch.sigmoid(logit)
             dice = 1 - (2 * (p * m).sum() + 1) / (p.sum() + m.sum() + 1)

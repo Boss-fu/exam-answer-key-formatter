@@ -54,7 +54,8 @@ if [ "$AI" = "gemini" ]; then
   (cd "$ROOT" && nice -n 15 "$AGY" -p "$PROMPT" --model "${GEMINI_MODEL:-gemini-4-argon-high}" "${MODE_ARGS[@]}" < /dev/null > "$REPORT" 2> "$LOG") \
     || echo "（Gemini 結束碼 $?，細節看 $(basename "$LOG")）"
 else
-  nice -n 15 "$CODEX" exec -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \
+  # 使用者全域設定是 service_tier=priority（扣 credits 較快）；派工一律用一般速率
+  nice -n 15 "$CODEX" exec -c service_tier=\"${CODEX_TIER:-default}\" -s "$SANDBOX" -C "$ROOT" --skip-git-repo-check -o "$REPORT" "$PROMPT" < /dev/null > "$LOG" 2>&1 \
     || echo "（Codex 結束碼 $?，細節看 $(basename "$LOG")）"
 fi
 echo "完成：$(date '+%H:%M:%S')"

@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -21,6 +22,9 @@ sys.path.insert(0, HERE)
 # 圖（含旁邊標籤）裡要機率 >0.97 才擦，題號欄與作答括號欄依版面護住。
 # 3 份實卷比過：full 會吃掉圖的細曲線和括號，mask 留太多筆跡。OCR 管線仍用 mask（漏字較少）
 os.environ.setdefault("DEHAND_I2I_OUT", "hand")
+# 這支工具是「給人看的清稿」，不應被 OCR 管線為了比較所設的
+# DEHAND=0 一起關掉。這正是先前服務看起來幾乎完全沒有作用的常見原因。
+os.environ.pop("DEHAND", None)
 # 第 8 輪模型（v10 專練筆跡通道＋圖／印刷反例）：驗證集筆跡抓到 94.0%、印刷誤標 9.5%、圖誤標 0.2%（v10：90.6／11.9／5.6）；
 # 誤標壓低後門檻可以降到 0.12 多抓筆跡。缺檔時退回 v10＋0.35
 _R8 = os.path.join(HERE, "models", "jw", "jwmask-r8.onnx")
@@ -42,14 +46,35 @@ def clean_page(img: np.ndarray, dpi: int) -> tuple[np.ndarray, float]:
     return cv2.cvtColor(cleaned, cv2.COLOR_BGR2GRAY), ratio
 
 
-def clean_pdf(src: str, dst: str, dpi: int = 200) -> dict:
+def _thumb(image: np.ndarray, filename: str) -> None:
+    """寫可直接在網頁顯示的縮圖；清稿本身仍以原解析度輸出 PDF。"""
+    h, w = image.shape[:2]
+    scale = min(1.0, 520 / max(h, w))
+    if scale < 1:
+        image = cv2.resize(image, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+    cv2.imwrite(filename, image, [cv2.IMWRITE_JPEG_QUALITY, 82])
+
+
+def clean_pdf(src: str, dst: str, dpi: int = 200, preview_dir: str | None = None, progress=None) -> dict:
     source = pymupdf.open(src)
     output = pymupdf.open()
     ratios: list[float] = []
-    for page in source:
+    total = len(source)
+    if preview_dir:
+        os.makedirs(preview_dir, exist_ok=True)
+    for index, page in enumerate(source, start=1):
+        if progress:
+            progress("rendering", index, total)
         pix = page.get_pixmap(dpi=dpi, alpha=False)
         rgb = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
-        cleaned, ratio = clean_page(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), dpi)
+        original = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        if preview_dir:
+            _thumb(original, os.path.join(preview_dir, f"original-{index}.jpg"))
+        if progress:
+            progress("cleaning", index, total)
+        cleaned, ratio = clean_page(original, dpi)
+        if preview_dir:
+            _thumb(cleaned, os.path.join(preview_dir, f"clean-{index}.jpg"))
         ok, encoded = cv2.imencode(".png", cleaned)
         if not ok:
             raise RuntimeError("清理後的頁面無法編碼")
@@ -57,6 +82,8 @@ def clean_pdf(src: str, dst: str, dpi: int = 200) -> dict:
         out_page = output.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
         out_page.insert_image(out_page.rect, stream=encoded.tobytes())
         ratios.append(ratio)
+        if progress:
+            progress("page_done", index, total, ratio=ratio)
     os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
     output.save(dst, garbage=4, deflate=True)
     output.close()
@@ -88,9 +115,17 @@ def main() -> None:
     parser.add_argument("source")
     parser.add_argument("output")
     parser.add_argument("--dpi", type=int, default=200)
+    parser.add_argument("--preview-dir")
     args = parser.parse_args()
     ext = os.path.splitext(args.source)[1].lower()
-    stats = clean_pdf(args.source, args.output, args.dpi) if ext == ".pdf" else clean_image(args.source, args.output, args.dpi)
+    started = time.monotonic()
+    def report(stage, page, total, **extra):
+        print(json.dumps({"event": "progress", "stage": stage, "page": page, "pages": total,
+                          "elapsed": round(time.monotonic() - started, 1), **extra}, ensure_ascii=False), flush=True)
+    report("loading_model", 0, 0)
+    stats = clean_pdf(args.source, args.output, args.dpi, args.preview_dir, report) if ext == ".pdf" else clean_image(args.source, args.output, args.dpi)
+    print(json.dumps({"event": "progress", "stage": "assembling", "page": stats["pages"], "pages": stats["pages"],
+                      "elapsed": round(time.monotonic() - started, 1)}, ensure_ascii=False), flush=True)
     print(json.dumps({"ok": True, **stats}, ensure_ascii=False))
 
 

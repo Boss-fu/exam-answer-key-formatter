@@ -105,6 +105,54 @@ def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
     return protected
 
 
+def _printed_ink_protect_mask(bgr, erased_mask, detected_boxes=None):
+    """保留同列印刷文字的原始筆畫，讓低門檻不會吃掉細灰字。
+
+    r8 的 ``hand`` 通道在 0.12 會偶爾把淡印刷字判成筆跡。不能直接把每個
+    OCR 框都保護，否則題號前的手寫 ``(A)`` 和選項上的圈也會留下來；因此只
+    接受有同列鄰居的框。正文、選項（字母右邊有選項文字）都有鄰居，孤立的
+    手寫答案與大圈通常沒有。只還原原稿的深色像素，不會把白底或模型沒擦的
+    部分變更。
+    """
+    try:
+        from ppocr_engine import det_boxes
+    except ImportError:
+        from ocr.ppocr_engine import det_boxes
+
+    H, W = bgr.shape[:2]
+    raw = detected_boxes if detected_boxes is not None else det_boxes(bgr)
+    boxes = []
+    for box in raw:
+        x0, y0, x1, y1 = _box_rect(box)
+        if x1 > x0 and y1 > y0 and x1 - x0 < W * .80 and y1 - y0 < H * .06:
+            boxes.append((x0, y0, x1, y1))
+    if not boxes:
+        return np.zeros((H, W), np.uint8)
+    median_h = float(np.median([y1 - y0 for _, y0, _, y1 in boxes]))
+    protected = np.zeros((H, W), np.uint8)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    for x0, y0, x1, y1 in boxes:
+        h = y1 - y0
+        if h > median_h * 1.55:             # 圖線、圈選等大物件不當成印刷字
+            continue
+        # 同列鄰居：容許中文詞組或選項字與選項內容間的空隙，但不跨欄。
+        neighbour = any(
+            (nx0, ny0, nx1, ny1) != (x0, y0, x1, y1)
+            and ny0 < y1 and ny1 > y0
+            and (0 <= nx0 - x1 < W * .18 or 0 <= x0 - nx1 < W * .18)
+            for nx0, ny0, nx1, ny1 in boxes
+        )
+        # 部分 PP-OCR 版本把整句併成一個長框，此時框本身就是足夠強的
+        # 印刷證據；手寫作答的單個字母／括號不會有這種長寬比。
+        if not neighbour and (x1 - x0) / max(1, h) < 2.5:
+            continue
+        roi_hit = erased_mask[y0:y1, x0:x1] > 0
+        # 只保護明顯原始墨跡；掃描灰底、紅藍筆清除後的殘色都不會被帶回。
+        roi_ink = gray[y0:y1, x0:x1] < 210
+        protected[y0:y1, x0:x1][roi_hit & roi_ink] = 1
+    return protected
+
+
 def _merge_cols(cols, tol=12, need=2):
     """水平範圍分群：同一欄（左緣差 < tol px）至少 need 個才算數。"""
     out = []
@@ -273,6 +321,10 @@ def erase(bgr, dpi=300, detected_boxes=None):
                 t_qnum = time.perf_counter()
                 hit[_qnum_protect_mask(bgr, detected_boxes=detected_boxes, erased_mask=hit.astype(np.uint8)) > 0] = False
                 LAST_TIMINGS["qnum"] = time.perf_counter() - t_qnum
+            if os.environ.get("DEHAND_PROTECT_PRINT", "1") != "0":
+                # 題號保護只守住數字；正文／選項細字另以同列框保護，避免 r8
+                # 低門檻把它們誤當手寫，同時不保護孤立的作答字或圈選。
+                hit[_printed_ink_protect_mask(bgr, hit.astype(np.uint8), detected_boxes=detected_boxes) > 0] = False
             out = bgr.copy(); out[hit] = 255
             if os.environ.get("DEHAND_HAND_PRINT", "1") != "0":
                 # 打印版色階（同俊瑋 v10 輸出的 (g-.25)/.63）：掃描的灰字拉成飽滿的黑、底色拉白
