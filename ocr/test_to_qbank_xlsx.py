@@ -78,6 +78,19 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(rs[0]["題目"], "甲、乙兩試管會呈現什麼顏色？甲：乙：（各2分）")
         self.assertTrue(rs[1]["題組文章"].startswith("真真將天竺葵"))
 
+    def test_passage_drops_headings_and_figure_labels(self):
+        from to_qbank_xlsx import tidy_passage
+        self.assertEqual(tidy_passage("題組一、小軒由科學雜誌上得知"), "小軒由科學雜誌上得知")
+        self.assertEqual(tidy_passage("(二)宏志要探討酵素"), "宏志要探討酵素")
+        self.assertEqual(tidy_passage("圖為消化道示意圖,回答10-12題丙丁甲乙"), "圖為消化道示意圖,回答10-12題")
+        self.assertEqual(tidy_passage("請閱讀文章,回答下列問題:人工心肺機主要的功能"), "請閱讀文章,回答下列問題:人工心肺機主要的功能")
+
+    def test_one_passage_per_group(self):
+        from to_qbank_xlsx import one_passage_per_group
+        rs = [{"_gid": 1, "題組文章": "引言"}, {"_gid": 1, "題組文章": "引言"}, {"_gid": None, "題組文章": ""}]
+        one_passage_per_group(rs)
+        self.assertEqual([r["題組文章"] for r in rs], ["引言", "", ""])
+
 
 if __name__ == "__main__":
     unittest.main()

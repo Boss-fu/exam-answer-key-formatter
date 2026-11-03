@@ -294,7 +294,44 @@ def rows(pyexam_dir, name):
         if r["_gid"] is not None:
             first.setdefault(r["_gid"], r["題號"])
             r["題組ID"] = f"{info['gid']}-{first[r['_gid']]}" if info["gid"] else ""
+        elif r["題組文章"]:                       # 非選題後面拆出來的引言：自己當題組開頭
+            r["_gid"] = ("intro", r["題號"])
+            r["題組ID"] = f"{info['gid']}-{r['題號']}" if info["gid"] else ""
+    one_passage_per_group(out)
     return out
+
+
+RE_GROUP_HEAD = re.compile(r"^\s*(?:[壹貳參肆伍陸]\s*[、.]\s*)?(?:※\s*)?題組\s*[一二三四五六七八九十\d]*\s*[、:：.]?\s*(?:[(（][^()（）]{0,20}分[^()（）]{0,10}[)）]\s*[:：]?)?"
+                           r"|^\s*[(（][一二三四五六七八九十]{1,2}[)）]\s*")
+RE_INTRO_END = re.compile(r"(?:回答|作答|完成)[^。:：]{0,16}?(?:題|問題|題目)\s*[)）]?\s*[。:：]?|試問\s*[:：]|如下\s*[:：]")
+
+
+def tidy_passage(t):
+    """題組文章：去掉「題組一、」「(二)」這類大題標頭；引言結尾後面只剩幾個字的圖中標籤（丙丁甲乙、圖(一)圖(二)）丟掉。"""
+    t = RE_GROUP_HEAD.sub("", t or "").strip()
+    ends = list(RE_INTRO_END.finditer(t))
+    if ends:
+        rest = t[ends[-1].end():]
+        if 0 < len(rest) <= 16 and "。" not in rest and not re.search(r"[一-鿿]{5}", rest):
+            t = t[:ends[-1].end()].rstrip()
+    return t
+
+
+def one_passage_per_group(rs):
+    """題庫匯入格式：題組文章只寫在題組第一題，其他小題留白、靠同一個題組ID 連在一起。"""
+    seen = {}
+    for r in rs:
+        key = r.get("_gid")
+        if key is None:
+            continue
+        if key in seen:
+            if r["題組文章"] and not seen[key]["題組文章"]:
+                seen[key]["題組文章"] = r["題組文章"]
+            r["題組文章"] = ""
+        else:
+            seen[key] = r
+    for r in rs:
+        r["題組文章"] = tidy_passage(r["題組文章"])
 
 
 def write(rs, path):
