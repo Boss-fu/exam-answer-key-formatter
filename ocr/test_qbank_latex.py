@@ -50,6 +50,23 @@ class ToLatexTest(unittest.TestCase):
             ("X=74，", r"$X=74$，"),
         ])
 
+    def test_calculation_fractions_stay_together(self):
+        self.check([
+            ("100/(100+500)*100%", r"$\frac{100}{100+500}\times100\%$"),
+            ("(20-5)/5×100%", r"$\frac{20-5}{5}\times100\%$"),
+            ("50÷(50+150)×100％", r"$\frac{50}{50+150}\times100\%$"),
+            ("v=d/t", r"$v=\frac{d}{t}$"),
+            ("密度=質量/體積", r"$\text{密度}=\frac{\text{質量}}{\text{體積}}$"),
+            ("3*4，5x6，7X8", r"$3\times4$，$5\times6$，$7\times8$"),
+        ])
+
+    def test_fraction_guards(self):
+        self.check([
+            ("120cm/4s", r"$120\,\mathrm{cm}$/$4\,\mathrm{s}$"),
+            ("1/2 小時", r"$\frac{1}{2}$ 小時"),
+            ("112/1", "112/1"),
+        ])
+
     def test_left_alone(self):
         for raw in ("下列何者正確?", "(A)甲 (B)乙", "第3次段考", "1公斤", "250公克/100公克水", "112/10/3",
                     "A1 與 B2 兩點", "COVID", "$v=\\frac{d}{t}$", "〔含圖〕", "AB兩地", "4.6", "2 3 4 L 6 7"):

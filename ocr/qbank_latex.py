@@ -21,6 +21,19 @@ RE_SCI = re.compile(rf"{BEFORE}(\d+(?:\.\d+)?)\s*[×xX]\s*10\^\{{(-?\d+)\}}{AFTE
 RE_POW = re.compile(rf"{BEFORE}([A-Za-z0-9]+)\^\{{(-?\d+)\}}{AFTER}")
 RE_FRAC = re.compile(r"(?<![\d./,:\-])(\d{1,3})/(\d{1,3})(?![\d./,:\-])")
 RE_VAR = re.compile(rf"(?<![A-Za-z0-9.]) ?([A-Za-z])\s*=\s*({NUMBER}){AFTER}")
+# 只收「看得出是算式」的分子／分母。單位（120cm/4s）不會符合，
+# 因此仍交給 RE_QTY 的單位處理；也不要把任意斜線當成分數。
+CALC_OPERAND = r"(?:\([^()]+\)|\d+(?:\.\d+)?)"
+RE_NUMERIC_CALC = re.compile(
+    rf"(?<![A-Za-z0-9./])(?P<num>{CALC_OPERAND})\s*(?P<div>/|÷)\s*"
+    rf"(?P<den>{CALC_OPERAND})(?P<tail>(?:\s*[×*xX]\s*\d+(?:\.\d+)?\s*[%％])?)(?![A-Za-z0-9./])"
+)
+RE_NAMED_CALC = re.compile(
+    r"(?<![A-Za-z0-9])(?P<lhs>[A-Za-z]|[\u4e00-\u9fff]{1,6})\s*=\s*"
+    r"(?P<num>[A-Za-z]|[\u4e00-\u9fff]{1,6})\s*(?P<div>/|÷)\s*"
+    r"(?P<den>[A-Za-z]|[\u4e00-\u9fff]{1,6})(?![A-Za-z0-9])"
+)
+RE_MULTIPLY = re.compile(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s*[×*xX]\s*(\d+(?:\.\d+)?)(?![A-Za-z0-9.])")
 
 ELEMENTS = ("He Li Be Ne Na Mg Al Si Cl Ar Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn Ba Pt Au Hg Pb "
             "H B C N O F P S K I").split()
@@ -60,7 +73,42 @@ def _convert(t):
     t = RE_TEMP.sub(lambda m: f"${_num(m.group(1) or '')}\\,{{}}^\\circ\\mathrm{{C}}$", t)
     t = RE_TEMP_F.sub(lambda m: f"${_num(m.group(1) or '')}\\,{{}}^\\circ\\mathrm{{F}}$", t)
     t = RE_SCI.sub(lambda m: f"${m.group(1)}\\times10^{{{m.group(2)}}}$", t)
+    t = _convert_calculations(t)
     return t
+
+
+def _strip_parens(s):
+    """括號是 OCR 的分組符號，不是 \\frac 的一部分。"""
+    s = re.sub(r"\s+", "", s)
+    return s[1:-1] if s.startswith("(") and s.endswith(")") else s
+
+
+def _math_name(s):
+    return rf"\text{{{s}}}" if re.search(r"[\u4e00-\u9fff]", s) else s
+
+
+def _convert_calculations(t):
+    """把同一條可辨識的除法算式一次包成一個 $...$。"""
+    def numeric(m):
+        if (re.fullmatch(r"1(?:0|1|2)\d", m.group("num")) and m.group("den") in {"1", "2"}
+                and not m.group("tail")):
+            return m.group(0)                 # 112/1 這類學年／學期
+        tail = re.sub(r"[×*xX]", r"\\times", m.group("tail")).replace("%", r"\%").replace("％", r"\%")
+        return rf"$\frac{{{_strip_parens(m.group('num'))}}}{{{_strip_parens(m.group('den'))}}}{tail}$"
+
+    def named(m):
+        return rf"${_math_name(m.group('lhs'))}=\frac{{{_math_name(m.group('num'))}}}{{{_math_name(m.group('den'))}}}$"
+
+    t = RE_NAMED_CALC.sub(named, t)
+    t = RE_NUMERIC_CALC.sub(numeric, t)
+    return RE_MULTIPLY.sub(lambda m: rf"${m.group(1)}\times{m.group(2)}$", t)
+
+
+def _simple_frac(m):
+    """學年／學期 112/1 不是數學分數。"""
+    if re.fullmatch(r"1(?:0|1|2)\d", m.group(1)) and m.group(2) in {"1", "2"}:
+        return m.group(0)
+    return rf"$\frac{{{m.group(1)}}}{{{m.group(2)}}}$"
 
 
 def _convert_plain(t):
@@ -81,7 +129,7 @@ def to_latex(t):
                lambda s: RE_ION.sub(lambda m: f"$\\mathrm{{{m.group(1)}^{{{m.group(2)}}}}}$", s),
                lambda s: RE_CHEM_TOKEN.sub(_chem, s),
                lambda s: RE_POW.sub(lambda m: f"${m.group(1)}^{{{m.group(2)}}}$", s),
-               lambda s: RE_FRAC.sub(lambda m: f"$\\frac{{{m.group(1)}}}{{{m.group(2)}}}$", s),
+               lambda s: RE_FRAC.sub(_simple_frac, s),
                lambda s: RE_VAR.sub(lambda m: f"${m.group(1)}={_num(m.group(2))}$", s)):
         t = _each_plain(t, fn)
     return t

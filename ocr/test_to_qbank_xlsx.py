@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from to_qbank_xlsx import fix_ocr
+from to_qbank_xlsx import fix_ocr, rebuild_options, resolved_question_numbers
 
 
 class FixOcrTest(unittest.TestCase):
@@ -18,7 +18,35 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("備註與採集資料"), "備註與採集資料")
 
     def test_terminal_question_mark(self):
-        self.assertEqual(fix_ocr("何者正確?\n(A)甲"), "何者正確？\n(A)甲")
+        self.assertEqual(fix_ocr("何者正確？\n(A)甲"), "何者正確？\n(A)甲")
+
+    def test_rebuilds_fullwidth_inline_options(self):
+        stem, opts, rebuilt = rebuild_options("何者正確？ (Ａ)甲 (Ｂ)乙 (Ｃ)丙 (Ｄ)丁", [])
+        self.assertTrue(rebuilt)
+        self.assertEqual(stem, "何者正確？")
+        self.assertEqual(opts, ["(A)甲", "(B)乙", "(C)丙", "(D)丁"])
+
+    def test_rebuilds_bad_first_marker_and_preserves_empty_picture_options(self):
+        stem, opts, rebuilt = rebuild_options("何者正確？()甲", ["(A)", "(B)", "(C)"])
+        self.assertTrue(rebuilt)
+        self.assertEqual(stem, "何者正確？")
+        self.assertEqual(opts, ["(A)甲", "(B)", "(C)", "(D)"])
+
+    def test_rebuilds_unclosed_and_glued_markers(self):
+        stem, opts, rebuilt = rebuild_options("題幹", ["(A)甲(B)(C丙(D)丁"])
+        self.assertTrue(rebuilt)
+        self.assertEqual(stem, "題幹")
+        self.assertEqual(opts, ["(A)甲", "(B)", "(C)丙", "(D)丁"])
+
+    def test_does_not_force_three_markers_into_four_options(self):
+        stem, opts, rebuilt = rebuild_options("題幹", ["(A)甲", "(B)乙", "(C)丙"])
+        self.assertFalse(rebuilt)
+        self.assertEqual(len(opts), 3)
+
+    def test_question_numbers_follow_continuity_when_print_is_wrong(self):
+        self.assertEqual(resolved_question_numbers([
+            {"pn": 1}, {"pn": 2}, {"pn": 17}, {"pn": 4}, {"pn": None}, {"pn": 6},
+        ]), [1, 2, 3, 4, 5, 6])
 
 
 if __name__ == "__main__":

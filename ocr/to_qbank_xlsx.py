@@ -94,6 +94,43 @@ def relabel(opts):
     return out
 
 
+# 題庫的國中單選題固定四個選項。這裡刻意只在已經找到「剛好四個」
+# 代號切點時才重建，不能從一段普通題文猜四等分。
+#
+# ``(C`` 少右括號、``()``、``(）``、``①）``、``(2）`` 都是實卷中
+# 出現過的 OCR 代號殘骸。正常代號允許少右括號，才能把 ``(B)(C`` 拆開。
+HALF_ALNUM = str.maketrans("ＡＢＣＤＥａｂｃｄｅ０１２３４５６７８９", "ABCDEabcde0123456789")
+RE_OPTION_MARK = re.compile(
+    r"[（(]\s*[A-Da-d]\s*[）)]?|[（(]\s*[）)]|[①②③④]\s*[）)]?|[（(]\s*[1-4]\s*[）)]"
+)
+
+
+def rebuild_options(stem, opts):
+    """回傳 ``(題幹, 四個選項或原選項, 是否已重建)``。
+
+    先把全形英數字（Ａ～Ｄ、１～４）換成半形，再由代號位置切開（中文標點不動）。只有剛好
+    四個切點才採用結果；因此殘缺的三個選項不會被硬湊成四個。
+    """
+    stem = stem.translate(HALF_ALNUM)
+    opts = [o.translate(HALF_ALNUM) for o in opts]
+    if len(opts) == 4 and all(re.match(r"^\s*\([A-D]\)", o) for o in opts):
+        return stem, relabel(opts), False
+
+    # 換行只是可讀性，切點以整題順序為準；所以同一 OCR 行的四個
+    # 全形選項，以及題幹尾端黏住的第一個選項都能一起處理。
+    whole = "\n".join([stem] + opts)
+    marks = list(RE_OPTION_MARK.finditer(whole))
+    if len(marks) != 4:
+        return stem, opts, False
+    head = whole[:marks[0].start()].strip()
+    # 以位置保留空白選項（純圖片）；不能以文字是否非空來過濾。
+    parts = []
+    for i, mark in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(whole)
+        parts.append(whole[mark.end():end].strip())
+    return head, [f"({'ABCD'[i]}){part}" for i, part in enumerate(parts)], True
+
+
 def clean(t):
     t = re.sub(r"\s*⚠需確認", "", t or "")
     t = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", t)
@@ -103,17 +140,41 @@ def clean(t):
 RE_LEAD = re.compile(r"^[\s()（）\[\]［］0-9０-９.,，、。:：;；|]{1,10}(?=[\u4e00-\u9fff「A-Za-z])")
 
 
-def question_text(q):
+def question_text(q, with_option_count=False):
     stem = clean(q["stem"])
     m = RE_LEAD.match(stem)
     if m and re.search(r"[()（）\[\]［］]", m.group()):
         stem = stem[m.end():]             # 題號殘骸「40,()」「17.0)」「( )」：含括號才剝，避免吃掉「100公克…」這種題幹開頭
     if "圖片" in q["kinds"] or "表格" in q["kinds"]:
         stem += "〔含圖〕"
-    opts = relabel([clean(o) for o in q["opts"] if clean(o)])
+    opts = [clean(o) for o in q["opts"] if clean(o)]
     if q.get("tf") and not opts:
         opts = ["(A)正確", "(B)錯誤"]       # 是非題：題庫格式把正確／錯誤當成 (A)(B) 選項
-    return fix_ocr("\n".join([stem] + opts))
+    elif not q.get("tf"):
+        stem, opts, _ = rebuild_options(stem, opts)
+    else:
+        opts = relabel(opts)
+    text = fix_ocr("\n".join([stem] + opts))
+    return (text, len(opts)) if with_option_count else text
+
+
+def resolved_question_numbers(questions):
+    """以相鄰題目的連續性裁決 OCR 印刷題號，避免單一誤讀帶歪後續。"""
+    out, prev = [], 0
+    for i, q in enumerate(questions):
+        expected = prev + 1
+        printed = q.get("pn")
+        following = questions[i + 1].get("pn") if i + 1 < len(questions) else None
+        # 原則仍以印刷題號為準（有些題組／頁面在 collect 前已做換段
+        # 換算）；但若當前跳號、下一題卻恰好接「本來應有的下一號」，
+        # 前後連續性足以判定當前數字是 OCR 誤讀，才改用流水號。
+        if printed and printed > prev and not (printed > expected and following == expected + 1):
+            num = printed
+        else:
+            num = expected
+        out.append(num)
+        prev = num
+    return out
 
 
 def loose_name(name):
@@ -148,21 +209,19 @@ def rows(pyexam_dir, name):
         txt = next((os.path.join(pyexam_dir, f) for f in os.listdir(pyexam_dir) if f.endswith(".txt")), None)
         info = info_from_meta(col.get("meta", {}), open(txt, encoding="utf-8").read() if txt else "", name) or info
     out = []
-    prev = 0
-    for q in col.get("questions", []):
-        # 題號：卷面認得到的印刷題號優先（比前一題大才採用），認不到才接續前一題 +1——
-        # 這樣某一題黏題／多切只影響那一題，不會讓後面整串題號都位移
-        num = q["pn"] if q.get("pn") and q["pn"] > prev else prev + 1
-        prev = num
+    questions = col.get("questions", [])
+    for q, num in zip(questions, resolved_question_numbers(questions)):
         kinds = q["kinds"]
         why = []
         if q["review"]:
             why.append("有辨識信心低的字")
-        if not q["opts"]:
+        text, option_count = question_text(q, with_option_count=True)
+        if not q["opts"] and option_count == 0:
             why.append("沒抓到選項（非選題或選項在圖上）")
+        if not q.get("tf") and option_count != 4:
+            why.append("選項數不是 4")
         if "圖片" in kinds:
             why.append("含圖，請確認圖表類型")
-        text = question_text(q)
         why.extend(formula_doubts(text))
         out.append({
             "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
