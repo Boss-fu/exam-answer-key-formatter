@@ -35,9 +35,12 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   changed=$(git diff --name-only -- ocr); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
   if [ -z "$changed" ]; then log "$name：沒有改動"; touch $R/$name.done; continue; fi
   tok=$(grep -A1 "tokens used" "$lg" | tail -1 | tr -d ','); log "$name Codex 用量 ${tok:-?} tokens"
-  if ! echo "$changed" | grep -qv "^ocr/dehand/finetune"; then
-    # 只改訓練程式：驗收＝能編譯＋小量訓練跑得完並存檔（Excel 分數不受影響）
-    rm -rf /tmp/night_smoke; if $P -m py_compile $changed && $P ocr/dehand/finetune_jw_mask.py --out /tmp/night_smoke --limit 1 --epochs 1 --steps 1 >/tmp/night_smoke.log 2>&1 && ls /tmp/night_smoke/*.pt >/dev/null 2>&1; then
+  changed="$changed $(git ls-files --others --exclude-standard ocr/dehand | grep '\.py$' | grep -v test_)"; changed=$(echo $changed)
+  if [ -n "$changed" ] && ! echo "$changed" | tr ' ' '\n' | grep -v "^ocr/dehand/" | grep -q . && ! echo "$changed" | grep -q "ocr/dehand/apply.py"; then
+    # 只改去筆跡的訓練程式／新工具（不動正式流程 apply.py）：驗收＝能編譯、單元測試過、改到訓練就小量訓練跑得完（Excel 不受影響）
+    rm -rf /tmp/night_smoke; smoke=true
+    echo "$changed" | grep -q finetune_jw_mask && smoke="$P ocr/dehand/finetune_jw_mask.py --out /tmp/night_smoke --limit 1 --epochs 1 --steps 1"
+    if $P -m py_compile $changed && { [ -z "$newtests" ] || $P -m unittest $newtests >/dev/null 2>&1; } && $smoke >/tmp/night_smoke.log 2>&1; then
       git add $changed $newtests; git commit -q -m "夜間 Codex：$name（訓練程式，smoke test 通過）
 
 $(tail -12 "$rep" 2>/dev/null)

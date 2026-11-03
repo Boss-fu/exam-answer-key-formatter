@@ -1,5 +1,8 @@
 00_dehand_distill
+00_pipeline_eval
+00_bracket_rule
 00_color_fringe
+00_agree_label
 02_excel_worst
 05_excel_options
 07_excel_passage
