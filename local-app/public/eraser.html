@@ -12,10 +12,10 @@
 <link rel="stylesheet" href="./ui-interactions.css">
 </head>
 <body><script>if(new URL(location.href).searchParams.get('embed')==='1'&&parent!==window)document.documentElement.classList.add('eraser-embedded');</script>
-<header><div class="bar"><img class="brand-logo" src="./logo.png?v=2" alt="茲茲文教"><div><div class="brand-name">茲茲文教｜OCR 系統</div><div class="brand-sub">TZUTZU EDUCATION · OCR WORKSPACE</div></div><div class="crumb">考卷清理室</div><div class="actions"><a class="back" href="./">← 回 OCR 首頁</a><a class="back" href="./label.html">人工修正</a></div></div></header>
+<header><div class="bar"><img class="brand-logo" src="./logo.png?v=2" alt="茲茲文教"><div><div class="brand-name">茲茲文教｜OCR 系統</div><div class="brand-sub">TZUTZU EDUCATION · OCR WORKSPACE</div></div><div class="crumb">考卷清理室</div><div class="actions"><a class="back" href="./">← 回 OCR 首頁</a><a class="back" href="./label.html" target="_top">人工修正</a></div></div></header>
 <main>
 <section class="hero"><div class="kicker">CLEAN EXAM WORKSPACE</div><h1>考卷清理室</h1><p>匯入掃描考卷，使用本機去筆跡模型批次清理；原檔不會被覆蓋，完成後可直接下載乾淨 PDF。</p></section>
-<section class="panel"><h2>1. 匯入考卷</h2><p>支援 PDF、JPG、PNG；可以一次選多份，檔案只送到你自己的 OCR 主機。</p><div class="drop"><label>選擇考卷檔案<input id="pick" type="file" accept="application/pdf,.pdf,image/png,image/jpeg" multiple></label><span class="hint">建議使用 200 dpi 以上的掃描檔；有文字層的 PDF 也可以清理。</span></div><div id="files" class="file-list"><div class="empty">尚未選擇檔案</div></div><div class="row"><button id="run" class="primary" disabled>開始清理</button><a class="secondary" href="./label.html">需要局部修正？開啟人工修正</a><span id="status" class="status"></span></div></section>
+<section class="panel"><h2>1. 匯入考卷</h2><p>支援 PDF、JPG、PNG；可以一次選多份，檔案只送到你自己的 OCR 主機。</p><div class="drop"><label>選擇考卷檔案<input id="pick" type="file" accept="application/pdf,.pdf,image/png,image/jpeg" multiple></label><span class="hint">建議使用 200 dpi 以上的掃描檔；有文字層的 PDF 也可以清理。</span></div><div id="files" class="file-list"><div class="empty">尚未選擇檔案</div></div><div class="row"><button id="run" class="primary" disabled>開始清理</button><a class="secondary" href="./label.html" target="_top">需要局部修正？開啟人工修正</a><span id="status" class="status"></span></div></section>
 <section class="panel"><h2>2. 清理結果</h2><p>清理完成後下載「乾淨 PDF」；若仍有少量漏擦，可從人工修正室逐頁補修。</p><div id="results" class="result"><div class="empty">完成後會在這裡出現下載連結</div></div></section>
 </main>
 <script src="./api-client.js"></script><script src="./server-config.js"></script>
