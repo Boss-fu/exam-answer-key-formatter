@@ -26,12 +26,13 @@ RE_SEP = re.compile(r"^───")
 RE_FIG = re.compile(r"^〔含圖 (\d+)〕$")
 RE_TAB = re.compile(r"^〔表格 (\d+)〕$")
 # 題號，含後面的作答括號：「( )1.」「1.( B )」「1. (　)」——括號裡的手寫答案一起吃掉，不能被當成選項 (B)
-RE_Q = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?")
+RE_Q = re.compile(r"^(?:[\(（]?\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、。](?!\d)\s*(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?")
 RE_OPT = re.compile(r"[\(（]\s*([A-E])\s*[\)）]|^[\(（]?\s*([A-E])\s*[\)）]|^[\(（]\s*([A-E])(?=[\u4e00-\u9fff])"
                     r"|(?<![A-Za-z0-9(（])([B-E])[\)）](?=\S)|[\(（]([B-E])(?=[\u4e00-\u9fff])")
 RE_Q_NOANS = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*")
 RE_ANS_START = re.compile(r"^[^\u4e00-\u9fff]{0,4}?[\(（]\s*[A-Ea-e]\s*[\)）]\s*(?=[\u4e00-\u9fff「])")
-RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、]?\s*(?=[\u4e00-\u9fff「（(])")
+RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[\)）]\s*\d{1,2}\s*[.．、。])")
+RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、。]?\s*(?=[\u4e00-\u9fff「（(])")
 RE_INTRO = re.compile(r"^\s*[◎※●■◆]|回答\s*第?\s*\d+\s*[～~至\-－—]\s*\d+\s*題|閱讀.{0,12}回答|題組")
 RE_SECTION = re.compile(r"^[一二三四五六七八九十]{1,3}\s*[、.．]\s*\S")
 RE_HEADER = re.compile(r"學\s*年\s*度|學\s*期|段\s*考|定期\s*評量|定\s*考|試\s*[卷題]|"
@@ -159,7 +160,10 @@ def read_lines(pyexam_dir):
             continue
         if not ln or RE_SEP.match(ln):
             continue
-        lines.append((page, ln))
+        # 題號框比題幹略高時，OCR 會把「( )13.」黏到上一行行尾：從那裡切成兩行
+        for part in RE_MID_Q.split(ln):
+            if part.strip():
+                lines.append((page, part.strip()))
     return base, lines
 
 
@@ -371,7 +375,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                 cur["stem"] = join(cur["stem"], t)
             continue
         n, mq = qnum(t)
-        if n is not None and (cur is None or cur["opts"] or n == qn + 1):
+        # 行首是空白作答括號「( )10.」本身就是新題的證據：上一題選項字母被擦掉、認不出 (A) 時也要接得上
+        if n is not None and (cur is None or cur["opts"] or n == qn + 1 or re.match(r"[\(（]\s*[\)）]", t)):
             start_q(n, t[mq.end():])
             continue
         # 題號被蓋掉、只剩作答括號裡的手寫答案：「(A)量筒內原有18.0mL的水…」「B (B)孟純以…」
