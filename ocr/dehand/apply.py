@@ -19,6 +19,7 @@ import numpy as np
 MODELS = os.environ.get("DEHAND_MODEL_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")   # 候選模型驗收時可指向 runs/<rN>
 _SESS = None
 LAST_TIMINGS = {"model": 0.0, "qnum": 0.0}
+LAST_HAND = None            # 最近一次 img2img 的逐像素筆跡機率（原解析度），hand 輸出模式用
 
 # 題號有時前面帶作答括號「( )12.」，OCR 又可能把全／半形標點混用。
 _RE_QNUM = re.compile(r"^\s*(?:[（(]\s*[）)]\s*)?(?:[（(]\s*)?\d{1,2}\s*[\.、．)]")
@@ -64,6 +65,7 @@ def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
         nearby = cv2.dilate((erased_mask > 0).astype(np.uint8),
                              np.ones((max(3, int(round(W / 46))) | 1,) * 2, np.uint8))
     protected = np.zeros((H, W), np.uint8)
+    cols, parens = [], []
     for x0, y0, x1, y1 in boxes:
         # 題號自身很短，且其右方同一行應有題幹；這就是欄位左側的行首。
         if x1 - x0 > W * .12 or y1 - y0 > H * .08:
@@ -82,13 +84,36 @@ def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
         text, _ = rec_only(crop)
         # 多數試卷會辨成「12.」；這份士林卷的題號框卻只含「12」、
         # 標點在框外。後者只在已確認為行首短框時接受，仍不會碰表格數字。
+        if text in ("(", "（") and x1 - x0 < W * .03:
+            parens.append((x0, x1))          # 作答括號的左半「(」：也排成一欄，下面同法護住
+            continue
         if _RE_QNUM.match(text) or _RE_QNUM_BARE.match(text):
             # 只保護「數字＋點」那一段：框常連作答括號一起（「2.( C」「( A )12.」），
             # 整框保護會把括號裡的手寫答案也護住。依字寬比例推算數字的水平位置。
             a, b = _digit_span(text, x0, x1)
             cv2.rectangle(protected, (max(0, a - 3), max(0, y0 - 3)),
                           (min(W - 1, b + 2), min(H - 1, y1 + 2)), 1, -1)
+            cols.append((a, b))
+    # 題號被大圈圈住時 OCR 連框都偵測不到（114 大安 3.、4.）：同一頁題號排在同一欄，
+    # 拿認得出的題號欄位，把「每一行行首」那一小段都護住
+    qcols = _merge_cols(cols)
+    for a, b in qcols + [c for c in _merge_cols(parens, need=1) if any(qa < c[0] < qb + W * .06 for qa, qb in qcols)]:
+        for x0, y0, x1, y1 in boxes:
+            if b < x0 < b + W * .09 and y1 - y0 < H * .04 and \
+                    not protected[max(0, y0):y1, max(0, a - 3):b + 3].any():
+                cv2.rectangle(protected, (max(0, a - 3), max(0, y0 - 3)), (min(W - 1, b + 2), min(H - 1, y1 + 2)), 1, -1)
     return protected
+
+
+def _merge_cols(cols, tol=12, need=2):
+    """水平範圍分群：同一欄（左緣差 < tol px）至少 need 個才算數。"""
+    out = []
+    for a, b in sorted(cols):
+        if out and abs(a - out[-1][0]) < tol:
+            out[-1] = [min(out[-1][0], a), max(out[-1][1], b), out[-1][2] + 1]
+        else:
+            out.append([a, b, 1])
+    return [(a, b) for a, b, n in out if n >= need]
 
 
 def _digit_span(text, x0, x1):
@@ -191,16 +216,22 @@ def _img2img_erased(gray, dpi):
     outputs = None
     if state["batch"] is not False:
         try:
-            outputs = sess.run(None, {input_name: tiles})[0][:, 0]
+            outputs = sess.run(None, {input_name: tiles})[0]
             state["batch"] = True
         except Exception:
             # CoreML 有些版本只接受 batch=1；記住能力，後續不再付例外成本。
             state["batch"] = False
     if outputs is None:
-        outputs = [sess.run(None, {input_name: tile[None]})[0][0, 0] for tile in tiles]
+        outputs = [sess.run(None, {input_name: tile[None]})[0][0] for tile in tiles]
+    # 俊瑋 v10 拆解：輸出 2 通道，0＝清稿灰階、1＝「筆跡」logit（sigmoid 後就是逐像素筆跡機率）
+    hand = np.zeros((Hp, Wp), np.float32)
     for (y0, x0), o in zip(coords, outputs):
-        acc[y0:y0 + T, x0:x0 + T] += o * wt; ws[y0:y0 + T, x0:x0 + T] += wt
+        acc[y0:y0 + T, x0:x0 + T] += o[0] * wt; ws[y0:y0 + T, x0:x0 + T] += wt
+        if o.shape[0] > 1:
+            hand[y0:y0 + T, x0:x0 + T] += 1 / (1 + np.exp(-np.clip(o[1], -30, 30))) * wt
     clean = np.clip(((acc / ws)[:h, :w] - .25) / .63, 0, 1)
+    global LAST_HAND
+    LAST_HAND = cv2.resize((hand / ws)[:h, :w], (W, H), interpolation=cv2.INTER_LINEAR)
     th = float(os.environ.get("DEHAND_I2I_TH", ".75"))
     erased = ((small < 200) & (clean > th)).astype(np.uint8)          # 原本有墨、輸出接近白（> th）＝被擦掉
     return cv2.resize(erased, (W, H), interpolation=cv2.INTER_NEAREST), cv2.resize((clean * 255).astype(np.uint8), (W, H), interpolation=cv2.INTER_CUBIC)
@@ -223,8 +254,31 @@ def erase(bgr, dpi=300, detected_boxes=None):
         erased, clean = _img2img_erased(gray, dpi)
         LAST_TIMINGS["model"] = time.perf_counter() - t_model
         out_mode = os.environ.get("DEHAND_I2I_OUT", "mask").lower()
-        if out_mode not in ("mask", "full"):
-            raise ValueError("DEHAND_I2I_OUT 必須是 mask 或 full")
+        if out_mode not in ("mask", "full", "hand"):
+            raise ValueError("DEHAND_I2I_OUT 必須是 mask、full 或 hand")
+        if out_mode == "hand" and LAST_HAND is not None:
+            # hand：直接用模型的筆跡機率圖擦，印刷保留原圖；圖的區塊內要更有把握（v10 會把細曲線也標成筆跡）
+            p = LAST_HAND
+            th = np.full(p.shape, float(os.environ.get("DEHAND_HAND_TH", ".5")), np.float32)
+            try:
+                from pyexam import figure_candidates
+            except ImportError:
+                from ocr.pyexam import figure_candidates
+            m = int(.04 * W)                 # 圖下方／旁邊的 (A)(B) 標籤、軸標也算圖的一部分
+            for fx0, fy0, fx1, fy1 in figure_candidates(bgr, dpi=dpi):
+                th[max(0, fy0 - m):fy1 + m, max(0, fx0 - m):fx1 + m] = float(os.environ.get("DEHAND_HAND_FIG_TH", ".97"))
+            k = int(os.environ.get("DEHAND_HAND_DILATE", "5"))
+            hit = cv2.dilate((p > th).astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+            if os.environ.get("DEHAND_PROTECT_QNUM", "1") != "0":
+                t_qnum = time.perf_counter()
+                hit[_qnum_protect_mask(bgr, detected_boxes=detected_boxes, erased_mask=hit.astype(np.uint8)) > 0] = False
+                LAST_TIMINGS["qnum"] = time.perf_counter() - t_qnum
+            out = bgr.copy(); out[hit] = 255
+            if os.environ.get("DEHAND_HAND_PRINT", "1") != "0":
+                # 打印版色階（同俊瑋 v10 輸出的 (g-.25)/.63）：掃描的灰字拉成飽滿的黑、底色拉白
+                lut = np.clip((np.arange(256) / 255 - .25) / .63 * 255, 0, 255).astype(np.uint8)
+                out = cv2.LUT(out, lut)
+            return out, float(hit.mean())
         if out_mode == "full":
             # full：直接用模型輸出（像俊瑋網頁的打印版）；13 份測試卷上漏字較多，所以預設 mask
             out = cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR)

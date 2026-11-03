@@ -17,9 +17,12 @@ import pymupdf
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-# 給人看的乾淨卷用整頁模型輸出（＝俊瑋網頁的打印版）：字是飽滿的黑、圖的線條保留得比 mask 好；
-# OCR 管線仍用 mask（漏字較少）
-os.environ.setdefault("DEHAND_I2I_OUT", "full")
+# 給人看的乾淨卷：用俊瑋 v10 的「筆跡機率」通道直接擦（hand），印刷保留原圖、再套打印版色階讓字飽滿黑；
+# 圖（含旁邊標籤）裡要機率 >0.97 才擦，題號欄與作答括號欄依版面護住。
+# 3 份實卷比過：full 會吃掉圖的細曲線和括號，mask 留太多筆跡。OCR 管線仍用 mask（漏字較少）
+os.environ.setdefault("DEHAND_I2I_OUT", "hand")
+os.environ.setdefault("DEHAND_HAND_TH", ".35")
+os.environ.setdefault("DEHAND_HAND_DILATE", "3")
 from dehand.apply import erase  # noqa: E402
 from pyexam import fix_orientation, remove_color_ink  # noqa: E402
 
