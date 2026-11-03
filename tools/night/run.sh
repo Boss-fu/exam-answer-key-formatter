@@ -21,8 +21,17 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   measure $R/$name.before
   pre=$(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$")
   log "開始 $name（$(grep 'Excel 合計' $R/$name.before | grep -o '正確率 [0-9.]*%')）"
-  out=$(ocr/codex_role.sh worker "$(cat "$task")" 2>&1); rep=$(echo "$out" | grep -o '/[^ ]*worker_codex.md' | tail -1)
-  if grep -q "usage limit" "${rep%.md}.log" 2>/dev/null; then log "Codex 額度用完，停止"; git checkout -- ocr 2>/dev/null; stop=1; break; fi
+  ocr/codex_role.sh worker "$(cat "$task")" >/dev/null 2>&1
+  lg=$(ls -t ocr/results/codex/*_worker_codex.log | head -1); rep="${lg%.log}.md"
+  if grep -q "usage limit" "$lg" 2>/dev/null; then
+    git checkout -- ocr 2>/dev/null
+    at=$(grep -o "try again at [0-9:]* [AP]M" "$lg" | tail -1 | sed 's/try again at //')
+    wake=$(date -j -f "%I:%M %p" "$at" "+%H%M" 2>/dev/null || echo "")
+    if [ -z "$wake" ] || [ "$wake" -ge "$END_AT" ]; then log "Codex 額度用完（$at 恢復），已超過 $END_AT，停止"; stop=1; break; fi
+    log "Codex 額度用完，等到 $at 恢復再繼續"
+    until [ "$(date +%H%M)" -ge "$wake" ]; do sleep 60; done; sleep 120
+    continue                                  # 這個任務沒做成，不標 done，下一輪會再做
+  fi
   changed=$(git diff --name-only -- ocr); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
   if [ -z "$changed" ]; then log "$name：沒有改動"; touch $R/$name.done; continue; fi
   bad=$(tests) ; bench=ocr/results/qbank_bench
