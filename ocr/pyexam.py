@@ -252,7 +252,7 @@ def text_column_splits(bgr):
     return text_layout(bgr)["cuts"]
 
 
-def text_layout(bgr):
+def text_layout(bgr, detected_boxes=None):
     """text_column_splits 的完整版：回傳 {"cuts": 欄界, "hard": 必切的欄界（橫式頁中線）, "header": 頁首底線 y}。
     頁首＝頁面上方 30% 內「跨過欄界」的字框（校名、考試名稱、作答說明）：這一帶要整行讀，不能被欄界切成兩半。"""
     import cv2
@@ -261,9 +261,18 @@ def text_layout(bgr):
     s = min(1.0, 2480.0 / max(H, W))                    # 約 150~200dpi 偵測就夠判斷版面，一頁不到 1 秒
     small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else bgr
     boxes = []
-    for b in ppocr_engine.det_boxes(small):
-        xs = [p[0] / s for p in b]
-        ys = [p[1] / s for p in b]
+    # fix_orientation 已為去筆跡的題號保護跑過一次 det；未轉向時會把
+    # 那批框換回原圖座標。重用它可少一次整頁 ONNX det（掃描卷約 1 秒），
+    # 並避免 CoreML/ONNX 在同一頁反覆初始化。沒有傳入時仍維持舊行為。
+    # 預設仍以 2480px 的框決定欄界：1600px 的轉正框在部分雙欄卷會讓
+    # 欄界偏移數個像素，整欄 rec 的縮放隨之不同，可能改變文字結果。
+    # OCR_REUSE_LAYOUT_DET=1 僅供效能實驗，不作正式準確率管線。
+    reuse_boxes = detected_boxes is not None and os.environ.get("OCR_REUSE_LAYOUT_DET", "0") == "1"
+    source_boxes = detected_boxes if reuse_boxes else ppocr_engine.det_boxes(small)
+    scale = 1.0 if reuse_boxes else s
+    for b in source_boxes:
+        xs = [p[0] / scale for p in b]
+        ys = [p[1] / scale for p in b]
         boxes.append((max(0, int(min(xs))), min(W, int(max(xs))), int(min(ys)), int(max(ys))))
     hs = sorted(y1 - y0 for x0, x1, y0, y1 in boxes if x1 - x0 > 2 * (y1 - y0))
     hmed = hs[len(hs) // 2] if hs else 0
@@ -303,8 +312,21 @@ def text_layout(bgr):
     cuts = sorted(c for c in cuts if c is not None)
     soft = [c for c in cuts if c not in hard]
     pad = int(0.01 * W)
-    crossing = [(y0, y1) for x0, x1, y0, y1 in boxes
-                if y1 < 0.3 * H and any(x0 < c - pad and x1 > c + pad for c in soft)]
+    # 右欄第一題有時會被偵測器的框稍微拉進欄距。它雖然「跨」了
+    # 欄界，卻不是跨欄頁首；若把它當頁首，左右欄會被送進同一個
+    # OCR 區而合成一行。真正的頁首必須在欄界兩側都有實質寬度。
+    cross_pad = max(pad, int(0.10 * W))
+    crossing_boxes = [(x0, x1, y0, y1) for x0, x1, y0, y1 in boxes
+                      if y1 < 0.3 * H and any(x0 < c - cross_pad and x1 > c + cross_pad for c in soft)]
+    # 偵測框偶爾會把同高的左右欄題目接成一個大框。用本機辨識一次
+    # 候選框即可辨別：含題號的是正文，不可當頁首。這不使用 AI，也
+    # 只在少數跨欄候選時多一次很小的 rec-only。
+    crossing = []
+    for x0, x1, y0, y1 in crossing_boxes:
+        crop = bgr[max(0, y0 - 4):min(H, y1 + 4), max(0, x0 - 4):min(W, x1 + 4)]
+        text, _ = ppocr_engine.rec_only(crop)
+        if not re.search(r"\d{1,2}\s*[.．、]", text):
+            crossing.append((y0, y1))
     header = max(y1 for _, y1 in crossing) + int(0.004 * H) if crossing else 0
     if crossing and soft:
         # 頁首不能深過「右欄第一行正文」：右欄開始有字就代表雙欄已經開始（跨欄的手寫或圖會把頁首拉太低）
@@ -982,19 +1004,63 @@ def tidy_text(txt):
     return "\n".join(out).strip()
 
 
+def native_text_without_tables(page, bgr, dpi=300):
+    """數位文字層也要避開有框表格的文字。
+
+    PDF 的文字串流會把表格儲存格接在下一題前面；題庫格式以視覺
+    物件佔位，而非把格內標籤當成題幹。用與掃描頁共用的格線偵測找
+    表格，再從 PDF words 移除落在格內的字，於原位置放一個含圖標記。
+    """
+    tables = detect_tables(bgr, dpi)
+    if not tables:
+        return page.get_text("text").strip()
+    H, W = bgr.shape[:2]
+    sx, sy = W / page.rect.width, H / page.rect.height
+    boxes = [(x0 / sx, y0 / sy, x1 / sx, y1 / sy) for x0, y0, x1, y1 in (t["box"] for t in tables)]
+    emitted = set()
+    lines, current_key, current_words = [], None, []
+
+    def flush():
+        nonlocal current_words
+        if current_words:
+            lines.append(" ".join(current_words))
+        current_words = []
+
+    # sort=False 保留 PDF 原本的閱讀串流（雙欄 PDF 若依座標排序，
+    # 會把左、右欄同高的題目重新交錯）。
+    for x0, y0, x1, y1, word, block, line, _ in page.get_text("words", sort=False):
+        key = (block, line)
+        if key != current_key:
+            flush()
+            current_key = key
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        hit = next((i for i, (a, b, c, d) in enumerate(boxes) if a <= cx <= c and b <= cy <= d), None)
+        if hit is None:
+            current_words.append(word)
+        elif hit not in emitted:
+            flush()
+            lines.append("〔含圖〕")
+            emitted.add(hit)
+    flush()
+    return "\n".join(lines)
+
+
 # ---------- 主流程 ----------
 def _ocr_one_page(job):
     """單頁 OCR（可在子程序裡跑）：回傳這一頁的文字區塊、報告、表格、版面位置；附圖直接寫檔。"""
     pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q, pages, started = job
     skip_clean = os.environ.get("OCR_SKIP_CLEAN") == "1"
     n = i + 1
+    t_page = time.perf_counter()
     page = pymupdf.open(pdf_path)[i]
     # 即使是有文字層的 PDF，也輸出卷面小圖，讓處理畫面逐頁可見。
     rendered = page_to_bgr(page, dpi)
+    t_render = time.perf_counter() - t_page
     orig_img = _save_preview(rendered, out_dir, f"p{n}_orig")
     _progress(out_dir, started, "render", n, pages, "已顯示原始卷面", orig_img)
     native = page.get_text("text").strip()
     if len(native) > 40:  # 有真文字層：直接用，免 OCR
+        native = native_text_without_tables(page, rendered, dpi)
         clean_img = _save_preview(rendered, out_dir, f"p{n}_clean")
         if not skip_clean:
             _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
@@ -1003,13 +1069,21 @@ def _ocr_one_page(job):
                 "tables": {}, "geo": [], "lines": []}
     # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
     bgr = rendered
-    t0 = time.time()
+    t0 = time.perf_counter()
     turned, inked = 0, 0.0
+    t_orient = t_color = t_dehand = t_layout = t_ocr = 0.0
+    dehand_boxes = None
     if eng_name == "ppocr":
+        ts = time.perf_counter()
         bgr, turned, dehand_boxes = fix_orientation(bgr, return_boxes=True)
+        t_orient = time.perf_counter() - ts
         if not skip_clean:
+            ts = time.perf_counter()
             bgr, inked = remove_color_ink(bgr)
+            t_color = time.perf_counter() - ts
+            ts = time.perf_counter()
             bgr, dehanded = dehand.erase(bgr, dpi, detected_boxes=dehand_boxes)
+            t_dehand = time.perf_counter() - ts
             inked += dehanded
     clean_img = _save_preview(bgr, out_dir, f"p{n}_clean")
     if not skip_clean:
@@ -1017,12 +1091,16 @@ def _ocr_one_page(job):
     H, W = bgr.shape[:2]
     lines = []
     if eng_name == "ppocr":
-        lay = text_layout(bgr)
+        ts = time.perf_counter()
+        lay = text_layout(bgr, detected_boxes=dehand_boxes)
         if not lay["cuts"]:                      # 找欄界只看墨跡分布，不需要去雜訊
             binimg = preprocess(bgr, upscale=upscale, denoise=False)
             lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
+        t_layout = time.perf_counter() - ts
+        ts = time.perf_counter()
         lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
                                                                    header=lay["header"], hard=lay["hard"])
+        t_ocr = time.perf_counter() - ts
         txt = tidy_text("\n".join(lines))
         pad = int(0.05 * dpi)                    # 圖框已含標籤，只留一點白邊
         figs = [(max(0, x0 - pad) / W, max(0, y0 - pad) / H, min(W, x1 + pad) / W, min(H, y1 + pad) / H)
@@ -1032,7 +1110,8 @@ def _ocr_one_page(job):
         figs = detect_figures(binimg, page.rect.height)
         body_px, tables, geo = [], [], []
         txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
-    dt = time.time() - t0
+    dt = time.perf_counter() - t0
+    ts = time.perf_counter()
     for k, (x0, y0, x1, y1) in enumerate(figs, 1):
         cx0, cy0, cx1, cy1 = int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H)
         crop = bgr[cy0:cy1, cx0:cx1].copy()
@@ -1041,6 +1120,7 @@ def _ocr_one_page(job):
                 crop[max(0, by0 - cy0 - 3):max(0, by1 - cy0 + 3), max(0, bx0 - cx0 - 3):max(0, bx1 - cx0 + 3)] = 255
         if cv2 is not None and crop.size:
             _imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
+    t_fig = time.perf_counter() - ts
     fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
     for g in geo:
         g["page"] = n
@@ -1050,11 +1130,25 @@ def _ocr_one_page(job):
             "geo": geo,
             "report": f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
                       + (f"，已自動轉正 {turned}°" if turned else "")
-                      + (f"，已清除紅藍筆跡 {inked:.2%}" if inked >= 0.0001 else "")}
+                      + (f"，已清除紅藍筆跡 {inked:.2%}" if inked >= 0.0001 else "")
+                      + (f"；分段 render {t_render:.1f}s／轉正 {t_orient:.1f}s／去色 {t_color:.1f}s／去筆跡 {t_dehand:.1f}s／版面 {t_layout:.1f}s／辨識與圖表 {t_ocr:.1f}s／裁圖 {t_fig:.1f}s"
+                         if os.environ.get("OCR_TIMING") == "1" else "")}
+
+
+def _init_ocr_worker():
+    """多頁 worker 不同時建立 CoreML session，避開 ORT/CoreML 的程序級不穩定。
+
+    ProcessPoolExecutor 雖使用 spawn，macOS 的 CoreML 首次載入仍曾在多個
+    worker 同時初始化時 SIGABRT。平行模式在 M2 Pro 也較慢，因此 worker
+    明確用 CPU；單頁/預設序列流程仍維持 CoreML 加速。使用者若明確指定
+    DEHAND_PROVIDER=coreml，則尊重該設定以便診斷。
+    """
+    if os.environ.get("DEHAND_PROVIDER", "auto").lower() == "auto":
+        os.environ["DEHAND_PROVIDER"] = "cpu"
 
 
 def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_tra+eng", engine="auto"):
-    """整份 PDF。預設逐頁；OCR_WORKERS>1 可多頁同時處理（這台 M2 Pro 實測沒有比較快）。
+    """整份 PDF。預設 2 頁同時處理（OCR_WORKERS 可調，1＝逐頁）。
     逐頁時會把上一頁最後的題號傳給下一頁（補回被吞掉括號的題號）；平行時各頁獨立，差別很小。"""
     os.makedirs(out_dir, exist_ok=True)
     n_pages = pymupdf.open(pdf_path).page_count
@@ -1062,14 +1156,15 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
     eng_name = resolve_engine(engine)
     pages = [i for i in range(n_pages) if not only_page or i + 1 == only_page]
     started = time.time()
-    # 預設逐頁：實測 4 頁平行反而較慢（61s→71s），OCR 引擎本身已吃滿所有核心；多台小主機或 GPU 再設 OCR_WORKERS>1
-    workers = int(os.environ.get("OCR_WORKERS", "1"))
+    # M2 Pro 4 頁掃描卷實測：逐頁 48s、2 頁同時 38s（輸出相同）、4 頁同時 46s（OCR 引擎各自搶核心）
+    workers = int(os.environ.get("OCR_WORKERS", "2"))
     results = []
     if workers > 1 and len(pages) > 1:
         import concurrent.futures as cf
         import multiprocessing as mp
         jobs = [(pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, None, len(pages), started) for i in pages]
-        with cf.ProcessPoolExecutor(max_workers=min(workers, len(pages)), mp_context=mp.get_context("spawn")) as ex:
+        with cf.ProcessPoolExecutor(max_workers=min(workers, len(pages)), mp_context=mp.get_context("spawn"),
+                                    initializer=_init_ocr_worker) as ex:
             results = list(ex.map(_ocr_one_page, jobs))
     else:
         prev_q = None
