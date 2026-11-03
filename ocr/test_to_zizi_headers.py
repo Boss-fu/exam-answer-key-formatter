@@ -32,5 +32,19 @@ class BoilerplateLineTest(unittest.TestCase):
         self.assertIsNone(group_range("題組一、閱讀下文"))
 
 
+class PlaceArticlesTest(unittest.TestCase):
+    def test_articles_printed_elsewhere_go_to_matching_header_groups(self):
+        from to_zizi_word import place_articles
+        q = lambda n, gid, stem, group: {"n": n, "gid": gid, "stem": stem, "opts": [], "group": group}
+        qs = [q(1, 1, "膽道閉鎖的孩子會出現什麼狀況？", "【文章一】請根據文章內容，回答1-2題："),
+              q(2, 1, "嬰兒大便是什麼顏色要就醫？", "【文章一】請根據文章內容，回答1-2題："),
+              q(3, 3, "牛的哪一個胃部與人類的胃最接近？", "【文章二】請根據文章內容，回答3題：")]
+        orphans = [(3, "我國嬰兒好發膽道閉鎖，嬰兒大便顏色要注意。", None), (3, "【文章修改自：寶寶手冊】", None),
+                   (3, "牛的胃部有四個，皺胃和人類的胃最接近。", None)]
+        place_articles(qs, orphans)
+        self.assertTrue(qs[0]["group"].endswith("膽道閉鎖，嬰兒大便顏色要注意。【文章修改自：寶寶手冊】"))
+        self.assertTrue(qs[2]["group"].endswith("牛的胃部有四個，皺胃和人類的胃最接近。"))
+
+
 if __name__ == "__main__":
     unittest.main()

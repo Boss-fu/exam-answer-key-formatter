@@ -224,6 +224,82 @@ RE_GROUP_INTRO = re.compile(r"回答|下列問題|下列資料|閱讀|根據(?:�
 RE_END_TAIL = re.compile(r"試題結束|試卷到此|答案欄|作答說明|背面還有|下頁還有|請翻頁|第\s*\d+\s*頁|共\s*\d+\s*頁|國[一二三]\S{0,4}第\s*\d")
 
 
+RE_ARTICLE_HEAD = re.compile(r"(?:【\s*(?:文章|閱讀)[^】]{0,4}】)?\s*(?:請)?(?:根據|閱讀)(?:下列|以下|上述)?(?:文章|短文|資料|文字)(?:內容)?[^。]{0,12}?(?:回答|作答)[^。]{0,16}?題\s*[:：。]?\s*$")
+
+
+def _bigrams(t):
+    t = re.sub(r"[^\u4e00-\u9fff]", "", t)
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def place_articles(questions, orphans):
+    """閱讀題組的文章被 PDF 排在別處（題目先、文章最後）：題組引言只剩「請根據文章內容，回答41-43題：」。
+    把孤立的文章行依原順序切成連續幾段，每段配給「用字最像」的那個只有標頭的題組（看它小題的題幹與選項）。"""
+    if sum(len(t) for _, t, _ in orphans) < 80:
+        return
+    groups = {}
+    for q in questions:
+        if q["gid"] is not None:
+            groups.setdefault(q["gid"], []).append(q)
+    heads = []
+    for gid, qs in groups.items():
+        m = RE_ARTICLE_HEAD.search(qs[0]["group"])
+        if m:
+            heads.append((gid, qs, m.group().strip()))
+    if not heads:
+        return
+    units = [(t, src) for _, t, src in orphans if not RE_ARTICLE_HEAD.search(t)]
+    lines = [t for t, _ in units]
+
+    def own_text(q):                          # 題幹扣掉黏上來的候選文章，才不會「自己像自己」
+        stem = q["stem"]
+        for t, src in units:
+            if src is q:
+                stem = stem.replace(t, "", 1)
+        return stem + "".join(q["opts"])
+    words = [_bigrams("".join(own_text(q) for q in qs)) for _, qs, _ in heads]
+    n, m = len(lines), len(heads)
+    score = [[len(_bigrams(t) & w) for w in words] for t in lines]
+    # 動態規劃：行依序切成 m 段（可為空），第 j 段給第 j 個題組，總相似度最大
+    best = [[-1] * (m + 1) for _ in range(n + 1)]; back = [[0] * (m + 1) for _ in range(n + 1)]
+    best[0][0] = 0
+    for j in range(1, m + 1):
+        for i in range(n + 1):
+            for k in range(i + 1):
+                if best[k][j - 1] < 0:
+                    continue
+                v = best[k][j - 1] + sum(score[x][j - 1] for x in range(k, i))
+                if v > best[i][j]:
+                    best[i][j], back[i][j] = v, k
+    if best[n][m] <= 0:
+        return
+    cuts, i = [], n
+    for j in range(m, 0, -1):
+        cuts.append((back[i][j], i)); i = back[i][j]
+    cuts.reverse()
+    for j in range(1, len(cuts)):             # 「【文章修改自：…】」「資料來源」是上一篇的結尾
+        a, b = cuts[j]
+        while a < b and re.match(r"\s*[【(（]?\s*(?:文章)?(?:修改|改寫|摘錄|節錄)自|\s*[【(（]?\s*資料來源", lines[a]):
+            a += 1
+        cuts[j - 1] = (cuts[j - 1][0], a); cuts[j] = (a, b)
+    placed = []
+    for (gid, qs, head), (a, b) in zip(heads, cuts):
+        body = "".join(lines[a:b])
+        if len(body) < 20:
+            continue
+        text = join(head, body)
+        for q in qs:
+            q["group"] = text
+        placed.extend(units[a:b])
+    for t, src in placed:                     # 從題幹拿掉已經搬去題組的文章
+        if src is not None:
+            src["stem"] = src["stem"].replace(t, "", 1).rstrip()
+    used = "".join(t for t, _ in placed)
+    for q in questions:                       # 別的題組引言裡如果黏到這些文章，拿掉
+        if q["gid"] not in {h[0] for h in heads} and q["group"] and used and used[:20] in q["group"]:
+            q["group"] = q["group"].replace(used, "")
+
+
 def tail_fits(opts, tl):
     """(D) 之後的一行是否像 (D) 的換行：不是結尾／頁尾，而且接上後 (D) 不會比其他選項長太多。
     同一題的選項長度相近；(D) 突然多出一整段，就是下一個題組的引言或閱讀文章黏上來。"""
@@ -404,6 +480,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         for k, tl in enumerate(tails):            # (D) 之後的換行：像選項尾巴才接回最後一個選項
             if not tail_fits(cur["opts"], tl):
                 spill = "".join(t for t in tails[k:] if not RE_END_TAIL.search(t))
+                orphans.extend((n_q, t, None) for t in tails[k:] if not RE_END_TAIL.search(t))
                 break
             cur["opts"][-1] = join(cur["opts"][-1], tl)
         if cur["opts"] and opts_done() and not spill:
@@ -479,6 +556,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     group_sec, group_raw = False, 0
     tf_sec = False                   # 是非題大題：題庫 Excel 每題補「(A)正確 (B)錯誤」
     group = None                     # 目前生效的題組引言 {"text", "left"(剩幾題，None＝到下個題組為止), "first"}
+    orphans = []                     # (D) 之後切出來的整段文字（逐行）：可能是排在別處的閱讀文章
     questions = []  # 綜合題：大題號「1.」是題組引言，「(1)(2)…」小題才各算一題（題庫 Excel 也這樣算）     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
 
     def qnum(t):
@@ -699,6 +777,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         else:
             cur["stem"] = join(cur["stem"], t)
     flush()
+    for q in questions:                       # 沒選項的題目：問句後面又接一大段，也可能是排在別處的文章
+        if not q["opts"]:
+            mm = re.search(r"[？?。]\s*(?:[(（][^()（）]{0,12}[)）])?", q["stem"])
+            if mm and len(q["stem"]) - mm.end() >= 80:
+                orphans.extend((q["n"], u, q) for u in re.findall(r"[^。】]+[。】]?", q["stem"][mm.end():]))
+    place_articles(questions, sorted(orphans, key=lambda o: o[0]))
 
     if collect is not None:
         collect["questions"] = questions; collect["meta"] = dict(meta)
