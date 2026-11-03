@@ -33,6 +33,9 @@ def norm(s):
     s = re.sub(r"〔含圖\s*\d*〕|⚠需確認|【[^】]*】", "", s)
     # 正解 Excel 的公式是 LaTeX（$100\,\text{g}$）；比的是文字，所以去掉 LaTeX 外殼
     s = re.sub(r"\\(?:text|mathrm|mathbf|operatorname)\{([^}]*)\}", r"\1", s)
+    for k, v in {"rightarrow": "→", "to": "→", "leftarrow": "←", "uparrow": "↑", "downarrow": "↓", "sim": "~", "cdot": "·",
+                 "pm": "±", "div": "÷", "le": "≦", "ge": "≧", "leq": "≦", "geq": "≧", "neq": "≠", "approx": "≒", "degree": "°"}.items():
+        s = re.sub(r"\\" + k + r"(?![A-Za-z])", v, s)   # 正解 Excel 的 LaTeX 符號換成卷面上的字元，比的是辨識不是記法
     s = re.sub(r"\\circ", "°", s); s = re.sub(r"\\(?:times)", "×", s); s = re.sub(r"\\[,;:! ]|\\quad|\$", "", s)
     s = re.sub(r"[_^]\{([^}]*)\}", r"\1", s); s = re.sub(r"[_^](\w)", r"\1", s)
     return re.sub(r"[\s　]+", "", s)
