@@ -38,7 +38,13 @@ RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）
 RE_SUBQ = re.compile(r"^[(（]\s*([1-9])\s*[)）]\s*(?=\S)")     # 題組小題「(1)下列敘述何者錯誤？」
 RE_GROUP_SEC = re.compile(r"綜合|題組|非選")
 RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、。]?\s*(?=[\u4e00-\u9fff「（(])")
-RE_INTRO = re.compile(r"^\s*[◎※●■◆]|回答\s*第?\s*\d+\s*[～~至\-－—]\s*\d+\s*題|閱讀.{0,12}回答|題組")
+# 題組引言除了「◎／閱讀／題組」標記，也常以「（一）附圖／如圖」起頭。
+# 後者必須同時明示「下列問題」或題號範圍，不能把一般的單題附圖題當題組。
+RE_INTRO = re.compile(
+    r"^\s*[◎※●■◆]|回答\s*第?\s*\d+\s*[～~至\-－—]\s*\d+\s*題|閱讀.{0,12}回答|題組|"
+    r"^\s*(?:[（(]\s*[一二三四五六七八九十]\s*[)）]\s*)?(?:附|如|下|右|左)圖.{0,45}?"
+    r"(?:回答\s*(?:下列|第?\s*\d+\s*[～~至\-－—]\s*\d+)|下列(?:\s*\d+\s*[～~至\-－—]\s*\d+)?\s*問題)"
+)
 RE_SECTION = re.compile(r"^[一二三四五六七八九十]{1,3}\s*[、.．]\s*\S")
 RE_HEADER = re.compile(r"學\s*年\s*度|學\s*期|段\s*考|定期\s*評量|定\s*考|試\s*[卷題]|"
                        r"[七八九789]\s*年\s*級|年\s*級|科\s*目\s*(?:名\s*稱|代\s*(?:碼)?|名稱)?|"
@@ -643,6 +649,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             sec = t.replace("（", "【", 1).replace("(", "【", 1) if "【" not in t else t
             sec = re.sub(r"[)）]\s*$", "】", sec) if "【" in sec and "】" not in sec else sec
             C.append(B.p_section(markup_safe(sec)) if "【" in sec else B.p_intro("^" + markup_safe(sec) + "^"))
+            if "閱讀" in t:
+                # 「三、科普閱讀題」後通常先連續排文章、再排小題；標題仍是
+                # Word 的大題標題，文章本身才是題組文章，故從空白引言開始累積。
+                group = new_group("", None)
             continue
         if ai_mode:
             # AI 模式：題目邊界以 AI 為準（AI 讀得懂「這句是新題開頭」，不會被手寫蓋掉的題號騙）

@@ -35,6 +35,12 @@ class BoilerplateLineTest(unittest.TestCase):
         self.assertEqual(group_left("請根據文章內容，回答41-43題：", 2), 3)
         self.assertEqual(group_left("題組一、請根據附圖回答下列問題", 2), 2)
 
+    def test_figure_group_intro_requires_a_group_signal(self):
+        from ocr.to_zizi_word import RE_INTRO
+        self.assertTrue(RE_INTRO.search("（一）附圖為複式顯微鏡下的小魚尾鰭血管示意圖，試回答下列問題："))
+        self.assertTrue(RE_INTRO.search("如圖為光合作用的示意圖，請根據圖中代號回答下列31－34問題："))
+        self.assertFalse(RE_INTRO.search("附圖為人體三種血管的解剖圖。"))
+
 
 class PlaceArticlesTest(unittest.TestCase):
     def test_articles_printed_elsewhere_go_to_matching_header_groups(self):

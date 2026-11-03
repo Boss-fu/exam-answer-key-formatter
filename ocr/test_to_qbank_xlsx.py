@@ -84,6 +84,7 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(tidy_passage("(二)宏志要探討酵素"), "宏志要探討酵素")
         self.assertEqual(tidy_passage("圖為消化道示意圖,回答10-12題丙丁甲乙"), "圖為消化道示意圖,回答10-12題")
         self.assertEqual(tidy_passage("請閱讀文章,回答下列問題:人工心肺機主要的功能"), "請閱讀文章,回答下列問題:人工心肺機主要的功能")
+        self.assertEqual(tidy_passage("請閱讀文章，回答下列問題：=====人工心肺機"), "請閱讀文章，回答下列問題：人工心肺機")
 
     def test_one_passage_per_group(self):
         from to_qbank_xlsx import one_passage_per_group
