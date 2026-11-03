@@ -5,7 +5,7 @@
 # 單元測試全過 + 27 份題庫 Excel 不退步（改到 pyexam 就重跑 27 份 OCR）→ commit＋push；不過就還原。
 # 不用 Claude token。到 END_AT（HHMM）或 Codex 額度用完就停。log：tools/night/log.md（不進 git 的結果在 ocr/results/night/）
 cd "$(dirname "$0")/../.."
-END_AT="${END_AT:-1300}"; P=~/.venvs/zizi-exam/bin/python; R=ocr/results/night; mkdir -p $R
+END_AT="${END_AT:-2359}"; P=~/.venvs/zizi-exam/bin/python; R=ocr/results/night; mkdir -p $R
 LOG=$R/log.md
 log(){ echo "- $(date '+%m/%d %H:%M') $*" | tee -a $LOG; }
 measure(){ # $1=輸出檔 $2=bench
@@ -20,6 +20,7 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   git pull -q --rebase 2>/dev/null
   measure $R/$name.before
   pre=$(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$")
+  prepy=$(git ls-files --others --exclude-standard ocr | grep -E "\.py$" | sort)
   log "開始 $name（$(grep 'Excel 合計' $R/$name.before | grep -o '正確率 [0-9.]*%')）"
   ocr/codex_role.sh worker "$(cat "$task")" >/dev/null 2>&1
   lg=$(ls -t ocr/results/codex/*_worker_codex.log | head -1); rep="${lg%.log}.md"
@@ -32,10 +33,10 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
     until [ "$(date +%H%M)" -ge "$wake" ]; do sleep 60; done; sleep 120
     continue                                  # 這個任務沒做成，不標 done，下一輪會再做
   fi
-  changed=$(git diff --name-only -- ocr); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
+  newpy=$(comm -13 <(echo "$prepy") <(git ls-files --others --exclude-standard ocr | grep -E "\.py$" | sort) | grep -v "test_")
+  changed=$(echo $(git diff --name-only -- ocr) $newpy); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
   if [ -z "$changed" ]; then log "$name：沒有改動"; touch $R/$name.done; continue; fi
   tok=$(grep -A1 "tokens used" "$lg" | tail -1 | tr -d ','); log "$name Codex 用量 ${tok:-?} tokens"
-  changed="$changed $(git ls-files --others --exclude-standard ocr/dehand | grep '\.py$' | grep -v test_)"; changed=$(echo $changed)
   if [ -n "$changed" ] && ! echo "$changed" | tr ' ' '\n' | grep -v "^ocr/dehand/" | grep -q . && ! echo "$changed" | grep -q "ocr/dehand/apply.py"; then
     # 只改去筆跡的訓練程式／新工具（不動正式流程 apply.py）：驗收＝能編譯、單元測試過、改到訓練就小量訓練跑得完（Excel 不受影響）
     rm -rf /tmp/night_smoke; smoke=true
@@ -46,7 +47,7 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
 $(tail -12 "$rep" 2>/dev/null)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>/dev/null; log "✅ $name 已提交（smoke test 通過）"
-    else git checkout -- $changed; log "❌ $name 還原：smoke test 失敗"; fi
+    else git checkout -- $(git diff --name-only -- ocr) 2>/dev/null; rm -f $newpy $newtests; log "❌ $name 還原：smoke test 失敗"; fi
     touch $R/$name.done; sleep "${COOLDOWN:-900}"; continue
   fi
   bad=$(tests) ; bench=ocr/results/qbank_bench
@@ -65,11 +66,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>/dev/n
     [ "$bench" != ocr/results/qbank_bench ] && { rm -rf ocr/results/qbank_bench_prev; mv ocr/results/qbank_bench ocr/results/qbank_bench_prev; mv $bench ocr/results/qbank_bench; }
     log "✅ $name 已提交：$verdict"
   else
-    git checkout -- $changed; [ -n "$newtests" ] && rm -f $newtests; log "❌ $name 還原：$verdict"
+    git checkout -- $(git diff --name-only -- ocr) 2>/dev/null; rm -f $newpy $newtests; log "❌ $name 還原：$verdict"
   fi
   touch $R/$name.done
   sleep "${COOLDOWN:-900}"          # 任務之間休息（預設 15 分鐘），把 Codex 用量攤平
 done
-[ -z "$stop" ] && { log "第 $round 輪做完，依最新錯誤統計開始第 $((round + 1)) 輪"; round=$((round + 1)); }
+[ -z "$stop" ] && { tools/night/plan_new.sh "$round"; log "第 $round 輪做完，開始第 $((round + 1)) 輪"; round=$((round + 1)); }
 done
 log "佇列結束"
