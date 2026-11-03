@@ -167,3 +167,43 @@ bash ocr/setup_env.sh        # Python 3.11 venv（~/.venvs/zizi-exam）、PP-OCR
 2. `ai_judge.py` 增加 Gemini 選項（遮個資後再送），和 Claude/Codex 並列。
 3. 部署管線：Vercel deploy＋主機 git pull／自動更新；repo 搬出 iCloud、重啟 8787。
 4. 逐顆 portal 按鈕在主機端到端測過，給主管測試。
+
+## 11. 2026-11-03 交接（題庫 Excel 99% 衝刺）
+
+### 目標與決定（使用者拍板）
+- 最終產物：考卷 PDF → **題庫匯入 Excel**（欄位同 `~/Desktop/待匯入/<卷>_題目.xlsx`）。目標「同題號題目欄字元正確率」**99%**。
+- **執行期不用任何 AI／LLM**（只能 OCR＋去筆跡模型＋規則）。AI 只能在開發時用來找錯、產參考資料。
+- 2026-11-03 起 **Codex 可用付費 credits**；分工：Claude 派工＋最後驗收＋commit/push，優化與檢查是 Codex 的責任。
+
+### 一鍵與入口
+- CLI：`python ocr/pdf_to_qbank.py <pdf> --no-ai` → PDF 旁產 `<卷>_題庫.xlsx`（不加 `--no-ai` 會多一道 Gemini 看圖校對，僅開發參考）。
+- 茲茲OCR 網站：辨識結果多「題庫 Excel」按鈕 → `GET /api/py-ocr/qbank-xlsx?job=`（`local-app/server.js` 呼叫 `ocr/to_qbank_xlsx.py`）。
+- 考卷清理室（`/api/eraser/clean` → `ocr/clean_pdf.py`）：給人看的乾淨卷。
+- science-qbank `raw.html` 第 1 步（瀏覽器端 `tools/dehand.js`）：同一套乾淨卷邏輯。
+
+### 去筆跡模型（`ocr/models/jw/`）
+| 檔案 | 用途 | 說明 |
+|---|---|---|
+| `handwriting-eraser-v10.onnx` | **OCR 管線預設**（`DEHAND_I2I_OUT=mask`） | 俊瑋 v10（口頭授權）。輸出 2 通道：0＝清稿、1＝筆跡 logit |
+| `jwmask-r8.onnx` | **乾淨卷預設**（`clean_pdf.py`、`dehand.js`，hand 模式門檻 0.12） | 第 8 輪自訓：從 v10 專練筆跡通道＋圖／印刷反例。驗證集筆跡抓到 94.0%／印刷誤標 9.5%／圖誤標 0.2%（v10：90.6／11.9／5.6）。在 OCR 管線上略差（89.9% vs 90.2%）所以 OCR 不用它 |
+| `jwft-r7c.onnx` | 停用 | 會把圖的細曲線擦掉 |
+- hand 模式（`apply.py`）：只擦筆跡機率 > 門檻的像素、印刷保留原圖＋打印版色階；圖（`figure_candidates`＋外擴 4%）內門檻 0.97；題號欄與作答括號「(」欄依同欄版面護住。
+- `clean_pdf.py` 先 `fix_orientation` 轉正、彩色浮水印清除（`remove_color_ink(restore_text=True)`）。
+- 訓練腳本：`ocr/dehand/finetune_jw_mask.py`（每 epoch 掃門檻、每輪存檔）。
+
+### 切題與 Excel（`ocr/to_zizi_word.py` → `ocr/to_qbank_xlsx.py`）
+本輪加的規則（都有 27 份驗收）：頁序依頁尾「第N頁」或每頁題號範圍重排；大題換段題號重編接續；綜合題 (1)(2)(3) 拆題＋引言轉題組文章；(D) 後的題組引言另起；題號前括號殘留手寫字也認得；「承上題」必為新題；選項代號認錯依序補正；卷頭／說明欄編號條目／頁尾提示／DocuFreezer 浮水印／圖說行剔除；是非題補 (A)正確 (B)錯誤；題號以卷面印刷題號為準；字元層級固定誤認規則（天干 王→壬 等）。
+
+### 評測
+- `python ocr/qbank_eval.py --xlsx [--only 卷名片段]`：同題號逐題比對（切錯題號就算錯）。**這是正式分數**；舊的對齊式分數會高估。
+- 27 份 OCR 快取：`ocr/results/qbank_bench/`（v10 mask 管線）。最新全量：`ocr/results/qbank_xlsx_eval_latest.md`。
+- 分數軌跡：76.6% → 92.3%（不用 AI）。AI 校對參考：前 10 份平均 99.1%（`ocr/results/ai_ref/`，只供分析）。
+- 注意：有些正解 Excel 本身有誤（111 彰化花壇題目欄混入頁首、111 南市復興「的的」），分數上限不到 100%。
+
+### 剩餘問題（依損失大小）
+1. 題號錯位／整題錯（約 6% 損失，多為圖表內容或下一題組引言黏進題目）。
+2. 錯字（約 1.8%）。3. 多字（圖內文字、表格內容，約 1.5%）。
+4. 版面：雙欄同高度併行（114 大安 17/24）；學生圈選項代號被去筆跡一起擦掉（113 陽明）。
+
+### 進行中（2026-11-03 14:xx 派出，報告在 `ocr/results/codex/`）
+- T1 `to_zizi_word.py` 切題；T2 `to_qbank_xlsx.py` 字元錯字；T3 `pyexam.py` 雙欄與圖表裁切。三者檔案不重疊，回報後由 Claude 跑 27 份全量驗收再 commit。
