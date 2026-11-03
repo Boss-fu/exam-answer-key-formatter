@@ -11,7 +11,7 @@ while read -r name rest; do
   out=ocr/dehand/runs/jw-mask-$name; [ -f $out/done ] && continue; mkdir -p $out
   champ=$(cat $CH)
   echo "- $(date '+%m/%d %H:%M') 去筆跡 $name 開始（起點 $champ；$rest）" >> $LOG
-  env $(echo "$rest" | tr ' ' '\n' | grep '=' ) nice -n 10 $P ocr/dehand/finetune_jw_mask.py --out $out --init "$champ" $(echo "$rest" | tr ' ' '\n' | grep '^--' | tr '\n' ' ') > $out/train.log 2>&1
+  env $(echo "$rest" | tr ' ' '\n' | grep '=') nice -n 10 $P ocr/dehand/finetune_jw_mask.py --out $out --init "$champ" $(echo "$rest" | tr ' ' '\n' | grep -v '=') > $out/train.log 2>&1
   touch $out/done
   v=$($P - "$out" <<'PY'
 import json, glob, sys

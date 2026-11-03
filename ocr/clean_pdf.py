@@ -26,11 +26,11 @@ os.environ.setdefault("DEHAND_I2I_OUT", "hand")
 # DEHAND=0 一起關掉。這正是先前服務看起來幾乎完全沒有作用的常見原因。
 os.environ.pop("DEHAND", None)
 # 第 8 輪模型（v10 專練筆跡通道＋圖／印刷反例）：驗證集筆跡抓到 94.0%、印刷誤標 9.5%、圖誤標 0.2%（v10：90.6／11.9／5.6）；
-# 誤標壓低後門檻可以降到 0.12 多抓筆跡。缺檔時退回 v10＋0.35
+# 誤標壓低後門檻可以降低多抓筆跡：驗證集 0.12→0.10 筆跡抓到 96.9→97.3%、印刷誤標 10.55→10.74%（圖框內另用 0.97 保護）。缺檔時退回 v10＋0.35
 _R8 = os.path.join(HERE, "models", "jw", "jwmask-r8.onnx")
 if os.path.exists(_R8) and "DEHAND_IMG2IMG" not in os.environ:
     os.environ["DEHAND_IMG2IMG"] = _R8
-    os.environ.setdefault("DEHAND_HAND_TH", ".12")
+    os.environ.setdefault("DEHAND_HAND_TH", ".10")
 os.environ.setdefault("DEHAND_HAND_TH", ".35")
 os.environ.setdefault("DEHAND_HAND_DILATE", "3")
 from dehand.apply import erase  # noqa: E402
