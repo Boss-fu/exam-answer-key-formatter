@@ -206,6 +206,22 @@ def read_lines(pyexam_dir):
 # 題組引言的口吻：「…試回答下列問題」「附圖為…」「根據下列資料…」「閱讀下文」「請根據此圖回答第34~35題」
 RE_GROUP_INTRO = re.compile(r"回答|下列問題|下列資料|閱讀|根據(?:下|此|上|附)|^(?:附|下|上|右|左)圖|如下(?:圖|表)|^(?:附|下)表")
 # 選項 (D) 後面同一行黏著題組引言：在句號後切開
+# 考卷結尾、答案欄說明、頁尾：出現在 (D) 之後就不是選項內容
+RE_END_TAIL = re.compile(r"試題結束|試卷到此|答案欄|作答說明|背面還有|下頁還有|請翻頁|第\s*\d+\s*頁|共\s*\d+\s*頁|國[一二三]\S{0,4}第\s*\d")
+
+
+def tail_fits(opts, tl):
+    """(D) 之後的一行是否像 (D) 的換行：不是結尾／頁尾，而且接上後 (D) 不會比其他選項長太多。
+    同一題的選項長度相近；(D) 突然多出一整段，就是下一個題組的引言或閱讀文章黏上來。"""
+    if RE_END_TAIL.search(tl):
+        return False
+    others = [len(o) for o in opts[:-1]]
+    if not others:
+        return True
+    longest = max(others)
+    return len(opts[-1]) + len(tl) <= max(longest * 1.6, longest + 14)
+
+
 RE_TAIL_INTRO = re.compile(r"(?<=[。.．?？])(?=[^。]{10,}?(?:回答|下列問題|閱讀|根據|(?:附|下|上|右|左)圖|如下))")
 RE_OPT_TOKEN = re.compile(r"[（(]\s*([^()（）\s]{1,2})\s*[)）]")
 
@@ -363,10 +379,14 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             cur = None                         # 只有一兩個字、沒選項沒圖的「題目」是手寫雜訊（例如一個 0）
             return
         n_q += 1
-        for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
-            cur["opts"][-1] = join(cur["opts"][-1], tl)
         spill = ""
-        if cur["opts"] and opts_done():
+        tails = cur.pop("tail", [])
+        for k, tl in enumerate(tails):            # (D) 之後的換行：像選項尾巴才接回最後一個選項
+            if not tail_fits(cur["opts"], tl):
+                spill = "".join(t for t in tails[k:] if not RE_END_TAIL.search(t))
+                break
+            cur["opts"][-1] = join(cur["opts"][-1], tl)
+        if cur["opts"] and opts_done() and not spill:
             parts = RE_TAIL_INTRO.split(cur["opts"][-1], maxsplit=1)
             if len(parts) == 2 and len(parts[1]) >= 12:
                 cur["opts"][-1], spill = parts[0], parts[1]   # (D) 後面黏到的是下一個題組的引言
@@ -378,10 +398,6 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             if group["left"] is not None:
                 group["left"] -= 1
         questions.append(rec)
-        if spill:
-            C.append(B.p_intro(markup_safe(spill)))
-            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", spill)
-            group = {"text": spill, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
         stem = emphasize(markup_safe(cur["stem"])) or "（題幹未辨識，請對照原卷補上）"
         opts = [markup_safe(o) for o in cur["opts"]]
         body = layout_opts(opts)
@@ -393,6 +409,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         else:
             C.append(B.p_question(stem + ("\n" + body if body else "")))
         C.extend(cur["figs_after"])
+        if len(re.sub(r"\W", "", spill)) >= 12:   # (D) 後面多出來的段落：下一個題組的引言，放在本題之後
+            C.append(B.p_intro(markup_safe(spill)))
+            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", spill)
+            group = {"text": spill, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
         if not opts:
             review.append(f"第 {n_q} 題：沒抓到 (A)(B)(C)(D) 選項（可能是非選題，或選項在圖上）")
         if "⚠" in raw:
