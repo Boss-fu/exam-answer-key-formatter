@@ -60,6 +60,20 @@ WARN = "　⚠需確認"
 MARGIN_INK = 9.9          # 停用：v7 實測學生在左邊空白寫字會大量誤判成新題（士林 73/40）；位置資料保留供之後改良
 
 
+# 題組成員必須以卷面明示的題號範圍為準。這個規則刻意不接受單一
+# 「回答第 N 題」：那通常只是題幹的一部分，並不是題組的成員宣告。
+RE_GROUP_RANGE = re.compile(r"(?:(?:回答|作答|完成|請答|請回答)[^\d]{0,8}第?\s*)?(\d{1,2})\s*[～~至\-－—]\s*(\d{1,2})\s*題")
+
+
+def group_range(text):
+    """回傳題組明示的 ``(起題, 迄題)``，沒有可靠範圍則回傳 ``None``。"""
+    m = RE_GROUP_RANGE.search(text or "")
+    if not m:
+        return None
+    start, end = map(int, m.groups())
+    return (start, end) if start <= end else None
+
+
 def recover_truncated_qnum(text, current):
     """復原 OCR 把兩位題號後半吃掉的極少數情形。
 
@@ -417,8 +431,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         C.extend(cur["figs_after"])
         if len(re.sub(r"\W", "", spill)) >= 12:   # (D) 後面多出來的段落：下一個題組的引言，放在本題之後
             C.append(B.p_intro(markup_safe(spill)))
-            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", spill)
-            group = new_group(spill, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
+            bounds = group_range(spill)
+            group = new_group(spill, bounds[1] - bounds[0] + 1 if bounds else 3)
         if not opts:
             review.append(f"第 {n_q} 題：沒抓到 (A)(B)(C)(D) 選項（可能是非選題，或選項在圖上）")
         if "⚠" in raw:
@@ -590,10 +604,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                 int(m0.group(1)) + num_off == qn and len(t) - m0.end() >= 4:
             # 前一段沒印題號、沒選項，佔掉的號碼正好是這行印的題號 → 前一段是題組引言（「小張將某植物的葉片…」），
             # 這行才是那一題。不這樣接，後面每一題都會因「題號沒有變大」被拒，整串黏在一起
-            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", cur["stem"])
             C.append(B.p_intro(markup_safe(cur["stem"])))
             C.extend(cur["figs_mid"] + cur["figs_after"])
-            group = new_group(cur["stem"], (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
+            bounds = group_range(cur["stem"])
+            group = new_group(cur["stem"], bounds[1] - bounds[0] + 1 if bounds else 3)
             cur = None
             qn -= 1
             start_q(qn + 1, t[m0.end():])
@@ -639,8 +653,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             flush()
             in_header = False
             C.append(B.p_intro(markup_safe(t)))
-            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
-            group = new_group(t, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr and int(mr.group(2)) >= int(mr.group(1)) else 2)
+            bounds = group_range(t)
+            group = new_group(t, bounds[1] - bounds[0] + 1 if bounds else 2)
             continue
         # 題號被手寫蓋掉、認不出來：用結構判斷新題——上一題選項已經完整（或還沒有任何題目），
         # 這一行不是選項、不是上一個選項的換行尾巴，且後面接著 (A) 開頭的選項
@@ -675,8 +689,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             # (D) 之後、沒有題號的一行引言口吻 → 下一個題組的引言，不是 (D) 的尾巴
             flush()
             C.append(B.p_intro(markup_safe(t)))
-            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
-            group = new_group(t, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
+            bounds = group_range(t)
+            group = new_group(t, bounds[1] - bounds[0] + 1 if bounds else 3)
         elif cur["opts"]:
             if opts_done() or len(cur["opts"]) >= 3:
                 cur.setdefault("tail", []).append(t)    # 先記著：可能是選項尾巴，也可能是下一題被蓋掉題號的題幹

@@ -1,7 +1,7 @@
 """Word 前的卷頭、頁尾過濾規則。"""
 import unittest
 
-from ocr.to_zizi_word import is_boilerplate_line, recover_truncated_qnum
+from ocr.to_zizi_word import group_range, is_boilerplate_line, recover_truncated_qnum
 
 
 class BoilerplateLineTest(unittest.TestCase):
@@ -23,6 +23,13 @@ class BoilerplateLineTest(unittest.TestCase):
         self.assertEqual(recover_truncated_qnum("3.承上題，圖中何者正確？", 38), 39)
         self.assertIsNone(recover_truncated_qnum("3.下列何者正確？", 22))
         self.assertIsNone(recover_truncated_qnum("1).一般敘述", 9))
+
+    def test_group_range_requires_an_explicit_question_span(self):
+        self.assertEqual(group_range("請根據文章內容，回答41-43題："), (41, 43))
+        self.assertEqual(group_range("回答第 7～9 題"), (7, 9))
+        self.assertEqual(group_range("7－9題"), (7, 9))
+        self.assertIsNone(group_range("請回答第 7 題"))
+        self.assertIsNone(group_range("題組一、閱讀下文"))
 
 
 if __name__ == "__main__":
