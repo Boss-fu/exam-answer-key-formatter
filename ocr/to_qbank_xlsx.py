@@ -53,7 +53,12 @@ def rows(pyexam_dir, name):
     with tempfile.TemporaryDirectory() as tmp:
         Z.build(pyexam_dir, tmp, dpi=300, src_name=name + ".pdf", collect=col)
     out = []
+    prev = 0
     for q in col.get("questions", []):
+        # 題號：卷面認得到的印刷題號優先（比前一題大才採用），認不到才接續前一題 +1——
+        # 這樣某一題黏題／多切只影響那一題，不會讓後面整串題號都位移
+        num = q["pn"] if q.get("pn") and q["pn"] > prev else prev + 1
+        prev = num
         kinds = q["kinds"]
         why = []
         if q["review"]:
@@ -63,12 +68,19 @@ def rows(pyexam_dir, name):
         if "圖片" in kinds:
             why.append("含圖，請確認圖表類型")
         out.append({
-            "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(q["n"]),
+            "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
             "圖表類型": "表格" if kinds == ["表格"] else ("" if kinds else "無"),
             "判斷依據": "；".join(why), "待確認": "Y" if why else "",
             "題目": question_text(q), "題組文章": clean(q["group"]),
-            "題組ID": f"{info['gid']}-{q['gid']}" if q["gid"] and info["gid"] else "",
+            "題組ID": "",
+            "_gid": q["gid"],
         })
+    # 題組 ID 用該題組第一題的「Excel 題號」（不是 Word 流水號）
+    first = {}
+    for r in out:
+        if r["_gid"] is not None:
+            first.setdefault(r["_gid"], r["題號"])
+            r["題組ID"] = f"{info['gid']}-{first[r['_gid']]}" if info["gid"] else ""
     return out
 
 

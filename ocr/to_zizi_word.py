@@ -176,11 +176,16 @@ RE_MISC_HEAD = re.compile(r"^\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[,
                           r"^\s*[※＊*]\s*請.{0,20}(?:作\s*答|鉛\s*筆|答\s*案\s*卡)")
 
 
+# 「說明」欄的編號條目（「1.請用2B鉛筆作答」「2.本試卷共有50題」「3.範圍：3-1~4-2」）：前面有題號也是卷頭
+RE_INSTR = re.compile(r"^\s*(?:[（(]\s*[)）]\s*)?(?:[（(]?\s*\d{1,2}\s*[.．、)）]\s*)?(?:請\s*用\s*2\s*B|請\s*將\s*答\s*案|本\s*試\s*卷\s*共|試\s*卷\s*共\s*有|"
+                      r"範\s*圍\s*[:：]|作\s*答\s*時\s*間|答\s*案\s*請\s*(?:劃|畫|填|寫))")
+
+
 def is_boilerplate_line(text, in_header=False):
     """卷頭、頁碼與跨頁提示不應進題目；保留題號開頭的正常題文。"""
     return ((in_header and RE_HEADER.search(text) and not RE_Q.match(text)) or
             bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)) or
-            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)))
+            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)) or bool(RE_INSTR.match(text)))
 
 
 AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
@@ -250,7 +255,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
             cur["opts"][-1] = join(cur["opts"][-1], tl)
         raw = cur["stem"] + "".join(cur["opts"])
-        rec = {"n": n_q, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
+        rec = {"n": n_q, "pn": cur.get("pn"), "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
                "review": "⚠" in raw, "group": "", "gid": None}
         if group and (group["left"] is None or group["left"] > 0):
             rec["group"] = group["text"]; rec["gid"] = group.setdefault("first", n_q)
@@ -438,6 +443,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         skip_ok = n == qn + 2 and RE_Q.match(t) is not None and len(re.findall(r"[\u4e00-\u9fff]", t[mq.end():])) >= 8 if n is not None else False
         if n is not None and (cur is None or cur["opts"] or n == qn + 1 or skip_ok or re.match(r"[\(（]\s*[\)）]", t)):
             start_q(n, t[mq.end():])
+            cur["pn"] = n                    # 卷面印的題號（換段重編已換算）；題庫 Excel 的題號以它為準
             continue
         # 題號被蓋掉、只剩作答括號裡的手寫答案：「(A)量筒內原有18.0mL的水…」「B (B)孟純以…」
         # 括號後面是一長句（或有問號）、同一行沒有別的選項，而且後面接著從 (A) 開始的一組選項 → 是新題，不是選項 (A)
