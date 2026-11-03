@@ -192,6 +192,8 @@ def resolved_question_numbers(questions):
         # 前後連續性足以判定當前數字是 OCR 誤讀，才改用流水號。
         if printed and printed > prev and not (printed > expected and following == expected + 1):
             num = printed
+        elif not printed and following and following > expected + 1 and re.match(r"\s*承上", q.get("stem", "")):
+            num = following - 1       # 「承上題」緊接著它的前一題；中間跳號代表漏的是更前面那題，不是它
         else:
             num = expected
         out.append(num)
