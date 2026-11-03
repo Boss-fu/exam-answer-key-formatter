@@ -11,23 +11,39 @@ import json
 import os
 import re
 import sys
+import time
 
 import cv2
 import numpy as np
 
 MODELS = os.environ.get("DEHAND_MODEL_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")   # 候選模型驗收時可指向 runs/<rN>
 _SESS = None
+LAST_TIMINGS = {"model": 0.0, "qnum": 0.0}
 
 # 題號有時前面帶作答括號「( )12.」，OCR 又可能把全／半形標點混用。
 _RE_QNUM = re.compile(r"^\s*(?:[（(]\s*[）)]\s*)?(?:[（(]\s*)?\d{1,2}\s*[\.、．)]")
 _RE_QNUM_BARE = re.compile(r"^\s*\d{1,2}\s*$")
 
 
-def _qnum_protect_mask(bgr):
+def _box_rect(box):
+    """PP-OCR 四點框（或既有的 xyxy）正規化為影像座標。"""
+    a = np.asarray(box, dtype=np.float32)
+    if a.shape == (4,):
+        x0, y0, x1, y1 = a
+    else:
+        a = a.reshape(-1, 2)
+        x0, y0 = a.min(axis=0)
+        x1, y1 = a.max(axis=0)
+    return int(x0), int(y0), int(x1) + 1, int(y1) + 1
+
+
+def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
     """回傳印刷題號的禁擦區（題號框四周外擴 3px）。
 
-    偵測一次整頁，再只辨識看起來是行首短框的候選；短框右方必須接同一行
-    的文字框，避免表格數字和圖中刻度被當成題號。
+    ``detected_boxes`` 可直接傳入呼叫端已取得的 PP-OCR 偵測框，避免重跑偵測。
+    img2img 的 mask 輸出可傳 ``erased_mask``：只辨識擦除區附近的行首短框，
+    因為不會被擦到的題號無需保護。沒有傳遮罩時保留原本的全頁行為（測試與
+    非 img2img 模式相容）。
     """
     try:
         from ppocr_engine import det_boxes, rec_only
@@ -36,13 +52,17 @@ def _qnum_protect_mask(bgr):
 
     H, W = bgr.shape[:2]
     boxes = []
-    for box in det_boxes(bgr):
-        a = np.asarray(box, dtype=np.float32)
-        x0, y0 = a.min(axis=0)
-        x1, y1 = a.max(axis=0)
+    for box in (detected_boxes if detected_boxes is not None else det_boxes(bgr)):
+        x0, y0, x1, y1 = _box_rect(box)
         if x1 > x0 and y1 > y0:
-            boxes.append((int(x0), int(y0), int(x1) + 1, int(y1) + 1))
+            boxes.append((x0, y0, x1, y1))
 
+    nearby = None
+    if erased_mask is not None:
+        # 題號的印刷筆畫常與模型要擦的手寫筆不直接相交；以約 0.18 吋的
+        # 範圍找鄰近框，仍遠小於整頁逐框 rec。
+        nearby = cv2.dilate((erased_mask > 0).astype(np.uint8),
+                             np.ones((max(3, int(round(W / 46))) | 1,) * 2, np.uint8))
     protected = np.zeros((H, W), np.uint8)
     for x0, y0, x1, y1 in boxes:
         # 題號自身很短，且其右方同一行應有題幹；這就是欄位左側的行首。
@@ -53,6 +73,9 @@ def _qnum_protect_mask(bgr):
             for nx0, ny0, nx1, ny1 in boxes
         )
         if not has_following_text:
+            continue
+        if nearby is not None and not nearby[max(0, y0 - 3):min(H, y1 + 3),
+                                              max(0, x0 - 3):min(W, x1 + 3)].any():
             continue
         pad = 3
         crop = bgr[max(0, y0 - pad):min(H, y1 + pad), max(0, x0 - pad):min(W, x1 + pad)]
@@ -126,8 +149,16 @@ def _img2img_erased(gray, dpi):
     import onnxruntime as ort
     path = os.environ.get("DEHAND_IMG2IMG") or os.path.join(MODELS, "jw", "handwriting-eraser-v10.onnx")
     if path not in _I2I:
-        _I2I[path] = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-    sess = _I2I[path]; H, W = gray.shape
+        try:
+            sess = ort.InferenceSession(path, providers=_providers(ort))
+        except Exception:
+            sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        _I2I[path] = {"session": sess, "batch": None}
+    state = _I2I[path]
+    # 相容於先前在互動環境中已快取 session 的情況。
+    if not isinstance(state, dict):
+        state = _I2I[path] = {"session": state, "batch": None}
+    sess = state["session"]; H, W = gray.shape
     small = cv2.resize(gray, (1240, max(16, round(H * 1240 / W))), interpolation=cv2.INTER_AREA)
     h, w = small.shape; T, O = 512, 48
     x = np.repeat((small.astype(np.float32) / 255)[None], 3, 0)
@@ -136,18 +167,31 @@ def _img2img_erased(gray, dpi):
     wt = np.minimum(np.minimum(np.minimum(yy + 1, T - yy), np.minimum(xx + 1, T - xx)), O).astype(np.float32)
     starts = lambda n: (lambda s: s if s[-1] == n - T else s + [n - T])(list(range(0, n - T + 1, T - O)) or [0])
     acc = np.zeros((Hp, Wp), np.float32); ws = np.zeros((Hp, Wp), np.float32)
-    for y0 in starts(Hp):
-        for x0 in starts(Wp):
-            o = sess.run(None, {sess.get_inputs()[0].name: np.ascontiguousarray(x[None, :, y0:y0 + T, x0:x0 + T])})[0][0, 0]
-            acc[y0:y0 + T, x0:x0 + T] += o * wt; ws[y0:y0 + T, x0:x0 + T] += wt
+    coords = [(y0, x0) for y0 in starts(Hp) for x0 in starts(Wp)]
+    tiles = np.ascontiguousarray(np.stack([x[:, y0:y0 + T, x0:x0 + T] for y0, x0 in coords]))
+    input_name = sess.get_inputs()[0].name
+    outputs = None
+    if state["batch"] is not False:
+        try:
+            outputs = sess.run(None, {input_name: tiles})[0][:, 0]
+            state["batch"] = True
+        except Exception:
+            # CoreML 有些版本只接受 batch=1；記住能力，後續不再付例外成本。
+            state["batch"] = False
+    if outputs is None:
+        outputs = [sess.run(None, {input_name: tile[None]})[0][0, 0] for tile in tiles]
+    for (y0, x0), o in zip(coords, outputs):
+        acc[y0:y0 + T, x0:x0 + T] += o * wt; ws[y0:y0 + T, x0:x0 + T] += wt
     clean = np.clip(((acc / ws)[:h, :w] - .25) / .63, 0, 1)
-    erased = ((small < 200) & (clean > .85)).astype(np.uint8)          # 原本有墨、輸出接近白＝被擦掉
+    th = float(os.environ.get("DEHAND_I2I_TH", ".75"))
+    erased = ((small < 200) & (clean > th)).astype(np.uint8)          # 原本有墨、輸出接近白（> th）＝被擦掉
     return cv2.resize(erased, (W, H), interpolation=cv2.INTER_NEAREST), cv2.resize((clean * 255).astype(np.uint8), (W, H), interpolation=cv2.INTER_CUBIC)
 
 
-def erase(bgr, dpi=300):
+def erase(bgr, dpi=300, detected_boxes=None):
     if os.environ.get("DEHAND", "1") == "0":
         return bgr, 0.0
+    LAST_TIMINGS.update(model=0.0, qnum=0.0)
     H, W = bgr.shape[:2]
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     mode = os.environ.get("DEHAND_MODE", "both").lower()
@@ -155,7 +199,9 @@ def erase(bgr, dpi=300):
         raise ValueError("DEHAND_MODE 必須是 model、rule、both 或 img2img")
     mask = np.zeros((H, W), np.uint8)
     if mode == "img2img":
+        t_model = time.perf_counter()
         erased, clean = _img2img_erased(gray, dpi)
+        LAST_TIMINGS["model"] = time.perf_counter() - t_model
         out_mode = os.environ.get("DEHAND_I2I_OUT", "mask").lower()
         if out_mode not in ("mask", "full"):
             raise ValueError("DEHAND_I2I_OUT 必須是 mask 或 full")
@@ -163,7 +209,9 @@ def erase(bgr, dpi=300):
             # full：直接用模型輸出（像俊瑋網頁的打印版）；13 份測試卷上漏字較多，所以預設 mask
             out = cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR)
             if os.environ.get("DEHAND_PROTECT_QNUM", "1") != "0":
-                keep = _qnum_protect_mask(bgr) > 0
+                t_qnum = time.perf_counter()
+                keep = _qnum_protect_mask(bgr, detected_boxes=detected_boxes) > 0
+                LAST_TIMINGS["qnum"] = time.perf_counter() - t_qnum
                 out[keep] = bgr[keep]
             return out, float(erased.mean())
         mask |= erased
@@ -190,7 +238,10 @@ def erase(bgr, dpi=300):
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
     if os.environ.get("DEHAND_PROTECT_QNUM", "1") != "0":
         # 寧可留下題號上的可疑筆跡，也不能擦掉印刷題號而讓後段切題失敗。
-        mask[_qnum_protect_mask(bgr) > 0] = 0
+        t_qnum = time.perf_counter()
+        qnum_mask = erased if mode == "img2img" else None
+        mask[_qnum_protect_mask(bgr, detected_boxes=detected_boxes, erased_mask=qnum_mask) > 0] = 0
+        LAST_TIMINGS["qnum"] = time.perf_counter() - t_qnum
     _, ink = cv2.threshold(gray, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     ink = cv2.dilate(ink, np.ones((3, 3), np.uint8))           # 含灰色筆畫邊緣
     hit = (mask > 0) & (ink > 0)

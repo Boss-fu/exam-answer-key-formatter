@@ -34,10 +34,18 @@ RE_ANS_START = re.compile(r"^[^\u4e00-\u9fff]{0,4}?[\(（]\s*[A-Ea-e]\s*[\)）]\
 RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、]?\s*(?=[\u4e00-\u9fff「（(])")
 RE_INTRO = re.compile(r"^\s*[◎※●■◆]|回答\s*第?\s*\d+\s*[～~至\-－—]\s*\d+\s*題|閱讀.{0,12}回答|題組")
 RE_SECTION = re.compile(r"^[一二三四五六七八九十]{1,3}\s*[、.．]\s*\S")
-RE_HEADER = re.compile(r"學年度|學期|段考|定期評量|定考|試卷|試題|班級|座號|姓名")
+RE_HEADER = re.compile(r"學\s*年\s*度|學\s*期|段\s*考|定期\s*評量|定\s*考|試\s*[卷題]|"
+                       r"[七八九789]\s*年\s*級|年\s*級|科\s*目\s*(?:名\s*稱|代\s*(?:碼)?|名稱)?|"
+                       r"命\s*題\s*(?:教\s*師)?|班\s*級|座\s*號|姓\s*名")
 # 每一頁頂端重印的卷頭（校名＋學年度＋考試名稱，或班級座號姓名欄），出現在任何位置都不算題目內容
-RE_PAGE_HEAD = re.compile(r"(?:學年度.{0,30}(?:段考|評量|定考|考試|試卷|試題))|(?:班級\s*[:：].{0,12}座號)")
-RE_FOOT = re.compile(r"^(?:第\s*\d+\s*頁(?:\s*[,，/／]?\s*共\s*\d+\s*頁)?|\d{1,2}|[-－]\s*\d{1,2}\s*[-－]|頁\s*\d+|\d{1,2}\s*[（(]\s*共\s*\d+\s*頁\s*[)）])$")
+RE_PAGE_HEAD = re.compile(r"(?:學\s*年\s*度.{0,30}(?:段\s*考|評量|定\s*考|考試|試\s*[卷題]))|"
+                          r"(?:班\s*級\s*[:：]?.{0,18}(?:座\s*號|姓\s*名))|"
+                          r"(?:年\s*級|科\s*目\s*(?:名\s*稱|代\s*碼|代)?|命\s*題\s*(?:教\s*師)?)")
+RE_FOOT = re.compile(r"^(?:第?\s*[0-9OoIl]{1,3}\s*[頁贝](?:\s*[,，/／]?(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝])?|"
+                     r"[0-9OoIl]{1,2}|[-－]\s*[0-9OoIl]{1,2}\s*[-－]|[頁贝]\s*[0-9OoIl]{1,3}|"
+                     r"[0-9OoIl]{1,2}\s*[（(]\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[)）]|"
+                     r"(?:請\s*接\s*第?\s*[0-9OoIl]{1,3}\s*[頁贝]\s*(?:繼|续|續)\s*續?\s*作\s*答|"
+                     r"背\s*面\s*(?:尚|還)?\s*有\s*試\s*[題题]))$")
 CN = "一二三四五六七八九十"
 BOOK = {("七", "上"): "第一冊", ("七", "下"): "第二冊", ("八", "上"): "第三冊",
         ("八", "下"): "第四冊", ("九", "上"): "第五冊", ("九", "下"): "第六冊"}
@@ -153,6 +161,12 @@ def read_lines(pyexam_dir):
             continue
         lines.append((page, ln))
     return base, lines
+
+
+def is_boilerplate_line(text, in_header=False):
+    """卷頭、頁碼與跨頁提示不應進題目；保留題號開頭的正常題文。"""
+    return ((in_header and RE_HEADER.search(text) and not RE_Q.match(text)) or
+            bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)))
 
 
 AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
@@ -324,7 +338,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             else:
                 cur["figs_mid"].append(para)
             continue
-        if (in_header and RE_HEADER.search(t) and not RE_Q.match(t)) or RE_PAGE_HEAD.search(t) or RE_FOOT.match(t):
+        if is_boilerplate_line(t, in_header):
             continue                          # 卷頭（每頁都可能重印）、頁碼：由茲茲橫幅取代
         if RE_SECTION.match(t) and len(t) <= 60:
             in_header = False

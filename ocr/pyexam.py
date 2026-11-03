@@ -114,6 +114,18 @@ def remove_color_ink(bgr):
     ink = (s >= 45) & (v >= 60) & ((h <= 10) | (h >= 160) | ((h >= 95) & (h <= 135)))
     if not ink.any():
         return bgr, 0.0
+    if (s >= 45).mean() > .05:
+        # 整片彩色校徽浮水印：疊在上面的黑字掃出來也帶色（暗紅、暗藍），不能整塊塗白。
+        # 改用亮度 V（三色最大值）：淺色浮水印變白、暗的字留著；只動彩色像素，不擴張
+        col = s >= 45
+        out = bgr.copy()
+        out[col] = np.where(v[col] >= 150, 255, v[col])[:, None]
+        # 校徽的灰色部分（實測約 175）跟字同色只是較淡：中灰（150~235）塗白，
+        # 但黑字（<100）周圍 2px 不動，留住筆畫邊緣
+        g = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        near_text = cv2.dilate((g < 100).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        out[(g >= 150) & (g <= 235) & ~near_text] = 255
+        return out, float(col.mean())
     mask = cv2.dilate(ink.astype(np.uint8), np.ones((5, 5), np.uint8))
     out = bgr.copy()
     out[mask > 0] = 255
@@ -123,7 +135,7 @@ def remove_color_ink(bgr):
 _ROT = {90: "ROTATE_90_CLOCKWISE", 180: "ROTATE_180", 270: "ROTATE_90_COUNTERCLOCKWISE"}
 
 
-def fix_orientation(bgr):
+def fix_orientation(bgr, return_boxes=False):
     """掃描時整頁放反（上下顛倒）或轉 90 度：縮小後各方向試認一次，取「認得出的字」最多的方向。
     1. 先看文字偵測框是「橫的」還是「直的」：直框居多＝整頁轉了 90°，候選改成 90°／270°。
     2. 兩個候選方向各認一次，分數＝信心 ≥ 0.8 的字數；倒過來的字 PP-OCR 會吐低信心亂碼，差距很明顯。
@@ -137,14 +149,26 @@ def fix_orientation(bgr):
     def rot(img, deg):
         return cv2.rotate(img, getattr(cv2, _ROT[deg])) if deg else img
 
+    detected = ppocr_engine.det_boxes(small)
     wide = tall = 0
-    for b in ppocr_engine.det_boxes(small):
+    for b in detected:
         w = max(p[0] for p in b) - min(p[0] for p in b)
         h = max(p[1] for p in b) - min(p[1] for p in b)
         wide += w > 2 * h
         tall += h > 2 * w
+    def done(image, deg, boxes):
+        if not return_boxes:
+            return image, deg
+        # 未旋轉頁面直接重用本函式本來就跑過的偵測框；座標從 small 換回 300dpi。
+        if not deg:
+            boxes = [[[float(x) / s, float(y) / s] for x, y in box] for box in boxes]
+        else:
+            # 旋正是少數情況，原座標不能直接重用；重偵測一次保證座標正確。
+            boxes = ppocr_engine.det_boxes(image)
+        return image, deg, boxes
+
     if wide + tall < 5:                                  # 幾乎空白的頁，不動
-        return bgr, 0
+        return done(bgr, 0, detected)
     if tall > wide:
         scores = {90: score(rot(small, 90)), 270: score(rot(small, 270))}
         scores[0] = 0
@@ -152,8 +176,8 @@ def fix_orientation(bgr):
         scores = {0: score(small), 180: score(rot(small, 180))}
     best = max(scores, key=scores.get)
     if best and scores[best] > 1.5 * max(1, scores[0]):
-        return rot(bgr, best), best
-    return bgr, 0
+        return done(rot(bgr, best), best, detected)
+    return done(bgr, 0, detected)
 
 
 # ---------- 圖片偵測（OpenCV 輪廓）----------
@@ -470,6 +494,19 @@ def _inter_ratio(it, fig):
     return iw * ih / float(max(1.0, (x1 - x0) * (y1 - y0)))
 
 
+_RE_FIG_OPTION = re.compile(r"^\s*[\(（]\s*[A-Ea-e]\s*[\)）]")
+_RE_FIG_QNO = re.compile(r"^\s*\d{1,2}\s*[.．、]")
+
+
+def _short_figure_label(text):
+    """分類圖／流程圖的短標籤；題幹、選項、表格內容不可由此吃掉。"""
+    text = text.strip()
+    n_cjk = len(RE_CJK.findall(text))
+    return (0 < n_cjk <= 8 and len(text) <= 20 and
+            not _RE_FIG_OPTION.match(text) and not _RE_FIG_QNO.match(text) and
+            not re.search(r"[，。？?：:；;！!]", text))
+
+
 def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
     """依 OCR 框決定哪些候選才是真的圖（框內「成句」的中文字 ≤ max_cjk_in_figure；表格／標題框內是句子，不是圖），
     並把圖內文字框分出來。回傳 (figs, body_items, partial_items)：
@@ -479,9 +516,10 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
     figs = []
     for c in cands:
         inside = [it for it in items if c[0] <= _center(it)[0] <= c[2] and c[1] <= _center(it)[1] <= c[3]]
-        # 地圖、示意圖上常有一堆短標籤（新竹、澎湖、鵝鑾鼻、甲乙丙丁），總字數多但都是 1~3 字；
-        # 表格、標題框裡則是成句的字。所以只數「4 字以上的字框」裡的中文字。
-        sentence_cjk = sum(n for n in (len(RE_CJK.findall(it["text"])) for it in inside) if n >= 4)
+        # 地圖、示意圖上常有一堆短標籤（也可能是「無機化合物」這種 5 字詞）；
+        # 表格、標題框裡才會有長句或標點。因此不能把所有 4 字詞累加成正文。
+        sentence_cjk = sum(n for it in inside for n in [len(RE_CJK.findall(it["text"]))]
+                           if n > 8 or re.search(r"[，。？?：；;！!]", it["text"]))
         # 學生用筆圈起來的一段題文：框裡大部分面積是高信心的印刷字 → 是圈圈不是圖（裁掉會讓題文消失）
         area = max(1, (c[2] - c[0]) * (c[3] - c[1]))
         text_area = sum((_center(it)[4] - _center(it)[2]) * (_center(it)[5] - _center(it)[3])
@@ -492,18 +530,30 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             figs.append(c)
     body, partial = [], []
     labels = {i: [] for i in range(len(figs))}
+    # 候選是由相連的線條／墨跡得來；短標籤若集中在候選周圍，通常是流程、
+    # 分類或示意圖的一部分。先算好群集，避免只因貼著一條底線就吃掉一個詞。
+    nearby = {}
+    for i, f in enumerate(figs):
+        nearby[i] = [it for it in items
+                     if _short_figure_label(it["text"])
+                     and f[0] - pad <= _center(it)[0] <= f[2] + pad
+                     and f[1] - pad <= _center(it)[1] <= f[3] + pad]
     for it in items:
         cx, cy, *_ = _center(it)
         text = it["text"]
         n_cjk = len(RE_CJK.findall(text))
-        short = n_cjk <= 2 and len(text) <= 16
+        # 題目的選項可剛好壓在示意圖框裡，仍必須留在正文；否則會直接少一個選項。
+        if _RE_FIG_OPTION.match(text):
+            body.append(it)
+            continue
+        short_label = _short_figure_label(text)
         # 軸名、刻度串（「降雨量（毫米）」「120150E180150W」「586266707478」）：不像句子、而且水平位置落在圖的範圍內
         axis_like = n_cjk <= 6 and not re.search(r"[，。？?：:、；]", text) and (
             n_cjk == 0 or len(text) <= 10)
         drop, part = False, None
-        # 像句子的印刷字（≥4 個中文字，或帶標點）不准被附圖吃掉：學生把題幹的「何者正確？」圈起來時，
-        # 那個圈會被當成圖，題幹就少一段。這種字留在正文，裁圖時會被塗白，不會重複。
-        sentence = it["conf"] >= 0.3 and (n_cjk >= 4 or re.search(r"[，。？?：；]", text))
+        # 長句或有標點才是正文。過去以「4 個中文字」判斷，會讓「無機化合物」、
+        # 「天然聚合物」這類分類圖標籤逐行漏回正文。
+        sentence = it["conf"] >= 0.3 and (n_cjk > 8 or re.search(r"[，。？?：；;！!]", text))
         for i, f in enumerate(figs):
             r = _inter_ratio(it, f)
             if sentence and (r >= 0.12 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3])):
@@ -511,7 +561,11 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             if r >= 0.6 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]):
                 drop = True
                 labels[i].append(it)
-            elif short and (f[0] - pad <= cx <= f[2] + pad and f[1] - pad <= cy <= f[3] + pad):
+            elif short_label and (f[0] - pad <= cx <= f[2] + pad and f[1] - pad <= cy <= f[3] + pad) and (
+                    # 圖內的短標籤直接收；圖外標籤至少須與另一短標籤成群，且
+                    # 水平落在圖的延伸範圍，避免正文旁邊的一個短詞被誤收。
+                    (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]) or
+                    (len(nearby[i]) >= 2 and f[0] - pad // 2 <= cx <= f[2] + pad // 2)):
                 drop = True
                 labels[i].append(it)
             elif axis_like and (f[0] - pad // 2 <= _center(it)[2] and _center(it)[4] <= f[2] + pad // 2
@@ -930,10 +984,10 @@ def _ocr_one_page(job):
     t0 = time.time()
     turned, inked = 0, 0.0
     if eng_name == "ppocr":
-        bgr, turned = fix_orientation(bgr)
+        bgr, turned, dehand_boxes = fix_orientation(bgr, return_boxes=True)
         if not skip_clean:
             bgr, inked = remove_color_ink(bgr)
-            bgr, dehanded = dehand.erase(bgr, dpi)
+            bgr, dehanded = dehand.erase(bgr, dpi, detected_boxes=dehand_boxes)
             inked += dehanded
     clean_img = _save_preview(bgr, out_dir, f"p{n}_clean")
     if not skip_clean:
