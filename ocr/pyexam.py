@@ -154,6 +154,22 @@ _ROT = {90: "ROTATE_90_CLOCKWISE", 180: "ROTATE_180", 270: "ROTATE_90_COUNTERCLO
 UPRIGHT_ENOUGH = 300    # 倒置頁幾乎認不出高信心的字，正向達到這個字數就不可能是倒置
 
 
+def upright_by_sample(small, boxes, n=30, need=150):
+    """只辨識最寬的 n 個橫向文字框：正向頁幾乎每行都是高信心字，倒置頁幾乎沒有。
+    抽樣不夠明確時回 False，交給整頁辨識判斷。"""
+    wide = []
+    for b in boxes:
+        x0, x1 = int(min(p[0] for p in b)), int(max(p[0] for p in b))
+        y0, y1 = int(min(p[1] for p in b)), int(max(p[1] for p in b))
+        if x1 - x0 > 2 * (y1 - y0) > 0:
+            wide.append((x1 - x0, x0, x1, y0, y1))
+    good = 0
+    for _, x0, x1, y0, y1 in sorted(wide, reverse=True)[:n]:
+        text, conf = ppocr_engine.rec_only(small[max(0, y0 - 2):y1 + 2, max(0, x0 - 2):x1 + 2])
+        good += len(text) if conf >= 0.8 else 0
+    return good >= need
+
+
 def fix_orientation(bgr, return_boxes=False):
     """掃描時整頁放反（上下顛倒）或轉 90 度：縮小後各方向試認一次，取「認得出的字」最多的方向。
     1. 先看文字偵測框是「橫的」還是「直的」：直框居多＝整頁轉了 90°，候選改成 90°／270°。
@@ -192,6 +208,8 @@ def fix_orientation(bgr, return_boxes=False):
         scores = {90: score(rot(small, 90)), 270: score(rot(small, 270))}
         scores[0] = 0
     else:
+        if upright_by_sample(small, detected):  # 抽 30 行就認出夠多高信心字：正向，省掉整頁辨識
+            return done(bgr, 0, detected)
         upright = score(small)
         if upright >= UPRIGHT_ENOUGH:            # 正向已認出很多字，不必再多跑一次 OCR 試倒置
             return done(bgr, 0, detected)
