@@ -63,6 +63,13 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("屬於非專一性防禦。單選題(每題2.5分，共75分)"), "屬於非專一性防禦。")
         self.assertEqual(fix_ocr("(D)D。班座號：姓名："), "(D)D。")
 
+    def test_common_misreads_need_context(self):
+        self.assertEqual(fix_ocr("血液注人病人體內"), "血液注入病人體內")
+        self.assertEqual(fix_ocr("組織疏松"), "組織疏鬆")
+        self.assertEqual(fix_ocr("(D)已的後段"), "(D)己的後段")
+        self.assertEqual(fix_ocr("(D)已經完成"), "(D)已經完成")
+        self.assertEqual(fix_ocr("(C)內(D)T。"), "(C)丙(D)丁。")
+
 
 if __name__ == "__main__":
     unittest.main()

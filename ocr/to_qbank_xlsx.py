@@ -60,6 +60,9 @@ BIOLOGY_PHRASE_FIXES = (
     (r"紀果(?=、|，|。|$)", "結果"),
     (r"(?<=何)考(?=正確|錯誤)", "者"),
     (r"(?<=哪)雨(?=組)", "兩"),
+    (r"(?<=[加放滲送注插流進吸倒投輸混侵鑽掉帶移嵌陷傳])人(?![類們員工口士民體群生])", "入"),   # 加人→加入
+    (r"(?<=疏|肉|放)松|松(?=弛|散|軟|開)", "鬆"),
+    (r"自已", "自己"),
 )
 
 
@@ -81,6 +84,10 @@ def fix_ocr(t):
             if sum(ch in GAN for ch in near) >= 1 and (c not in "內了" or sum(ch in GAN for ch in near) >= 2):
                 chars[i] = GAN_FIX[c]
     t = "".join(chars)
+    # 選項代號正後面、或單獨括起來的天干：「(D)已的後段」「(已)」「(D)T。」「(C)內(D)」
+    t = re.sub(r"(?<=\([A-D]\))已(?!經|知|被|有|成|完|達|在|是|將|於)|(?<=\()已(?=\))", "己", t)
+    t = re.sub(r"(?<=\([A-D]\))\s*T(?=\s*(?:$|\n|[。、，,(（可的為與和]))", "丁", t)
+    t = re.sub(r"(?<=\([A-D]\))\s*內(?=\s*(?:$|\n|[。、，,(（構為與和]))", "丙", t)
     for pattern, replacement in BIOLOGY_PHRASE_FIXES:
         t = re.sub(pattern, replacement, t)
     t = re.sub(rf"(?<={CJK})\s*-{{2,}}\s*(?={CJK})", "一", t)          # 「哪--支」→「哪一支」
@@ -111,7 +118,7 @@ def relabel(opts):
 # 出現過的 OCR 代號殘骸。正常代號允許少右括號，才能把 ``(B)(C`` 拆開。
 HALF_ALNUM = str.maketrans("ＡＢＣＤＥａｂｃｄｅ０１２３４５６７８９", "ABCDEabcde0123456789")
 RE_OPTION_MARK = re.compile(
-    r"[（(]\s*[A-Da-d]\s*[）)]?|[（(]\s*[）)]|[①②③④]\s*[）)]?|[（(]\s*[1-4]\s*[）)]"
+    r"[（(]\s*[A-Ea-e]\s*[）)]?|[（(]\s*[）)]|[①②③④]\s*[）)]?|[（(]\s*[1-4]\s*[）)]"
 )
 RE_LETTER_OPTION_MARK = re.compile(r"[（(]\s*[A-Da-d]\s*[）)]?")
 
