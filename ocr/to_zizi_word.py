@@ -290,6 +290,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
     B.start(os.path.join(tmp, "build"), figdir)
     in_header = True
     qn = 0
+    num_off, sec_qn = 0, None     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
 
     def qnum(t):
         """題號（容許手寫符號黏在前面、少了點號）；號碼必須接在上一題後面 +1～+3，避免 10m/s、2.0 這類被當題號"""
@@ -299,6 +300,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         if RE_Q.match(t) and re.search(r"[\(（]\s*[A-Ea-e]\s*[\)）]\s*$", t[:m.end()]) and re.search(r"[\(（]\s*B\s*[\)）]", t[m.end():]):
             m = RE_Q_NOANS.match(t)           # 「12.(A)甲 (B)乙」：括號裡的 A 是選項，不是手寫答案
         n = int(m.group(1))
+        if sec_qn is not None and n <= 3 and n < qn and sec_qn + n <= qn + 3:
+            n += sec_qn                      # 換段後題號重編：只在大題標題之後、號碼很小時才換算
+        elif num_off and n + num_off > qn:
+            n += num_off
         strict = RE_Q.match(t) is not None
         if strict and qn < n <= qn + 3:
             return n, m
@@ -345,6 +350,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         if is_boilerplate_line(t, in_header):
             continue                          # 卷頭（每頁都可能重印）、頁碼：由茲茲橫幅取代
         if RE_SECTION.match(t) and len(t) <= 60:
+            sec_qn = qn
             in_header = False
             flush()
             sec = t.replace("（", "【", 1).replace("(", "【", 1) if "【" not in t else t
@@ -375,6 +381,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                 cur["stem"] = join(cur["stem"], t)
             continue
         n, mq = qnum(t)
+        if n is not None and sec_qn is not None:
+            if n != int(mq.group(1)):
+                num_off = sec_qn             # 換段後第一題用了換算 → 這一段後面的題號都加同樣的位移
+            sec_qn = None
         # 行首是空白作答括號「( )10.」本身就是新題的證據：上一題選項字母被擦掉、認不出 (A) 時也要接得上
         if n is not None and (cur is None or cur["opts"] or n == qn + 1 or re.match(r"[\(（]\s*[\)）]", t)):
             start_q(n, t[mq.end():])
