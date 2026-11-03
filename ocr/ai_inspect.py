@@ -46,7 +46,7 @@ def ask(images, draft, timeout=600):
     a, b = out.find("["), out.rfind("]")
     if a < 0 or b <= a:
         raise RuntimeError("AI 沒有回 JSON：" + (out or r.stderr)[-400:])
-    return json.loads(out[a:b + 1])
+    return json.loads(out[a:b + 1], strict=False)      # AI 常在字串裡直接換行；寬鬆解析
 
 
 def inspect(pyexam_dir, name, rows):
