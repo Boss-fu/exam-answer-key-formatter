@@ -369,6 +369,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     cur = None                                # {"stem","opts","figs_mid","figs_after"}
     used_figs = used_tabs = n_q = 0
 
+    def new_group(text, left):
+        """新題組引言。上一段引言還沒有任何小題用到（同一段引言被拆成兩行、兩個分支）就接起來，不要蓋掉。"""
+        if group and "first" not in group:
+            text = join(group["text"], text)
+        return {"text": text, "left": left}
+
     def flush():
         nonlocal cur, n_q, group
         if not cur:
@@ -412,7 +418,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         if len(re.sub(r"\W", "", spill)) >= 12:   # (D) 後面多出來的段落：下一個題組的引言，放在本題之後
             C.append(B.p_intro(markup_safe(spill)))
             mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", spill)
-            group = {"text": spill, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
+            group = new_group(spill, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
         if not opts:
             review.append(f"第 {n_q} 題：沒抓到 (A)(B)(C)(D) 選項（可能是非選題，或選項在圖上）")
         if "⚠" in raw:
@@ -574,7 +580,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                     # 第 (1) 小題出現：剛才的「題」其實是題組引言 → 改成引言段落，不佔題號
                     C.append(B.p_intro(markup_safe(cur["stem"])))
                     C.extend(cur["figs_mid"] + cur["figs_after"])
-                    group = {"text": cur["stem"], "left": None}
+                    group = new_group(cur["stem"], None)
                     cur = None
                     qn -= 1
                 start_q(qn + 1, t[ms.end():])
@@ -587,7 +593,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", cur["stem"])
             C.append(B.p_intro(markup_safe(cur["stem"])))
             C.extend(cur["figs_mid"] + cur["figs_after"])
-            group = {"text": cur["stem"], "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
+            group = new_group(cur["stem"], (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
             cur = None
             qn -= 1
             start_q(qn + 1, t[m0.end():])
@@ -634,7 +640,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             in_header = False
             C.append(B.p_intro(markup_safe(t)))
             mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
-            group = {"text": t, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr and int(mr.group(2)) >= int(mr.group(1)) else 2}
+            group = new_group(t, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr and int(mr.group(2)) >= int(mr.group(1)) else 2)
             continue
         # 題號被手寫蓋掉、認不出來：用結構判斷新題——上一題選項已經完整（或還沒有任何題目），
         # 這一行不是選項、不是上一個選項的換行尾巴，且後面接著 (A) 開頭的選項
@@ -670,7 +676,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             flush()
             C.append(B.p_intro(markup_safe(t)))
             mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
-            group = {"text": t, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
+            group = new_group(t, (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3)
         elif cur["opts"]:
             if opts_done() or len(cur["opts"]) >= 3:
                 cur.setdefault("tail", []).append(t)    # 先記著：可能是選項尾巴，也可能是下一題被蓋掉題號的題幹
