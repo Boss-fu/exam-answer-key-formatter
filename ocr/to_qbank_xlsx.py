@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Font
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import to_zizi_word as Z  # noqa: E402
+from qbank_latex import formula_doubts, to_latex  # noqa: E402
 
 COLS = ["年度", "來源學校", "考試名稱", "題號", "答案", "冊數", "冊名", "領域", "大單元", "子單元", "知識點", "題目摘要",
         "題型", "步驟分", "記憶分", "概念分", "圖表類型", "判斷依據", "待確認", "題目", "詳解", "題組文章", "題組ID"]
@@ -134,11 +135,13 @@ def rows(pyexam_dir, name):
             why.append("沒抓到選項（非選題或選項在圖上）")
         if "圖片" in kinds:
             why.append("含圖，請確認圖表類型")
+        text = question_text(q)
+        why.extend(formula_doubts(text))
         out.append({
             "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
             "圖表類型": "表格" if kinds == ["表格"] else ("" if kinds else "無"),
             "判斷依據": "；".join(why), "待確認": "Y" if why else "",
-            "題目": question_text(q), "題組文章": clean(q["group"]),
+            "題目": to_latex(text), "題組文章": to_latex(clean(q["group"])),
             "題組ID": "",
             "_gid": q["gid"],
         })

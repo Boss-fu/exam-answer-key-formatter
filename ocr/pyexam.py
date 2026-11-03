@@ -150,6 +150,9 @@ def remove_color_ink(bgr, restore_text=False):
 _ROT = {90: "ROTATE_90_CLOCKWISE", 180: "ROTATE_180", 270: "ROTATE_90_COUNTERCLOCKWISE"}
 
 
+UPRIGHT_ENOUGH = 300    # 倒置頁幾乎認不出高信心的字，正向達到這個字數就不可能是倒置
+
+
 def fix_orientation(bgr, return_boxes=False):
     """掃描時整頁放反（上下顛倒）或轉 90 度：縮小後各方向試認一次，取「認得出的字」最多的方向。
     1. 先看文字偵測框是「橫的」還是「直的」：直框居多＝整頁轉了 90°，候選改成 90°／270°。
@@ -188,7 +191,10 @@ def fix_orientation(bgr, return_boxes=False):
         scores = {90: score(rot(small, 90)), 270: score(rot(small, 270))}
         scores[0] = 0
     else:
-        scores = {0: score(small), 180: score(rot(small, 180))}
+        upright = score(small)
+        if upright >= UPRIGHT_ENOUGH:            # 正向已認出很多字，不必再多跑一次 OCR 試倒置
+            return done(bgr, 0, detected)
+        scores = {0: upright, 180: score(rot(small, 180))}
     best = max(scores, key=scores.get)
     if best and scores[best] > 1.5 * max(1, scores[0]):
         return done(rot(bgr, best), best, detected)
@@ -1007,12 +1013,12 @@ def _ocr_one_page(job):
     clean_img = _save_preview(bgr, out_dir, f"p{n}_clean")
     if not skip_clean:
         _progress(out_dir, started, "clean", n, pages, "已轉正並清除筆跡", clean_img)
-    binimg = preprocess(bgr, upscale=upscale)
     H, W = bgr.shape[:2]
     lines = []
     if eng_name == "ppocr":
         lay = text_layout(bgr)
-        if not lay["cuts"]:
+        if not lay["cuts"]:                      # preprocess 很慢（放大＋去雜訊），PP-OCR 只有找不到欄界時才用得到
+            binimg = preprocess(bgr, upscale=upscale)
             lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
         lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
                                                                    header=lay["header"], hard=lay["hard"])
@@ -1021,6 +1027,7 @@ def _ocr_one_page(job):
         figs = [(max(0, x0 - pad) / W, max(0, y0 - pad) / H, min(W, x1 + pad) / W, min(H, y1 + pad) / H)
                 for x0, y0, x1, y1 in fig_px]
     else:
+        binimg = preprocess(bgr, upscale=upscale)
         figs = detect_figures(binimg, page.rect.height)
         body_px, tables, geo = [], [], []
         txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
