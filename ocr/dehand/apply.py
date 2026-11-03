@@ -163,8 +163,9 @@ _I2I = {}
 def _img2img_erased(gray, dpi):
     """回傳原解析度的遮罩：模型判定該擦掉的墨跡。"""
     import onnxruntime as ort
-    # 預設用我們以俊瑋 v10 微調的 r7c（7 頁保留卷 PSNR 23.96／筆跡殘留 8.4%，勝 v10 的 22.64／9.1%），缺檔才退回 v10
-    path = os.environ.get("DEHAND_IMG2IMG") or next((p for p in (os.path.join(MODELS, "jw", n) for n in ("jwft-r7c.onnx", "handwriting-eraser-v10.onnx")) if os.path.exists(p)), "")
+    # 預設俊瑋 v10。我們微調的 r7c 像素指標較好，但實卷上會把圖的細曲線當筆跡擦掉（111 石牌 pH 曲線全消失），
+    # 重訓（把圖列為保留區）並通過圖片驗收前不當預設；要比較時用 DEHAND_IMG2IMG 指定
+    path = os.environ.get("DEHAND_IMG2IMG") or os.path.join(MODELS, "jw", "handwriting-eraser-v10.onnx")
     if path not in _I2I:
         try:
             sess = ort.InferenceSession(path, providers=_providers(ort))

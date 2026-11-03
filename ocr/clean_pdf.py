@@ -17,6 +17,9 @@ import pymupdf
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# 給人看的乾淨卷用整頁模型輸出（＝俊瑋網頁的打印版）：字是飽滿的黑、圖的線條保留得比 mask 好；
+# OCR 管線仍用 mask（漏字較少）
+os.environ.setdefault("DEHAND_I2I_OUT", "full")
 from dehand.apply import erase  # noqa: E402
 from pyexam import fix_orientation, remove_color_ink  # noqa: E402
 
