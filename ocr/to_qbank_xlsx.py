@@ -65,7 +65,10 @@ BIOLOGY_PHRASE_FIXES = (
 
 # 頁首頁尾：「國一生物第1頁/共4頁」「第2頁」「，共4頁」「考題範圍：2-3~3-4」不屬於題目
 RE_PAGE_MARK = re.compile(r"[，,]?\s*(?:國[一二三七八九]\S{0,4}?)?第\s*\d+\s*頁(?:\s*[/／，,]?\s*共\s*\d+\s*頁)?|[，,]?\s*共\s*\d+\s*頁"
-                          r"|考(?:題|試)範圍\s*[:：]\s*[\d\-~～、.]+")
+                          r"|考(?:題|試)範圍\s*[:：]\s*[\d\-~～、.]+"
+                          r"|畫卡作答第[一二三四五六]頁|第[一二三四五六]面完成[，,]?\s*請換下一張試卷|請直接用\s*2B\s*鉛筆作答於答案卡上"
+                          r"|[七八九]?\s*年\s*_*\s*班\s*_*\s*(?:座\s*)?號\s*_*\s*姓名\s*[:：]\s*_*|班座號\s*[:：]\s*姓名\s*[:：]"
+                          r"|(?:[一二三四五六]\s*[、.]\s*)?(?:單選|多選|非選|是非|填充|題組|閱讀素養)題\s*[(（][^()（）]{0,20}分[^()（）]{0,12}[)）]")
 
 
 def fix_ocr(t):
@@ -228,6 +231,9 @@ def rows(pyexam_dir, name):
         if q["review"]:
             why.append("有辨識信心低的字")
         text, option_count = question_text(q, with_option_count=True)
+        lead = re.match(r"(\d{1,2})\s*[.．、](?=\s*[一-鿿「])", text)
+        if lead and str(num).endswith(lead.group(1)):
+            text = text[lead.end():]        # 題號殘骸「7.可運輸…」（第 37 題只剩個位數）
         if not q["opts"] and option_count == 0:
             why.append("沒抓到選項（非選題或選項在圖上）")
         if not q.get("tf") and option_count != 4:

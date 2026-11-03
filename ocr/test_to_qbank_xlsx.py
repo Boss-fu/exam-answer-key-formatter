@@ -58,6 +58,10 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("流程改成下表：夏，共4頁則溶液"), "流程改成下表：夏則溶液")
         self.assertEqual(fix_ocr("以維持體溫O下列何者"), "以維持體溫。下列何者")
         self.assertEqual(fix_ocr("心搏停止時，血壓為0"), "心搏停止時，血壓為0")
+        self.assertEqual(fix_ocr("(D)血液是黃色透明液體畫卡作答第二頁"), "(D)血液是黃色透明液體")
+        self.assertEqual(fix_ocr("何者錯誤？第二面完成，請換下一張試卷"), "何者錯誤？")
+        self.assertEqual(fix_ocr("屬於非專一性防禦。單選題(每題2.5分，共75分)"), "屬於非專一性防禦。")
+        self.assertEqual(fix_ocr("(D)D。班座號：姓名："), "(D)D。")
 
 
 if __name__ == "__main__":

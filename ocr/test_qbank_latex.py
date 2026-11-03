@@ -42,6 +42,9 @@ class ToLatexTest(unittest.TestCase):
             ("NaCl水溶液", r"$\mathrm{NaCl}$水溶液"),
         ])
 
+    def test_dates_are_not_fractions(self):
+        self.check([("今年11/1號碧華", "今年11/1號碧華"), ("於10/15進行", "於10/15進行"), ("經過 3/4週期", "經過 $\\frac{3}{4}$週期")])
+
     def test_numbers_and_fractions(self):
         self.check([
             ("3×10^{8}", r"$3\times10^{8}$"),

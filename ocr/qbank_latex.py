@@ -85,6 +85,18 @@ def _convert(t):
     return t
 
 
+def not_fraction(num, den, before, after):
+    """「a/b」其實是學年學期（112/1）或日期（11/1 號、今年 3/15）時回 True。"""
+    num, den = num.strip(), den.strip()
+    if not (num.isdigit() and den.isdigit()):
+        return False
+    if re.fullmatch(r"1(?:0|1|2)\d", num) and den in {"1", "2"}:
+        return True
+    if re.match(r"\s*(?:號|日|[(（]?(?:週(?!期)|星期))", after):
+        return True
+    return int(num) <= 12 and int(den) <= 31 and bool(re.search(r"(?:今年|去年|明年|日期|於)\s*$", before))
+
+
 def _strip_parens(s):
     """括號是 OCR 的分組符號，不是 \\frac 的一部分。"""
     s = re.sub(r"\s+", "", s)
@@ -98,9 +110,8 @@ def _math_name(s):
 def _convert_calculations(t):
     """把同一條可辨識的除法算式一次包成一個 $...$。"""
     def numeric(m):
-        if (re.fullmatch(r"1(?:0|1|2)\d", m.group("num")) and m.group("den") in {"1", "2"}
-                and not m.group("tail")):
-            return m.group(0)                 # 112/1 這類學年／學期
+        if not m.group("tail") and not_fraction(m.group("num"), m.group("den"), m.string[:m.start()], m.string[m.end():]):
+            return m.group(0)                 # 112/1 學年學期、11/1 號日期
         tail = re.sub(r"[×*xX]", r"\\times", m.group("tail")).replace("%", r"\%").replace("％", r"\%")
         return rf"$\frac{{{_strip_parens(m.group('num'))}}}{{{_strip_parens(m.group('den'))}}}{tail}$"
 
@@ -123,8 +134,8 @@ def _convert_calculations(t):
 
 
 def _simple_frac(m):
-    """學年／學期 112/1 不是數學分數。"""
-    if re.fullmatch(r"1(?:0|1|2)\d", m.group(1)) and m.group(2) in {"1", "2"}:
+    """學年／學期 112/1、日期 11/1 號都不是數學分數。"""
+    if not_fraction(m.group(1), m.group(2), m.string[:m.start()], m.string[m.end():]):
         return m.group(0)
     return rf"$\frac{{{m.group(1)}}}{{{m.group(2)}}}$"
 
