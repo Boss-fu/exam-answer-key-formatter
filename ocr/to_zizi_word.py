@@ -169,10 +169,18 @@ def read_lines(pyexam_dir):
     return base, lines
 
 
+# 頁碼倒過來寫（「共4頁，第1頁」）、答案卡貼紙提示、「選擇題：(每題2分…)」配分說明、「※請用2B鉛筆…」作答說明
+RE_MISC_HEAD = re.compile(r"^\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[,，、]?\s*第\s*[0-9OoIl]{1,3}\s*[頁贝]\s*$|"
+                          r"貼\s*上?\s*不\s*透|不\s*透\s*光|光\s*貼\s*紙|"
+                          r"^\s*[單多]?\s*選\s*擇\s*題\s*[：:]?\s*[（(]\s*每\s*題|"
+                          r"^\s*[※＊*]\s*請.{0,20}(?:作\s*答|鉛\s*筆|答\s*案\s*卡)")
+
+
 def is_boilerplate_line(text, in_header=False):
     """卷頭、頁碼與跨頁提示不應進題目；保留題號開頭的正常題文。"""
     return ((in_header and RE_HEADER.search(text) and not RE_Q.match(text)) or
-            bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)))
+            bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)) or
+            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)))
 
 
 AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
@@ -199,7 +207,8 @@ def apply_ai(lines, ai):
     return out
 
 
-def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
+def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
+    """collect（dict）有給的話，順便收集每題結構化內容給題庫 Excel 用：collect["questions"]、collect["meta"]。"""
     import buildlib as B
     base, lines = read_lines(pyexam_dir)
     ai_mode = False
@@ -241,6 +250,13 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
             cur["opts"][-1] = join(cur["opts"][-1], tl)
         raw = cur["stem"] + "".join(cur["opts"])
+        rec = {"n": n_q, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
+               "review": "⚠" in raw, "group": "", "gid": None}
+        if group and (group["left"] is None or group["left"] > 0):
+            rec["group"] = group["text"]; rec["gid"] = group.setdefault("first", n_q)
+            if group["left"] is not None:
+                group["left"] -= 1
+        questions.append(rec)
         stem = emphasize(markup_safe(cur["stem"])) or "（題幹未辨識，請對照原卷補上）"
         opts = [markup_safe(o) for o in cur["opts"]]
         body = layout_opts(opts)
@@ -295,7 +311,9 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
     in_header = True
     qn = 0
     num_off, sec_qn = 0, None
-    group_sec, group_raw = False, 0  # 綜合題：大題號「1.」是題組引言，「(1)(2)…」小題才各算一題（題庫 Excel 也這樣算）     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
+    group_sec, group_raw = False, 0
+    group = None                     # 目前生效的題組引言 {"text", "left"(剩幾題，None＝到下個題組為止), "first"}
+    questions = []  # 綜合題：大題號「1.」是題組引言，「(1)(2)…」小題才各算一題（題庫 Excel 也這樣算）     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
 
     def qnum(t):
         """題號（容許手寫符號黏在前面、少了點號）；號碼必須接在上一題後面 +1～+3，避免 10m/s、2.0 這類被當題號"""
@@ -345,6 +363,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             para = (fig_para if RE_FIG.match(t) else tab_para)(pg, int(mf.group(1)))
             if para is None:
                 continue
+            if cur is not None:
+                cur.setdefault("kinds", set()).add("表格" if RE_TAB.match(t) else "圖片")
             if cur is None:
                 C.append(para)
             elif cur["opts"]:
@@ -357,6 +377,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         if RE_SECTION.match(t) and len(t) <= 60:
             sec_qn = qn
             group_sec, group_raw = bool(RE_GROUP_SEC.search(t)), 0
+            group = None
             in_header = False
             flush()
             sec = t.replace("（", "【", 1).replace("(", "【", 1) if "【" not in t else t
@@ -392,6 +413,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                     any(RE_SUBQ.match(t2) for _, t2 in lines[i + 1:i + 14]):
                 group_raw += 1                      # 下一個題組（大題號照順序 1、2、3…）
                 sec_qn = None
+                flush(); group = None
                 start_q(qn + 1, t[mg.end():])
                 cur["group"] = True
                 continue
@@ -401,6 +423,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                     # 第 (1) 小題出現：剛才的「題」其實是題組引言 → 改成引言段落，不佔題號
                     C.append(B.p_intro(markup_safe(cur["stem"])))
                     C.extend(cur["figs_mid"] + cur["figs_after"])
+                    group = {"text": cur["stem"], "left": None}
                     cur = None
                     qn -= 1
                 start_q(qn + 1, t[ms.end():])
@@ -439,6 +462,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             flush()
             in_header = False
             C.append(B.p_intro(markup_safe(t)))
+            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
+            group = {"text": t, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr and int(mr.group(2)) >= int(mr.group(1)) else 2}
             continue
         # 題號被手寫蓋掉、認不出來：用結構判斷新題——上一題選項已經完整（或還沒有任何題目），
         # 這一行不是選項、不是上一個選項的換行尾巴，且後面接著 (A) 開頭的選項
@@ -449,6 +474,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                 continue
         if cur is None:
             C.append(B.p_intro(markup_safe(t)))   # 例如「請注意，1~20題為地科」
+            if group and "first" not in group:
+                group["text"] = join(group["text"], t)   # 題組引言後、第一小題前的文章內容
             continue
         if opts:
             if opts[0].startswith("(A)") and any(o.startswith("(A)") for o in cur["opts"]):
@@ -476,6 +503,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
             cur["stem"] = join(cur["stem"], t)
     flush()
 
+    if collect is not None:
+        collect["questions"] = questions; collect["meta"] = dict(meta)
     g, term = meta["grade"], meta["term"]
     label = LABEL.get(g, "國九自然")
     book = BOOK.get((g, term), "")

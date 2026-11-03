@@ -77,9 +77,36 @@ def gold(xlsx):
     return out
 
 
+def gold_rows(xlsx):
+    ws = openpyxl.load_workbook(xlsx, read_only=True).worksheets[0]
+    rows = list(ws.iter_rows(values_only=True)); h = list(rows[0])
+    return {str(r[h.index("題號")]).strip(): {k: str(r[h.index(k)] or "") for k in ("題目", "題組ID", "題組文章")} for r in rows[1:] if r[h.index("題號")]}
+
+
+def xlsx_eval(a):
+    """最終目標的分數：草稿 Excel 跟正解 Excel 同一個題號的題目欄比字元正確率（切錯題號就直接算錯）。"""
+    import to_qbank_xlsx as X
+    accs, gid_ok, gid_n, exact = [], 0, 0, 0
+    print("| 考卷 | 正解題數 | 草稿題數 | 同題號字元正確率 | ≥95% 題數 | 題組ID 一致 |"); print("|---|---:|---:|---:|---:|---:|")
+    for d in sorted(glob.glob(os.path.join(a.bench, "*", ""))):
+        n = os.path.basename(d.rstrip("/")); x = os.path.join(a.gold, n + ".xlsx")
+        if not (os.path.exists(x) and os.path.exists(os.path.join(d, n + ".txt"))): continue
+        g = gold_rows(x); ours = {r["題號"]: r for r in X.rows(d, n)}
+        acc = [1 - cer(norm(v["題目"]), norm(ours[q]["題目"])) if q in ours else 0.0 for q, v in g.items()]
+        gi = [(v["題組ID"] == ours.get(q, {}).get("題組ID", "")) for q, v in g.items() if v["題組ID"] or ours.get(q, {}).get("題組ID")]
+        accs += acc; gid_ok += sum(gi); gid_n += len(gi); exact += len(ours) == len(g)
+        print(f"| {n.replace('_國七上二段_生物_題目', '')} | {len(g)} | {len(ours)} | {sum(acc) / max(1, len(acc)):.1%} | {sum(v >= .95 for v in acc)} | {sum(gi)}/{len(gi)} |")
+    print(f"\n**Excel 合計**：{len(accs)} 題；題數全對 {exact} 份；同題號題目欄平均字元正確率 {sum(accs) / max(1, len(accs)):.1%}，"
+          f"≥95% 的題 {sum(v >= .95 for v in accs)}／{len(accs)}；題組ID 一致 {gid_ok}／{gid_n}")
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--bench", default="ocr/results/qbank_bench")
-    ap.add_argument("--gold", default=os.path.expanduser("~/Desktop/待匯入")); ap.add_argument("-v", action="store_true"); a = ap.parse_args()
+    ap.add_argument("--gold", default=os.path.expanduser("~/Desktop/待匯入")); ap.add_argument("-v", action="store_true")
+    ap.add_argument("--xlsx", action="store_true", help="用 to_qbank_xlsx 產生的題庫 Excel 草稿逐題號比對（同題號的題目欄字元正確率、題組ID 一致率）")
+    a = ap.parse_args()
+    if a.xlsx:
+        return xlsx_eval(a)
     tot_q = tot_hit = 0; accs = []
     print("| 考卷 | 正解題數 | Word 題數 | 平均字元正確率 | 低於 90% 的題 |"); print("|---|---:|---:|---:|---|")
     for d in sorted(glob.glob(os.path.join(a.bench, "*", ""))):
