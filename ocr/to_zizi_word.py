@@ -196,7 +196,8 @@ def _page_order(lines):
 RE_MISC_HEAD = re.compile(r"^\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[,，、]?\s*第\s*[0-9OoIl]{1,3}\s*[頁贝]\s*$|"
                           r"貼\s*上?\s*不\s*透|不\s*透\s*光|光\s*貼\s*紙|"
                           r"^\s*[單多]?\s*選\s*擇\s*題\s*[：:]?\s*[（(]\s*每\s*題|"
-                          r"^\s*[※＊*]\s*請.{0,20}(?:作\s*答|鉛\s*筆|答\s*案\s*卡)")
+                          r"^\s*[※＊*]\s*請.{0,20}(?:作\s*答|鉛\s*筆|答\s*案\s*卡)|"
+                          r"Docu\s*Freezer|Created\s+by\s+(?:free|trial)\s+version")     # PDF 轉檔軟體試用版浮水印
 
 
 # 「說明」欄的編號條目（「1.請用2B鉛筆作答」「2.本試卷共有50題」「3.範圍：3-1~4-2」）：前面有題號也是卷頭
@@ -278,7 +279,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
             cur["opts"][-1] = join(cur["opts"][-1], tl)
         raw = cur["stem"] + "".join(cur["opts"])
-        rec = {"n": n_q, "pn": cur.get("pn"), "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
+        rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
                "review": "⚠" in raw, "group": "", "gid": None}
         if group and (group["left"] is None or group["left"] > 0):
             rec["group"] = group["text"]; rec["gid"] = group.setdefault("first", n_q)
@@ -340,6 +341,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     qn = 0
     num_off, sec_qn = 0, None
     group_sec, group_raw = False, 0
+    tf_sec = False                   # 是非題大題：題庫 Excel 每題補「(A)正確 (B)錯誤」
     group = None                     # 目前生效的題組引言 {"text", "left"(剩幾題，None＝到下個題組為止), "first"}
     questions = []  # 綜合題：大題號「1.」是題組引言，「(1)(2)…」小題才各算一題（題庫 Excel 也這樣算）     # 大題換段後題號從 1 重編（「二、題組題」1~15）：接在上一段後面編（36~50）
 
@@ -400,6 +402,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             else:
                 cur["figs_mid"].append(para)
             continue
+        if len(t) <= 80 and re.match(r"^\s*[一二三四五六七八九十]{1,3}\s*[、.．，,]?\s*[^\s]{0,4}?題", t):
+            tf_sec = "是非" in t          # 大題標題：是非題開始／別的大題開始
         if is_boilerplate_line(t, in_header):
             continue                          # 卷頭（每頁都可能重印）、頁碼：由茲茲橫幅取代
         if RE_SECTION.match(t) and len(t) <= 60:

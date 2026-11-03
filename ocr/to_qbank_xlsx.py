@@ -44,6 +44,8 @@ def question_text(q):
     if "圖片" in q["kinds"] or "表格" in q["kinds"]:
         stem += "〔含圖〕"
     opts = [clean(o) for o in q["opts"] if clean(o)]
+    if q.get("tf") and not opts:
+        opts = ["(A)正確", "(B)錯誤"]       # 是非題：題庫格式把正確／錯誤當成 (A)(B) 選項
     return "\n".join([stem] + opts)
 
 
