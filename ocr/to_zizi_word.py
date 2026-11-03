@@ -162,6 +162,10 @@ def read_lines(pyexam_dir):
             continue
         if not ln or RE_SEP.match(ln):
             continue
+        # 頁尾提示常跟下一題引言黏在同一行（「Bless第2附圖為葉的…」「共4頁Earth下頁還有試題請繼續作答」）：先就地剔除
+        ln = RE_FOOT_INLINE.sub("", ln).strip()
+        if not ln or RE_CAPTION_ONLY.match(ln):
+            continue                          # 只有「圖(十)圖(十一)」「表(一)」的圖說行，題庫題目不收
         # 題號框比題幹略高時，OCR 會把「( )13.」黏到上一行行尾：從那裡切成兩行
         for part in RE_MID_Q.split(ln):
             if part.strip():
@@ -169,6 +173,10 @@ def read_lines(pyexam_dir):
     return base, _page_order(lines)
 
 
+RE_FOOT_INLINE = re.compile(r"[,，]?\s*(?:共\s*\d+\s*[頁贝]\s*)?(?:[A-Z][a-z]{3,5}\s*)?(?:下\s*頁\s*還\s*有\s*試?\s*題\s*[,，、]?\s*請?\s*繼?\s*續\s*作\s*答)|"
+                            r"試\s*題\s*已\s*結\s*束.*$|請?\s*再\s*仔\s*細\s*檢\s*查\s*一?\s*下?\s*[。!！]?|"
+                            r"(?:Bless|Earth|Farth)\s*(?:第\s*\d+\s*[頁贝]?)?")
+RE_CAPTION_ONLY = re.compile(r"^(?:\s*[圖表]\s*[（(]\s*[一二三四五六七八九十0-9]{1,3}\s*[）)]\s*)+[。.]?$")
 RE_PAGE_NO = re.compile(r"(?:^|[^\d])第\s*([0-9]{1,2})\s*[頁贝](?:\s*[,，、]?\s*共\s*[0-9]{1,2}\s*[頁贝])?\s*$|^\s*共\s*[0-9]{1,2}\s*[頁贝]\s*[,，、]?\s*第\s*([0-9]{1,2})\s*[頁贝]")
 
 
