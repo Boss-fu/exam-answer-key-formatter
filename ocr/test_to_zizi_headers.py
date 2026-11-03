@@ -1,7 +1,7 @@
 """Word 前的卷頭、頁尾過濾規則。"""
 import unittest
 
-from ocr.to_zizi_word import is_boilerplate_line
+from ocr.to_zizi_word import is_boilerplate_line, recover_truncated_qnum
 
 
 class BoilerplateLineTest(unittest.TestCase):
@@ -17,6 +17,12 @@ class BoilerplateLineTest(unittest.TestCase):
     def test_normal_question_is_kept(self):
         self.assertFalse(is_boilerplate_line("1. 下列何者正確？", in_header=True))
         self.assertFalse(is_boilerplate_line("班級制度的演變", in_header=False))
+
+    def test_recover_only_unambiguous_truncated_question_numbers(self):
+        self.assertEqual(recover_truncated_qnum("1).承上題，圖中何者正確？", 9), 10)
+        self.assertEqual(recover_truncated_qnum("3.承上題，圖中何者正確？", 38), 39)
+        self.assertIsNone(recover_truncated_qnum("3.下列何者正確？", 22))
+        self.assertIsNone(recover_truncated_qnum("1).一般敘述", 9))
 
 
 if __name__ == "__main__":

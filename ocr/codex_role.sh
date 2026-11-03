@@ -18,7 +18,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CODEX="${CODEX_BIN:-/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex}"
 OUT="$ROOT/ocr/results/codex"
 mkdir -p "$OUT"
-STAMP="$(date +%m%d-%H%M%S)"
+STAMP="$(date +%m%d-%H%M%S)-$$"
 AI="${AI:-codex}"
 REPORT="$OUT/${STAMP}_${ROLE}_${AI}.md"
 

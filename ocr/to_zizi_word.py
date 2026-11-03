@@ -57,6 +57,26 @@ WARN = "　⚠需確認"
 MARGIN_INK = 9.9          # 停用：v7 實測學生在左邊空白寫字會大量誤判成新題（士林 73/40）；位置資料保留供之後改良
 
 
+def recover_truncated_qnum(text, current):
+    """復原 OCR 把兩位題號後半吃掉的極少數情形。
+
+    例如第 10 題被讀成 ``1).承上題``、第 39 題被讀成
+    ``3.承上題``。只接受預期下一題的十位數仍在行首，避免把
+    題幹中的一般數字當成題號。
+    """
+    expected = current + 1
+    if not 10 <= expected <= 99 or not text:
+        return None
+    tens = str(expected)[0]
+    # ``1).`` 是 0 被誤讀成右括號的典型；一般 ``3.`` 則只收
+    # 「承上題」這種明確題幹，避免改變正常的單位數題號。
+    if re.match(rf"^{tens}\s*[)）]\s*[.．、]", text) and re.search(r"承\s*上\s*題", text):
+        return expected
+    if re.match(rf"^{tens}\s*[.．、]", text) and re.search(r"承\s*上\s*題", text):
+        return expected
+    return None
+
+
 def markup_safe(t):
     """OCR 原文裡的 ~ * _ ^ 是 buildlib 的格式符號，先換成全形；pyexam 的 x^{2}／v_{1} 改成上下標。"""
     t = re.sub(r"_\{([^{}]{1,6})\}", lambda m: "\x01" + m.group(1) + "\x01", t)
@@ -417,6 +437,9 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         if RE_Q.match(t) and re.search(r"[\(（]\s*[A-Ea-e]\s*[\)）]\s*$", t[:m.end()]) and re.search(r"[\(（]\s*B\s*[\)）]", t[m.end():]):
             m = RE_Q_NOANS.match(t)           # 「12.(A)甲 (B)乙」：括號裡的 A 是選項，不是手寫答案
         n = int(m.group(1))
+        repaired = recover_truncated_qnum(t, qn)
+        if repaired is not None:
+            n = repaired
         if sec_qn is not None and n <= 3 and n < qn and sec_qn + n <= qn + 3:
             n += sec_qn                      # 換段後題號重編：只在大題標題之後、號碼很小時才換算
         elif num_off and n + num_off > qn:
