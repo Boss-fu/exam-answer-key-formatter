@@ -26,12 +26,12 @@ RE_SEP = re.compile(r"^───")
 RE_FIG = re.compile(r"^〔含圖 (\d+)〕$")
 RE_TAB = re.compile(r"^〔表格 (\d+)〕$")
 # 題號，含後面的作答括號：「( )1.」「1.( B )」「1. (　)」——括號裡的手寫答案一起吃掉，不能被當成選項 (B)
-RE_Q = re.compile(r"^(?:[\(（]?\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、。](?!\d)\s*(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?")
+RE_Q = re.compile(r"^(?:[\(（]?\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、。](?!\d)\s*(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?")
 RE_OPT = re.compile(r"[\(（]\s*([A-E])\s*[\)）]|^[\(（]?\s*([A-E])\s*[\)）]|^[\(（]\s*([A-E])(?=[\u4e00-\u9fff])"
                     r"|(?<![A-Za-z0-9(（])([B-E])[\)）](?=\S)|[\(（]([B-E])(?=[\u4e00-\u9fff])")
 RE_Q_NOANS = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*")
 RE_ANS_START = re.compile(r"^[^\u4e00-\u9fff]{0,4}?[\(（]\s*[A-Ea-e]\s*[\)）]\s*(?=[\u4e00-\u9fff「])")
-RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[\)）]\s*\d{1,2}\s*[.．、。])")
+RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）]\s*\d{1,2}\s*[.．、。](?!\d))")
 RE_SUBQ = re.compile(r"^[(（]\s*([1-9])\s*[)）]\s*(?=\S)")     # 題組小題「(1)下列敘述何者錯誤？」
 RE_GROUP_SEC = re.compile(r"綜合|題組|非選")
 RE_Q_LOOSE = re.compile(r"^[^\u4e00-\u9fff\d]{0,3}?(\d{1,2})\s*[.．、。]?\s*(?=[\u4e00-\u9fff「（(])")
@@ -456,6 +456,20 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                     qn -= 1
                 start_q(qn + 1, t[ms.end():])
                 continue
+        m0 = RE_Q.match(t)
+        if m0 and cur is not None and not cur.get("pn") and not cur["opts"] and not cur.get("group") and \
+                int(m0.group(1)) + num_off == qn and len(t) - m0.end() >= 4:
+            # 前一段沒印題號、沒選項，佔掉的號碼正好是這行印的題號 → 前一段是題組引言（「小張將某植物的葉片…」），
+            # 這行才是那一題。不這樣接，後面每一題都會因「題號沒有變大」被拒，整串黏在一起
+            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", cur["stem"])
+            C.append(B.p_intro(markup_safe(cur["stem"])))
+            C.extend(cur["figs_mid"] + cur["figs_after"])
+            group = {"text": cur["stem"], "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
+            cur = None
+            qn -= 1
+            start_q(qn + 1, t[m0.end():])
+            cur["pn"] = qn
+            continue
         n, mq = qnum(t)
         if n is not None and sec_qn is not None:
             if n != int(mq.group(1)):
