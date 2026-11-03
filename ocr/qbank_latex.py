@@ -13,6 +13,8 @@ BEFORE = r"(?<![A-Za-z0-9.^{])"
 AFTER = r"(?:(?<=\})|(?![A-Za-z0-9^]))"   # 次方結尾後面可以直接接數字（OCR 漏掉頓號：cm^{2}204g）
 
 RE_MATH = re.compile(r"(\$[^$]*\$)")
+RE_LATEX_COMMAND = re.compile(r"(?<![A-Za-z\\\\])(frac|times|cdot|rightarrow|leftarrow|rightleftharpoons|text|mathrm|circ)(?![A-Za-z])")
+RE_FRAC_CJK = re.compile(r"(\\frac\{)([^{}]*)(\}\{)([^{}]*)(\})")
 RE_TEMP = re.compile(rf"{BEFORE}({NUMBER})?\s*(?:℃|°\s*C{AFTER})")
 RE_TEMP_F = re.compile(rf"{BEFORE}({NUMBER})?\s*(?:℉|°\s*F{AFTER})")
 RE_QTY = re.compile(rf"{BEFORE}({NUMBER})(?:(?=[LNAVWJ](?![A-Za-z]))|\s*(?![LNAVWJ](?![A-Za-z])))({COMPOUND}){AFTER}")   # 大寫單字母單位不可隔空格：尺上刻度「4 L」不是 4 公升
@@ -56,7 +58,7 @@ def _num(n):
 
 
 def _unit(u):
-    return re.sub(r"\s+", "", u).replace("Ω", r"\Omega ")
+    return re.sub(r"\s+", "", u).replace("Ω", r"\Omega")
 
 
 def _fix_density(t):
@@ -141,13 +143,59 @@ def _simple_frac(m):
 
 
 def _convert_plain(t):
-    t = RE_QTY.sub(lambda m: f"${_num(m.group(1))}\\,\\mathrm{{{_unit(m.group(2))}}}$", t)
+    # 題庫正解的量值單位用 \text{}；\mathrm{} 只保留給溫度與化學式。
+    t = RE_QTY.sub(lambda m: f"${_num(m.group(1))}\\,\\text{{{_unit(m.group(2))}}}$", t)
     return t
 
 
 def _each_plain(t, fn):
     """只處理 $...$ 以外的文字，已經是公式的不重包。"""
     return "".join(p if RE_MATH.fullmatch(p) else fn(p) for p in RE_MATH.split(t))
+
+
+def _repair_formula(formula):
+    """修正 OCR／既有題目中明確可判定的壞指令，不能猜的錯誤交給 lint。"""
+    body = formula[1:-1]
+    body = RE_LATEX_COMMAND.sub(r"\\\1", body)
+
+    # \frac 的中文名稱必須進 \text{}，否則 KaTeX 會把每個中文字當數學變數。
+    def cjk_frac(m):
+        def text_if_cjk(value):
+            return rf"\text{{{value}}}" if re.search(r"[\u4e00-\u9fff]", value) and r"\text{" not in value else value
+        return m.group(1) + text_if_cjk(m.group(2)) + m.group(3) + text_if_cjk(m.group(4)) + m.group(5)
+    body = RE_FRAC_CJK.sub(cjk_frac, body)
+    return "$" + body + "$"
+
+
+def _repair_formulas(t):
+    return "".join(_repair_formula(p) if RE_MATH.fullmatch(p) else p for p in RE_MATH.split(t))
+
+
+def latex_lint(t):
+    """回傳題庫 KaTeX 的明確錯誤；空串列代表沒有偵測到已知壞格式。"""
+    errors = []
+    if t.count("$") % 2:
+        errors.append("$ 未成對")
+    for i, formula in enumerate(re.findall(r"\$([^$]*)\$", t), 1):
+        stack = []
+        for ch in formula:
+            if ch == "{": stack.append(ch)
+            elif ch == "}":
+                if stack: stack.pop()
+                else: errors.append(f"公式 {i} 大括號不對稱"); break
+        else:
+            if stack: errors.append(f"公式 {i} 大括號不對稱")
+        if RE_LATEX_COMMAND.search(formula):
+            errors.append(f"公式 {i} 有漏反斜線指令")
+        if re.search(r"\\frac(?!\{)", formula):
+            errors.append(f"公式 {i} 的 \\frac 缺少大括號")
+        for m in re.finditer(r"\\frac\{([^{}]*)\}\{([^{}]*)\}", formula):
+            if any(re.search(r"[\u4e00-\u9fff]", part) and r"\text{" not in part for part in m.groups()):
+                errors.append(f"公式 {i} 的 \\frac 中文未用 \\text{{}}")
+                break
+        if re.search(r"\d,\\text\{", formula):
+            errors.append(f"公式 {i} 的數字與 \\text{{}} 間不可加逗號")
+    return errors
 
 
 def to_latex(t):
@@ -161,7 +209,7 @@ def to_latex(t):
                lambda s: RE_FRAC.sub(_simple_frac, s),
                lambda s: RE_VAR.sub(lambda m: f"${m.group(1)}={_num(m.group(2))}$", s)):
         t = _each_plain(t, fn)
-    return t
+    return _repair_formulas(t)
 
 
 def formula_doubts(raw):

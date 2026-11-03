@@ -1,7 +1,7 @@
 """題庫 Excel 的公式整理規則。"""
 import unittest
 
-from ocr.qbank_latex import formula_doubts, to_latex
+from ocr.qbank_latex import formula_doubts, latex_lint, to_latex
 
 
 class ToLatexTest(unittest.TestCase):
@@ -11,19 +11,19 @@ class ToLatexTest(unittest.TestCase):
 
     def test_quantities(self):
         self.check([
-            ("裝入30mL的水", r"裝入$30\,\mathrm{mL}$的水"),
-            ("(A)4.60 cm (B)4.6 cm", r"(A)$4.60\,\mathrm{cm}$ (B)$4.6\,\mathrm{cm}$"),
-            ("波速為60cm/s", r"波速為$60\,\mathrm{cm/s}$"),
-            ("(B) 1.5 g/cm^{3}", r"(B) $1.5\,\mathrm{g/cm^{3}}$"),
-            ("含量為 50mg/kg，", r"含量為 $50\,\mathrm{mg/kg}$，"),
-            ("(C)9,192,631,770Hz", r"(C)$9{,}192{,}631{,}770\,\mathrm{Hz}$"),
+            ("裝入30mL的水", r"裝入$30\,\text{mL}$的水"),
+            ("(A)4.60 cm (B)4.6 cm", r"(A)$4.60\,\text{cm}$ (B)$4.6\,\text{cm}$"),
+            ("波速為60cm/s", r"波速為$60\,\text{cm/s}$"),
+            ("(B) 1.5 g/cm^{3}", r"(B) $1.5\,\text{g/cm^{3}}$"),
+            ("含量為 50mg/kg，", r"含量為 $50\,\text{mg/kg}$，"),
+            ("(C)9,192,631,770Hz", r"(C)$9{,}192{,}631{,}770\,\text{Hz}$"),
             ("體積V(cm^{3})", r"體積V($\mathrm{cm^{3}}$)"),
-            ("(A)204 cm^{2}204g", r"(A)$204\,\mathrm{cm^{2}}$$204\,\mathrm{g}$"),
-            ("電流2A、電壓3V", r"電流$2\,\mathrm{A}$、電壓$3\,\mathrm{V}$"),
+            ("(A)204 cm^{2}204g", r"(A)$204\,\text{cm^{2}}$$204\,\text{g}$"),
+            ("電流2A、電壓3V", r"電流$2\,\text{A}$、電壓$3\,\text{V}$"),
         ])
 
     def test_density_gets_cube(self):
-        self.check([("密度10.5g/cm）", r"密度$10.5\,\mathrm{g/cm^{3}}$）")])
+        self.check([("密度10.5g/cm）", r"密度$10.5\,\text{g/cm^{3}}$）")])
 
     def test_temperature(self):
         self.check([
@@ -67,7 +67,7 @@ class ToLatexTest(unittest.TestCase):
 
     def test_fraction_guards(self):
         self.check([
-            ("120cm/4s", r"$120\,\mathrm{cm}$/$4\,\mathrm{s}$"),
+            ("120cm/4s", r"$120\,\text{cm}$/$4\,\text{s}$"),
             ("1/2 小時", r"$\frac{1}{2}$ 小時"),
             ("112/1", "112/1"),
         ])
@@ -81,6 +81,26 @@ class ToLatexTest(unittest.TestCase):
         for raw in ("30mL的水", "H2O", "4℃", "1.5 g/cm^{3}"):
             once = to_latex(raw)
             self.assertEqual(to_latex(once), once, raw)
+
+    def test_repairs_known_broken_latex(self):
+        self.check([
+            (r"$6times10^{23}$", r"$6\times10^{23}$"),
+            (r"$\frac{質量}{體積}$", r"$\frac{\text{質量}}{\text{體積}}$"),
+        ])
+
+
+class LatexLintTest(unittest.TestCase):
+    def test_valid_generated_formats(self):
+        self.assertEqual(latex_lint(to_latex("25°C，30mL，密度=質量/體積")), [])
+
+    def test_reports_known_bad_latex(self):
+        errors = latex_lint(r"$6times10^{23}$，$\frac{質量}{m}$，$29,\text{g}$，$x^{2$")
+        self.assertEqual(errors, [
+            "公式 1 有漏反斜線指令",
+            "公式 2 的 \\frac 中文未用 \\text{}",
+            "公式 3 的數字與 \\text{} 間不可加逗號",
+            "公式 4 大括號不對稱",
+        ])
 
 
 class DoubtTest(unittest.TestCase):
