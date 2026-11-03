@@ -90,14 +90,15 @@ def _save_preview(image, out_dir, name):
 
 
 # ---------- 影像前處理（OpenCV）----------
-def preprocess(img_bgr, upscale=1.5):
+def preprocess(img_bgr, upscale=1.5, denoise=True):
     """灰階 → 放大 → 去雜訊 → Otsu 二值化。回傳適合 OCR 的單通道圖。"""
     if cv2 is None:
         return img_bgr
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     if upscale and upscale != 1.0:
         gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.fastNlMeansDenoising(gray, h=10)
+    if denoise:
+        gray = cv2.fastNlMeansDenoising(gray, h=10)   # 一頁要 25 秒，占整頁 OCR 七成；只有 Tesseract 需要
     _, binimg = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return binimg
 
@@ -1017,8 +1018,8 @@ def _ocr_one_page(job):
     lines = []
     if eng_name == "ppocr":
         lay = text_layout(bgr)
-        if not lay["cuts"]:                      # preprocess 很慢（放大＋去雜訊），PP-OCR 只有找不到欄界時才用得到
-            binimg = preprocess(bgr, upscale=upscale)
+        if not lay["cuts"]:                      # 找欄界只看墨跡分布，不需要去雜訊
+            binimg = preprocess(bgr, upscale=upscale, denoise=False)
             lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
         lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
                                                                    header=lay["header"], hard=lay["hard"])
