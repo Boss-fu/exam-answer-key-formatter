@@ -180,6 +180,27 @@ def question_text(q, with_option_count=False):
     return (text, len(opts)) if with_option_count else text
 
 
+# 非選題的題幹結尾：問句、配分、作答提示
+RE_STEM_END = re.compile(r"[？?]\s*(?:[(（][^()（）]{0,12}[)）])?|[(（]\s*各?\s*\$?\d+\$?\s*分\s*[)）]|[(（]\s*(?:填|以)代號(?:作答|回答)?\s*[)）]")
+RE_INTRO_WORDS = re.compile(r"回答|下列問題|閱讀|根據|如(?:附|下|右|左)?圖|實驗|資料|題組")
+
+
+def split_trailing_intro(rs):
+    """沒有選項的題目（填充、簡答）題幹結束後又接了一大段：那是下一個題組的引言，移給下一題的題組文章。"""
+    for i, r in enumerate(rs):
+        t = r["題目"]
+        if "\n(" in t:
+            continue
+        ends = list(RE_STEM_END.finditer(t))
+        for m in reversed(ends):          # 從最後一個題幹結尾往前找：「？甲：乙：（各2分）」要留到配分
+            rest = t[m.end():].strip()
+            if len(rest) >= 25 and RE_INTRO_WORDS.search(rest) and not RE_STEM_END.search(rest[-6:]):
+                r["題目"] = t[:m.end()].rstrip()
+                if i + 1 < len(rs) and not rs[i + 1]["題組文章"]:
+                    rs[i + 1]["題組文章"] = rest
+                break
+
+
 def resolved_question_numbers(questions):
     """以相鄰題目的連續性裁決 OCR 印刷題號，避免單一誤讀帶歪後續。"""
     out, prev = [], 0
@@ -266,6 +287,7 @@ def rows(pyexam_dir, name):
             "題組ID": "",
             "_gid": q["gid"],
         })
+    split_trailing_intro(out)
     # 題組 ID 用該題組第一題的「Excel 題號」（不是 Word 流水號）
     first = {}
     for r in out:

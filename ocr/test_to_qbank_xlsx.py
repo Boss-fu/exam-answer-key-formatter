@@ -70,6 +70,14 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("(D)已經完成"), "(D)已經完成")
         self.assertEqual(fix_ocr("(C)內(D)T。"), "(C)丙(D)丁。")
 
+    def test_trailing_intro_moves_to_next_group(self):
+        from to_qbank_xlsx import split_trailing_intro
+        rs = [{"題目": "甲、乙兩試管會呈現什麼顏色？甲：乙：（各2分）真真將天竺葵其中一枚葉片用黑色貼紙貼住，進行澱粉的檢驗實驗，回答下列問題", "題組文章": ""},
+              {"題目": "下列何者正確？\n(A)甲\n(B)乙\n(C)丙\n(D)丁", "題組文章": ""}]
+        split_trailing_intro(rs)
+        self.assertEqual(rs[0]["題目"], "甲、乙兩試管會呈現什麼顏色？甲：乙：（各2分）")
+        self.assertTrue(rs[1]["題組文章"].startswith("真真將天竺葵"))
+
 
 if __name__ == "__main__":
     unittest.main()
