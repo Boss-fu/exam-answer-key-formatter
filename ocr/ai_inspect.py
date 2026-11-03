@@ -43,15 +43,25 @@ def ask(images, draft, timeout=600):
         r = subprocess.run(["agy", "--model", MODEL, "--print-timeout", f"{timeout}s", "-p", prompt],
                            cwd=tmp, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout + 60)
     out = r.stdout
-    a, b = out.find("["), out.rfind("]")
-    if a < 0 or b <= a:
+    a = out.find("[")
+    if a < 0:
         raise RuntimeError("AI 沒有回 JSON：" + (out or r.stderr)[-400:])
-    return json.loads(out[a:b + 1], strict=False)      # AI 常在字串裡直接換行；寬鬆解析
+    body = out[a:]
+    b = body.rfind("]")
+    try:
+        return json.loads(body[:b + 1], strict=False) if b > 0 else None      # AI 常在字串裡直接換行；寬鬆解析
+    except json.JSONDecodeError:
+        pass
+    # 輸出太長被截斷：留到最後一個完整的 {…}，補上 ]
+    k = body.rfind("}")
+    if k < 0:
+        raise RuntimeError("AI 回的 JSON 不完整：" + out[-300:])
+    return json.loads(body[:k + 1] + "]", strict=False)
 
 
 def inspect(pyexam_dir, name, rows):
     draft = [{"題號": r["題號"], "題目": r["題目"], "題組文章": r["題組文章"]} for r in rows]
-    fixed = ask(pages(pyexam_dir), draft)
+    fixed = ask(pages(pyexam_dir), draft) or []
     base = {k: rows[0][k] for k in ("年度", "來源學校", "考試名稱")} if rows else X.exam_info(name)
     old = {r["題號"]: r for r in rows}
     gid_prefix = X.exam_info(name)["gid"]
@@ -70,6 +80,11 @@ def inspect(pyexam_dir, name, rows):
         if "〔含圖〕" in r["題目"] and r.get("圖表類型") == "無":
             r["圖表類型"] = ""; r["待確認"] = "Y"
         out.append(r)
+    # AI 輸出被截斷、後面幾題沒回：照草稿補上並標待確認，不能讓題目消失
+    last = max((int(r["題號"]) for r in out), default=0)
+    for r in rows:
+        if r["題號"].isdigit() and int(r["題號"]) > last:
+            out.append(dict(r, 待確認="Y", 判斷依據=("AI 未校對；" + r.get("判斷依據", "")).strip("；")))
     return out
 
 
