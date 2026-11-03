@@ -32,13 +32,14 @@ def pages(pyexam_dir):
     return sorted(ims, key=lambda p: int(re.search(r"p(\d+)_clean", p).group(1)))
 
 
-def ask(images, draft, timeout=600):
+def ask(images, draft, timeout=600, rng=None):
     """把頁面圖複製到暫存資料夾、以 @檔名 交給 agy；回傳解析好的 list。"""
     with tempfile.TemporaryDirectory() as tmp:
         refs = []
         for i, p in enumerate(images, 1):
             dst = os.path.join(tmp, f"page{i}.jpg"); shutil.copy(p, dst); refs.append(f"@page{i}.jpg")
-        prompt = RULES + "\n頁面圖：" + " ".join(refs) + "\n\n草稿：\n" + json.dumps(draft, ensure_ascii=False) + \
+        part = f"\n這次只輸出題號 {rng[0]}～{rng[1]} 的題（其他題不要輸出）。" if rng else ""
+        prompt = RULES + part + "\n頁面圖：" + " ".join(refs) + "\n\n草稿：\n" + json.dumps(draft, ensure_ascii=False) + \
             "\n\n只根據上面的圖片與草稿回答，不要使用任何工具。"
         r = subprocess.run(["agy", "--model", MODEL, "--print-timeout", f"{timeout}s", "-p", prompt],
                            cwd=tmp, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout + 60)
@@ -61,7 +62,14 @@ def ask(images, draft, timeout=600):
 
 def inspect(pyexam_dir, name, rows):
     draft = [{"題號": r["題號"], "題目": r["題目"], "題組文章": r["題組文章"]} for r in rows]
-    fixed = ask(pages(pyexam_dir), draft) or []
+    # 一次回整份 50 題常被截斷：每 25 題問一次（每次都給全部頁面圖與整份草稿，題號才對得上）
+    nums = [int(r["題號"]) for r in rows if r["題號"].isdigit()] or [0]
+    top, step, fixed = max(nums), 25, []
+    for lo in range(1, top + 1, step):
+        hi = top + 5 if lo + step > top else lo + step - 1   # 最後一段多留幾號，AI 認為草稿漏題時補得進來
+        fixed += [it for it in (ask(pages(pyexam_dir), draft, rng=(lo, hi)) or [])
+                  if str(it.get("題號", "")).strip().isdigit() and lo <= int(str(it["題號"]).strip()) <= hi]
+    seen = set(); fixed = [it for it in fixed if not (str(it["題號"]).strip() in seen or seen.add(str(it["題號"]).strip()))]
     base = {k: rows[0][k] for k in ("年度", "來源學校", "考試名稱")} if rows else X.exam_info(name)
     old = {r["題號"]: r for r in rows}
     gid_prefix = X.exam_info(name)["gid"]
