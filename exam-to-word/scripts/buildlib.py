@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, re, shutil
+import os, re, shutil, zipfile
 from PIL import Image
 import glob as _glob
 def _find_template():
@@ -17,7 +17,7 @@ def start(build, figs):
     BUILD, FIGS = build, figs; img_rels = []; next_rid = 100; next_did = 900
     if os.path.exists(BUILD): shutil.rmtree(BUILD)
     os.makedirs(BUILD)
-    if os.system(f'unzip -q "{SRC}" -d {BUILD}') != 0: raise RuntimeError('範本解壓失敗：' + SRC); os.system(f'find {BUILD} -type l -delete')
+    with zipfile.ZipFile(SRC) as z: z.extractall(BUILD)   # 不呼叫 unzip／zip：Windows 主機沒有這兩個指令
 # ---------- helpers ----------
 def esc(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -224,7 +224,11 @@ def finish(C, out, repl=()):
             if not direct and not linked:
                 os.remove(os.path.join(media_dir, name))
     if os.path.exists(out): os.remove(out)
-    os.system(f'cd {BUILD} && zip -Xqr "{out}" .')
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _dirs, names in os.walk(BUILD):
+            for name in names:
+                f = os.path.join(root, name)
+                z.write(f, os.path.relpath(f, BUILD))
     print("ok", out)
 
 def inline_img(name, h_in):

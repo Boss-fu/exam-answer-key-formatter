@@ -63,6 +63,14 @@ def _progress(out_dir, started, stage, page=0, pages=0, msg="", img=None):
         pass
 
 
+def _imwrite(path, image, params=()):
+    """cv2.imwrite 在 Windows 碰到中文路徑會失敗且不報錯，圖就全部不見；改成先編碼再寫檔。"""
+    ok, buf = cv2.imencode(os.path.splitext(path)[1], image, list(params))
+    if ok:
+        buf.tofile(path)
+    return ok
+
+
 def _save_preview(image, out_dir, name):
     """存給處理畫面的輕量卷面圖；失敗時回傳 None。"""
     try:
@@ -74,7 +82,7 @@ def _save_preview(image, out_dir, name):
         if w > 900:
             image = cv2.resize(image, (900, max(1, round(h * 900 / w))), interpolation=cv2.INTER_AREA)
         filename = f"{name}.jpg"
-        if not cv2.imwrite(os.path.join(previews, filename), image, [cv2.IMWRITE_JPEG_QUALITY, 70]):
+        if not _imwrite(os.path.join(previews, filename), image, [cv2.IMWRITE_JPEG_QUALITY, 70]):
             return None
         return f"previews/{filename}"
     except Exception:
@@ -1024,7 +1032,7 @@ def _ocr_one_page(job):
             if bx1 > cx0 and bx0 < cx1 and by1 > cy0 and by0 < cy1:
                 crop[max(0, by0 - cy0 - 3):max(0, by1 - cy0 + 3), max(0, bx0 - cx0 - 3):max(0, bx1 - cx0 + 3)] = 255
         if cv2 is not None and crop.size:
-            cv2.imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
+            _imwrite(os.path.join(out_dir, f"{base}_p{n}_fig{k}.png"), crop)
     fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
     for g in geo:
         g["page"] = n

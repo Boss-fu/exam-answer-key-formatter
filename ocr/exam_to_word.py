@@ -31,6 +31,9 @@ def progress(out_dir, started, stage, msg, page=0, pages=0, img=None):
 
 
 def main():
+    # Windows 預設 cp950：罕見字會讓 print 當掉，錯誤訊息到網頁也會變亂碼；local-app 一律用 UTF-8 解讀
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("-o", "--out", required=True)
@@ -44,6 +47,13 @@ def main():
     try:
         r = pyexam.process(a.src, a.out, dpi=a.dpi)
         t_ocr = time.time() - t0
+        if os.environ.get("OCR_SKIP_WORD") == "1":   # 只要題庫 Excel：Excel 之後由文字結果另外產生，不需要 Word 與 AI 判題
+            print(chr(10).join(r["report"]))
+            progress(a.out, t0, "done", "處理完成")
+            print(json.dumps({"docx": None, "review": None, "questions": None, "figures": None, "tables": None,
+                              "ai": None, "ai_error": "", "sec_ocr": round(t_ocr, 1), "sec_ai": 0,
+                              "sec_total": round(time.time() - t0, 1)}, ensure_ascii=False))
+            return
         ai_used, ai_note = None, ""
         if a.ai != "none":
             progress(a.out, t0, "ai", "正在判斷題目")
