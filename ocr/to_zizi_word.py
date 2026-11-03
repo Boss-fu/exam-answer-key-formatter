@@ -232,7 +232,9 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
         nonlocal cur, n_q
         if not cur:
             return
-        if not cur["opts"] and not cur["figs_mid"] and not cur["figs_after"] and len(re.sub(r"\W", "", cur["stem"])) < 4:
+        if not cur["opts"] and not cur["figs_mid"] and not cur["figs_after"] and (
+                len(re.sub(r"\W", "", cur["stem"])) < 4 or not re.search(r"[\u4e00-\u9fff]", cur["stem"])):
+            # 只有一兩個字、或整段沒有中文（「118 118」這類圖表刻度）、又沒選項沒圖的「題目」是雜訊
             cur = None                         # 只有一兩個字、沒選項沒圖的「題目」是手寫雜訊（例如一個 0）
             return
         n_q += 1
