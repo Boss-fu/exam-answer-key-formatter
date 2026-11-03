@@ -502,6 +502,11 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             start_q(qn + 1, t[m0.end():])
             cur["pn"] = qn
             continue
+        mc = re.match(r"^[^\u4e00-\u9fff]{0,6}?(?=承\s*上\s*題)", t)
+        if mc is not None and cur is not None and (cur["opts"] or cur.get("pn")) and not RE_Q.match(t):
+            # 「承上題」開頭一定是新題（題號被手寫蓋掉或認成「1).」也一樣）
+            start_q(qn + 1, t[mc.end():])
+            continue
         n, mq = qnum(t)
         if n is not None and sec_qn is not None:
             if n != int(mq.group(1)):
