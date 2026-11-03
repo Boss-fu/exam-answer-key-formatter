@@ -174,6 +174,10 @@ def read_lines(pyexam_dir):
     return base, _page_order(lines)
 
 
+# 題組引言的口吻：「…試回答下列問題」「附圖為…」「根據下列資料…」「閱讀下文」「請根據此圖回答第34~35題」
+RE_GROUP_INTRO = re.compile(r"回答|下列問題|下列資料|閱讀|根據(?:下|此|上|附)|^(?:附|下|上|右|左)圖|如下(?:圖|表)|^(?:附|下)表")
+# 選項 (D) 後面同一行黏著題組引言：在句號後切開
+RE_TAIL_INTRO = re.compile(r"(?<=[。.．?？])(?=[^。]{10,}?(?:回答|下列問題|閱讀|根據|(?:附|下|上|右|左)圖|如下))")
 RE_OPT_TOKEN = re.compile(r"[（(]\s*([^()（）\s]{1,2})\s*[)）]")
 
 
@@ -197,7 +201,7 @@ def fix_opt_labels(ln):
 
 
 RE_FOOT_INLINE = re.compile(r"[,，]?\s*(?:共\s*\d+\s*[頁贝]\s*)?(?:[A-Z][a-z]{3,5}\s*)?(?:下\s*頁\s*還\s*有\s*試?\s*題\s*[,，、]?\s*請?\s*繼?\s*續\s*作\s*答)|"
-                            r"試\s*題\s*已\s*結\s*束.*$|請?\s*再\s*仔\s*細\s*檢\s*查\s*一?\s*下?\s*[。!！]?|"
+                            r"背\s*面\s*(?:還|尚)\s*有\s*(?:試\s*)?題\s*目?|試\s*題\s*已\s*結\s*束.*$|請?\s*再\s*仔\s*細\s*檢\s*查\s*一?\s*下?\s*[。!！]?|"
                             r"(?:Bless|Earth|Farth)\s*(?:第\s*\d+\s*[頁贝]?)?")
 RE_CAPTION_ONLY = re.compile(r"^(?:\s*[圖表]\s*[（(]\s*[一二三四五六七八九十0-9]{1,3}\s*[）)]\s*)+[。.]?$")
 RE_PAGE_NO = re.compile(r"(?:^|[^\d])第\s*([0-9]{1,2})\s*[頁贝](?:\s*[,，、]?\s*共\s*[0-9]{1,2}\s*[頁贝])?\s*$|^\s*共\s*[0-9]{1,2}\s*[頁贝]\s*[,，、]?\s*第\s*([0-9]{1,2})\s*[頁贝]")
@@ -318,7 +322,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     used_figs = used_tabs = n_q = 0
 
     def flush():
-        nonlocal cur, n_q
+        nonlocal cur, n_q, group
         if not cur:
             return
         if not cur["opts"] and not cur["figs_mid"] and not cur["figs_after"] and (
@@ -329,6 +333,11 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         n_q += 1
         for tl in cur.pop("tail", []):            # (D) 之後的換行：確定是選項的尾巴，接回最後一個選項
             cur["opts"][-1] = join(cur["opts"][-1], tl)
+        spill = ""
+        if cur["opts"] and opts_done():
+            parts = RE_TAIL_INTRO.split(cur["opts"][-1], maxsplit=1)
+            if len(parts) == 2 and len(parts[1]) >= 12:
+                cur["opts"][-1], spill = parts[0], parts[1]   # (D) 後面黏到的是下一個題組的引言
         raw = cur["stem"] + "".join(cur["opts"])
         rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
                "review": "⚠" in raw, "group": "", "gid": None}
@@ -337,6 +346,10 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             if group["left"] is not None:
                 group["left"] -= 1
         questions.append(rec)
+        if spill:
+            C.append(B.p_intro(markup_safe(spill)))
+            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", spill)
+            group = {"text": spill, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
         stem = emphasize(markup_safe(cur["stem"])) or "（題幹未辨識，請對照原卷補上）"
         opts = [markup_safe(o) for o in cur["opts"]]
         body = layout_opts(opts)
@@ -597,6 +610,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                 else:
                     cur["stem"] = join(cur["stem"], head)
             cur["opts"].extend(opts)
+        elif cur["opts"] and opts_done() and len(t) >= 12 and RE_GROUP_INTRO.search(t) and not cur.get("tail"):
+            # (D) 之後、沒有題號的一行引言口吻 → 下一個題組的引言，不是 (D) 的尾巴
+            flush()
+            C.append(B.p_intro(markup_safe(t)))
+            mr = re.search(r"(\d+)\s*[～~至\-－—]\s*(\d+)\s*題", t)
+            group = {"text": t, "left": (int(mr.group(2)) - int(mr.group(1)) + 1) if mr else 3}
         elif cur["opts"]:
             if opts_done() or len(cur["opts"]) >= 3:
                 cur.setdefault("tail", []).append(t)    # 先記著：可能是選項尾巴，也可能是下一題被蓋掉題號的題幹
