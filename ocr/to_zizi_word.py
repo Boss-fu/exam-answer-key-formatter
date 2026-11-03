@@ -191,12 +191,32 @@ def _page_order(lines):
             found.setdefault(p, int(m.group(1) or m.group(2)))
     n = len(pages)
     if n < 2 or len(found) * 2 < n or len(set(found.values())) != len(found) or not all(1 <= v <= n for v in found.values()):
-        return lines
+        return _order_by_qnum(lines, pages)
     rest = iter(sorted(set(range(1, n + 1)) - set(found.values())))
     printed = {p: found[p] if p in found else next(rest) for p in pages}
     if [printed[p] for p in pages] == sorted(printed.values()):
         return lines
     order = sorted(pages, key=lambda p: printed[p])
+    return [ln for p in order for ln in lines if ln[0] == p]
+
+
+def _order_by_qnum(lines, pages):
+    """頁尾沒有頁碼時，改看每頁題號範圍排頁（113 士林：PDF 第 3 頁是 42~50、第 4 頁是 30~41）。
+    每頁取題號的 20%~80% 分位當範圍；各頁範圍互不重疊、排序後比原順序整齊才重排。
+    大題換段從 1 重編時範圍會重疊 → 不動，避免把第二段搬到最前面。"""
+    import statistics
+    rng = {}
+    for p in pages:
+        ns = sorted(int(m.group(1)) for q, t in lines if q == p for m in [RE_Q.match(t)] if m and int(m.group(1)) <= 80)
+        if len(ns) < 3:
+            return lines                     # 有頁抓不到足夠題號（圖頁、答案卷）就不冒險
+        rng[p] = (ns[len(ns) // 5], ns[(len(ns) * 4) // 5], statistics.median(ns))
+    order = sorted(pages, key=lambda p: rng[p][2])
+    if order == pages:
+        return lines
+    for a, b in zip(order, order[1:]):
+        if rng[a][1] >= rng[b][0]:
+            return lines                     # 範圍重疊（換段重編或認錯很多）→ 不重排
     return [ln for p in order for ln in lines if ln[0] == p]
 
 
