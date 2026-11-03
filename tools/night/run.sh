@@ -1,6 +1,7 @@
 #!/bin/bash
 # 夜間佇列：依序把 tools/night/tasks/*.txt 交給 Codex（一次一個、一般速率），每個做完自動驗收：
 # 任務做完一輪就自動再開下一輪（任務內容是看最新錯誤統計找最大宗，所以每輪會修不同的東西）。
+# 任務順序看 tools/night/order.txt（每輪重讀）。
 # 單元測試全過 + 27 份題庫 Excel 不退步（改到 pyexam 就重跑 27 份 OCR）→ commit＋push；不過就還原。
 # 不用 Claude token。到 END_AT（HHMM）或 Codex 額度用完就停。log：tools/night/log.md（不進 git 的結果在 ocr/results/night/）
 cd "$(dirname "$0")/../.."
@@ -13,7 +14,7 @@ tests(){ for t in ocr/test_to_qbank_xlsx.py ocr/test_qbank_latex.py ocr/test_to_
     $P -m unittest $t >/dev/null 2>&1 || { echo "$t"; return 1; }; done; }
 round=1; stop=""
 while [ -z "$stop" ]; do
-for task in tools/night/tasks/*.txt; do
+for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [ -f "$task" ] || continue
   [ "$(date +%H%M)" -ge "$END_AT" ] && { log "到 $END_AT，停止"; stop=1; break; }
   name="$(basename "$task" .txt)_r$round"; [ -f "$R/$name.done" ] && continue
   git pull -q --rebase 2>/dev/null
@@ -43,6 +44,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>/dev/n
     git checkout -- $changed; [ -n "$newtests" ] && rm -f $newtests; log "❌ $name 還原：$verdict"
   fi
   touch $R/$name.done
+  sleep "${COOLDOWN:-900}"          # 任務之間休息（預設 15 分鐘），把 Codex 用量攤平
 done
 [ -z "$stop" ] && { log "第 $round 輪做完，依最新錯誤統計開始第 $((round + 1)) 輪"; round=$((round + 1)); }
 done
