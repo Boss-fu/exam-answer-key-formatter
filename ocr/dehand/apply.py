@@ -147,7 +147,8 @@ _I2I = {}
 def _img2img_erased(gray, dpi):
     """回傳原解析度的遮罩：模型判定該擦掉的墨跡。"""
     import onnxruntime as ort
-    path = os.environ.get("DEHAND_IMG2IMG") or os.path.join(MODELS, "jw", "handwriting-eraser-v10.onnx")
+    # 預設用我們以俊瑋 v10 微調的 r7c（7 頁保留卷 PSNR 23.96／筆跡殘留 8.4%，勝 v10 的 22.64／9.1%），缺檔才退回 v10
+    path = os.environ.get("DEHAND_IMG2IMG") or next((p for p in (os.path.join(MODELS, "jw", n) for n in ("jwft-r7c.onnx", "handwriting-eraser-v10.onnx")) if os.path.exists(p)), "")
     if path not in _I2I:
         try:
             sess = ort.InferenceSession(path, providers=_providers(ort))
@@ -194,7 +195,9 @@ def erase(bgr, dpi=300, detected_boxes=None):
     LAST_TIMINGS.update(model=0.0, qnum=0.0)
     H, W = bgr.shape[:2]
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    mode = os.environ.get("DEHAND_MODE", "both").lower()
+    # 預設 img2img（13 份測試卷 CER 20.8%，舊的 both 22.2%）；沒有 img2img 模型時退回 both
+    mode = os.environ.get("DEHAND_MODE") or ("img2img" if os.path.exists(os.path.join(MODELS, "jw")) else "both")
+    mode = mode.lower()
     if mode not in ("model", "rule", "both", "img2img"):
         raise ValueError("DEHAND_MODE 必須是 model、rule、both 或 img2img")
     mask = np.zeros((H, W), np.uint8)

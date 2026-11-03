@@ -18,10 +18,12 @@ import pymupdf
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from dehand.apply import erase  # noqa: E402
+from pyexam import remove_color_ink  # noqa: E402
 
 
-def clean_page(gray: np.ndarray, dpi: int) -> tuple[np.ndarray, float]:
-    bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+def clean_page(img: np.ndarray, dpi: int) -> tuple[np.ndarray, float]:
+    # 彩色進來：先清紅藍筆與校徽浮水印（跟 OCR 同一套 remove_color_ink），再交給去筆跡模型
+    bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else remove_color_ink(img)[0]
     cleaned, ratio = erase(bgr, dpi=dpi)
     return cv2.cvtColor(cleaned, cv2.COLOR_BGR2GRAY), ratio
 
@@ -31,9 +33,9 @@ def clean_pdf(src: str, dst: str, dpi: int = 200) -> dict:
     output = pymupdf.open()
     ratios: list[float] = []
     for page in source:
-        pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
-        gray = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width).copy()
-        cleaned, ratio = clean_page(gray, dpi)
+        pix = page.get_pixmap(dpi=dpi, alpha=False)
+        rgb = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+        cleaned, ratio = clean_page(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), dpi)
         ok, encoded = cv2.imencode(".png", cleaned)
         if not ok:
             raise RuntimeError("清理後的頁面無法編碼")
@@ -48,7 +50,7 @@ def clean_pdf(src: str, dst: str, dpi: int = 200) -> dict:
 
 
 def clean_image(src: str, dst: str, dpi: int = 200) -> dict:
-    image = cv2.imread(src, cv2.IMREAD_GRAYSCALE)
+    image = cv2.imread(src, cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("讀不到圖片")
     cleaned, ratio = clean_page(image, dpi)
