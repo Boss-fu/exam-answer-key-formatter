@@ -166,7 +166,30 @@ def read_lines(pyexam_dir):
         for part in RE_MID_Q.split(ln):
             if part.strip():
                 lines.append((page, part.strip()))
-    return base, lines
+    return base, _page_order(lines)
+
+
+RE_PAGE_NO = re.compile(r"(?:^|[^\d])第\s*([0-9]{1,2})\s*[頁贝](?:\s*[,，、]?\s*共\s*[0-9]{1,2}\s*[頁贝])?\s*$|^\s*共\s*[0-9]{1,2}\s*[頁贝]\s*[,，、]?\s*第\s*([0-9]{1,2})\s*[頁贝]")
+
+
+def _page_order(lines):
+    """掃描順序錯（113 碧華：PDF 第 1 頁其實是卷面「第3頁」）時，依頁尾印的頁碼把頁重排。
+    至少一半的頁讀得到頁碼、而且彼此不重複才動；讀不到的頁依原順序補上剩下的頁碼。頁號（找圖用）不變。"""
+    pages = sorted({p for p, _ in lines})
+    found = {}
+    for p, t in lines:
+        m = RE_PAGE_NO.search(t)
+        if m:
+            found.setdefault(p, int(m.group(1) or m.group(2)))
+    n = len(pages)
+    if n < 2 or len(found) * 2 < n or len(set(found.values())) != len(found) or not all(1 <= v <= n for v in found.values()):
+        return lines
+    rest = iter(sorted(set(range(1, n + 1)) - set(found.values())))
+    printed = {p: found[p] if p in found else next(rest) for p in pages}
+    if [printed[p] for p in pages] == sorted(printed.values()):
+        return lines
+    order = sorted(pages, key=lambda p: printed[p])
+    return [ln for p in order for ln in lines if ln[0] == p]
 
 
 # 頁碼倒過來寫（「共4頁，第1頁」）、答案卡貼紙提示、「選擇題：(每題2分…)」配分說明、「※請用2B鉛筆…」作答說明
