@@ -411,7 +411,9 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None):
                 num_off = sec_qn             # 換段後第一題用了換算 → 這一段後面的題號都加同樣的位移
             sec_qn = None
         # 行首是空白作答括號「( )10.」本身就是新題的證據：上一題選項字母被擦掉、認不出 (A) 時也要接得上
-        if n is not None and (cur is None or cur["opts"] or n == qn + 1 or re.match(r"[\(（]\s*[\)）]", t)):
+        # 中間漏一題（題號被擦／蓋掉）：嚴格題號＋後面一長串中文，跳號 +2 也接受
+        skip_ok = n == qn + 2 and RE_Q.match(t) is not None and len(re.findall(r"[\u4e00-\u9fff]", t[mq.end():])) >= 8 if n is not None else False
+        if n is not None and (cur is None or cur["opts"] or n == qn + 1 or skip_ok or re.match(r"[\(（]\s*[\)）]", t)):
             start_q(n, t[mq.end():])
             continue
         # 題號被蓋掉、只剩作答括號裡的手寫答案：「(A)量筒內原有18.0mL的水…」「B (B)孟純以…」
