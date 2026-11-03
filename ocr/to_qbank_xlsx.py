@@ -39,8 +39,14 @@ def clean(t):
     return re.sub(r"[ 　]{2,}", " ", t).strip()
 
 
+RE_LEAD = re.compile(r"^[\s()（）\[\]［］0-9０-９.,，、。:：;；|]{1,10}(?=[\u4e00-\u9fff「A-Za-z])")
+
+
 def question_text(q):
     stem = clean(q["stem"])
+    m = RE_LEAD.match(stem)
+    if m and re.search(r"[()（）\[\]［］]", m.group()):
+        stem = stem[m.end():]             # 題號殘骸「40,()」「17.0)」「( )」：含括號才剝，避免吃掉「100公克…」這種題幹開頭
     if "圖片" in q["kinds"] or "表格" in q["kinds"]:
         stem += "〔含圖〕"
     opts = [clean(o) for o in q["opts"] if clean(o)]
