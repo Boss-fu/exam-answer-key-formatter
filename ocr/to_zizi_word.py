@@ -166,11 +166,34 @@ def read_lines(pyexam_dir):
         ln = RE_FOOT_INLINE.sub("", ln).strip()
         if not ln or RE_CAPTION_ONLY.match(ln):
             continue                          # 只有「圖(十)圖(十一)」「表(一)」的圖說行，題庫題目不收
+        ln = fix_opt_labels(ln)
         # 題號框比題幹略高時，OCR 會把「( )13.」黏到上一行行尾：從那裡切成兩行
         for part in RE_MID_Q.split(ln):
             if part.strip():
                 lines.append((page, part.strip()))
     return base, _page_order(lines)
+
+
+RE_OPT_TOKEN = re.compile(r"[（(]\s*([^()（）\s]{1,2})\s*[)）]")
+
+
+def fix_opt_labels(ln):
+    """選項代號認錯（「(3)丙 (C)戊 (D)庚」的 (3) 其實是 (B)）：同一行至少兩個正確代號、
+    錯的那個夾在順序上該有的位置，就依序補成正確字母。只動單一字元、且整行代號能排成連續字母時才改。"""
+    toks = list(RE_OPT_TOKEN.finditer(ln))
+    good = [(i, "ABCDE".index(m.group(1).upper())) for i, m in enumerate(toks) if m.group(1).upper() in list("ABCDE")]
+    if len(good) < 2 or len(toks) > 5:
+        return ln
+    i0, l0 = good[0]
+    want = [l0 - i0 + k for k in range(len(toks))]          # 以第一個正確代號推回每個位置該是哪個字母
+    if want[0] < 0 or want[-1] > 4 or any(want[i] != l for i, l in good):
+        return ln
+    out, last = [], 0
+    for k, m in enumerate(toks):
+        lab = m.group(1)
+        if lab.upper() not in list("ABCDE") and len(lab) == 1 and not re.match(r"[\u4e00-\u9fff]", lab):
+            out.append(ln[last:m.start()] + f"({'ABCDE'[want[k]]})"); last = m.end()
+    return "".join(out) + ln[last:] if out else ln
 
 
 RE_FOOT_INLINE = re.compile(r"[,，]?\s*(?:共\s*\d+\s*[頁贝]\s*)?(?:[A-Z][a-z]{3,5}\s*)?(?:下\s*頁\s*還\s*有\s*試?\s*題\s*[,，、]?\s*請?\s*繼?\s*續\s*作\s*答)|"
