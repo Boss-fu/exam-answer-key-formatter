@@ -1,7 +1,9 @@
-01_excel_groups
+00_dehand_distill
+00_color_fringe
 02_excel_worst
 05_excel_options
 07_excel_passage
 04_excel_chars
 03_ocr_figure_text
 06_ocr_speed
+01_excel_groups

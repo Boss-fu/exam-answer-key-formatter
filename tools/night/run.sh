@@ -34,6 +34,18 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   fi
   changed=$(git diff --name-only -- ocr); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
   if [ -z "$changed" ]; then log "$name：沒有改動"; touch $R/$name.done; continue; fi
+  tok=$(grep -A1 "tokens used" "$lg" | tail -1 | tr -d ','); log "$name Codex 用量 ${tok:-?} tokens"
+  if ! echo "$changed" | grep -qv "^ocr/dehand/finetune"; then
+    # 只改訓練程式：驗收＝能編譯＋小量訓練跑得完並存檔（Excel 分數不受影響）
+    rm -rf /tmp/night_smoke; if $P -m py_compile $changed && $P ocr/dehand/finetune_jw_mask.py --out /tmp/night_smoke --limit 1 --epochs 1 --steps 1 >/tmp/night_smoke.log 2>&1 && ls /tmp/night_smoke/*.pt >/dev/null 2>&1; then
+      git add $changed $newtests; git commit -q -m "夜間 Codex：$name（訓練程式，smoke test 通過）
+
+$(tail -12 "$rep" 2>/dev/null)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>/dev/null; log "✅ $name 已提交（smoke test 通過）"
+    else git checkout -- $changed; log "❌ $name 還原：smoke test 失敗"; fi
+    touch $R/$name.done; sleep "${COOLDOWN:-900}"; continue
+  fi
   bad=$(tests) ; bench=ocr/results/qbank_bench
   if [ -z "$bad" ] && echo "$changed" | grep -q "ocr/pyexam.py\|ocr/ppocr_engine.py\|ocr/dehand/apply.py"; then
     rm -rf ocr/results/qbank_bench_new; ocr/results/rebench.sh > $R/$name.rebench 2>&1; bench=ocr/results/qbank_bench_new
