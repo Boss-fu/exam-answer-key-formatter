@@ -18,12 +18,14 @@ import pymupdf
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from dehand.apply import erase  # noqa: E402
-from pyexam import remove_color_ink  # noqa: E402
+from pyexam import fix_orientation, remove_color_ink  # noqa: E402
 
 
 def clean_page(img: np.ndarray, dpi: int) -> tuple[np.ndarray, float]:
     # 彩色進來：先清紅藍筆與校徽浮水印（跟 OCR 同一套 remove_color_ink），再交給去筆跡模型
     bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else remove_color_ink(img, restore_text=True)[0]
+    # 橫掃／倒放的頁先轉正：去筆跡模型與題號保護都是在正向考卷上學的，轉 90° 的頁手寫幾乎擦不掉
+    bgr, _ = fix_orientation(bgr)
     cleaned, ratio = erase(bgr, dpi=dpi)
     return cv2.cvtColor(cleaned, cv2.COLOR_BGR2GRAY), ratio
 
@@ -39,7 +41,8 @@ def clean_pdf(src: str, dst: str, dpi: int = 200) -> dict:
         ok, encoded = cv2.imencode(".png", cleaned)
         if not ok:
             raise RuntimeError("清理後的頁面無法編碼")
-        out_page = output.new_page(width=page.rect.width, height=page.rect.height)
+        h, w = cleaned.shape[:2]          # 轉正後寬高可能對調，頁面跟著清稿的方向
+        out_page = output.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
         out_page.insert_image(out_page.rect, stream=encoded.tobytes())
         ratios.append(ratio)
     os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)

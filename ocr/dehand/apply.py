@@ -83,9 +83,25 @@ def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
         # 多數試卷會辨成「12.」；這份士林卷的題號框卻只含「12」、
         # 標點在框外。後者只在已確認為行首短框時接受，仍不會碰表格數字。
         if _RE_QNUM.match(text) or _RE_QNUM_BARE.match(text):
-            cv2.rectangle(protected, (max(0, x0 - 3), max(0, y0 - 3)),
-                          (min(W - 1, x1 + 2), min(H - 1, y1 + 2)), 1, -1)
+            # 只保護「數字＋點」那一段：框常連作答括號一起（「2.( C」「( A )12.」），
+            # 整框保護會把括號裡的手寫答案也護住。依字寬比例推算數字的水平位置。
+            a, b = _digit_span(text, x0, x1)
+            cv2.rectangle(protected, (max(0, a - 3), max(0, y0 - 3)),
+                          (min(W - 1, b + 2), min(H - 1, y1 + 2)), 1, -1)
     return protected
+
+
+def _digit_span(text, x0, x1):
+    """框內文字中題號（數字＋點）所在的 x 範圍；全形／中文字寬算 1，半形算 0.55。"""
+    m = re.search(r"\d{1,2}\s*[\.、．)]?", text)
+    if not m or not text:
+        return x0, x1
+    wid = [1.0 if ord(c) > 0x2000 else .55 for c in text]
+    tot = sum(wid) or 1
+    a = x0 + (x1 - x0) * sum(wid[:m.start()]) / tot
+    b = x0 + (x1 - x0) * sum(wid[:m.end()]) / tot
+    pad = (x1 - x0) * .25 / tot          # 字寬估計有誤差，左右各多留約半個半形字
+    return int(max(x0, a - pad)), int(min(x1, b + pad))
 
 
 def _providers(ort):
