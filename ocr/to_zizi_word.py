@@ -158,6 +158,12 @@ def split_opts(line):
     return head, [re.sub(r"^[\(（]?\s*([A-E])\s*[\)）]?\s*", r"(\1)", p, count=1) for p in parts]
 
 
+def is_figure_label_block(stem, opts, line):
+    """題幹已問完「如下圖／右圖」，其後、選項前的 OCR 是圖內標籤時不收入題文。"""
+    return (not opts and "如下圖所示" in stem and
+            bool(re.search(r"[？?。]\s*$", stem)) and bool(line.strip()))
+
+
 def parse_meta(lines, src_name):
     head = " ".join(lines[:6]) + " " + src_name
     m = {}
@@ -726,6 +732,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                 start_q(qn + 1, rest)
                 continue
         head, opts = split_opts(t)
+        if cur is not None and is_figure_label_block(cur["stem"], cur["opts"], t) and not opts:
+            continue
         g = geo[i]
         if g and g["margin_ink"] >= MARGIN_INK and g["indent"] >= 1.0 and not (opts and not head) and opens_question(i):
             # 這行左邊的題號位置有墨跡（印刷題號／作答括號被手寫蓋住、OCR 沒認出字），後面又接著 (A) 開頭的選項 → 新題
