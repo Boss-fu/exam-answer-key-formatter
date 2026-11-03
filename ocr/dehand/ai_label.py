@@ -72,7 +72,8 @@ def gemini_boxes(gray, agy_bin):
         image = os.path.join(d, "page.jpg")
         cv2.imwrite(image, gray, [cv2.IMWRITE_JPEG_QUALITY, 95])
         result = subprocess.run(
-            [agy_bin, "--model", "gemini-3.8-flash-high", "-p", f"{PROMPT}\n@page.jpg"],
+            [agy_bin, "--model", "gemini-3.8-flash-high", "--print-timeout", "300s", "-p", f"{PROMPT}\nThe image is {gray.shape[1]}x{gray.shape[0]} pixels (width x height); estimate coordinates visually. "
+             "Do not run shell commands or scripts.\n@page.jpg"],
             cwd=d, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True,
         )
