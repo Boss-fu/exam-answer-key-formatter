@@ -60,21 +60,24 @@ def crop(tr, rng, s=384):
 
 
 @torch.no_grad()
-def score(model, va, dev):
-    """回傳 (筆跡抓到率, 印刷誤標率, 圖誤標率)。"""
-    got = [0, 0]; fp = [0, 0]; ffp = [0, 0]
+def score(model, va, dev, th=None):
+    """回傳 (筆跡抓到率, 印刷誤標率, 圖誤標率)。th 給 list 時回傳每個門檻的結果。"""
+    ths = th if isinstance(th, (list, tuple)) else [TH if th is None else th]
+    got = np.zeros((len(ths), 2)); fp = np.zeros((len(ths), 2)); ffp = np.zeros((len(ths), 2))
     for p, q in va:
         for img, hand, pr, region in ((q['x'], q['hand'], ink(q['c']), None), (q['c'], None, ink(q['c']), p['figs'])):
             h, w = img.shape; H, W = h + (-h) % 16, w + (-w) % 16
             x = np.pad(img, ((0, H - h), (0, W - w)), mode='edge').astype('float32') / 255
-            m = torch.sigmoid(model(torch.from_numpy(np.repeat(x[None, None], 3, 1)).to(dev))[0, 1, :h, :w]).cpu().numpy() > TH
-            if hand is not None:
-                got[0] += (m & hand).sum(); got[1] += hand.sum()
-                fp[0] += (m & pr).sum(); fp[1] += pr.sum()
-            else:
-                for x0, y0, x1, y1 in region:
-                    ffp[0] += (m & pr)[y0:y1, x0:x1].sum(); ffp[1] += pr[y0:y1, x0:x1].sum()
-    return got[0] / max(1, got[1]), fp[0] / max(1, fp[1]), ffp[0] / max(1, ffp[1])
+            prob = torch.sigmoid(model(torch.from_numpy(np.repeat(x[None, None], 3, 1)).to(dev))[0, 1, :h, :w]).cpu().numpy()
+            for k, t in enumerate(ths):
+                m = prob > t
+                if hand is not None:
+                    got[k] += ((m & hand).sum(), hand.sum()); fp[k] += ((m & pr).sum(), pr.sum())
+                else:
+                    for x0, y0, x1, y1 in region:
+                        ffp[k] += ((m & pr)[y0:y1, x0:x1].sum(), pr[y0:y1, x0:x1].sum())
+    res = [(g[0] / max(1, g[1]), f[0] / max(1, f[1]), ff[0] / max(1, ff[1])) for g, f, ff in zip(got, fp, ffp)]
+    return res if isinstance(th, (list, tuple)) else res[0]
 
 
 def main():
@@ -92,7 +95,7 @@ def main():
     teacher = copy.deepcopy(model).eval()
     for t in teacher.parameters(): t.requires_grad_(False)
     comb = lambda s: s[0] - 3 * (s[1] + s[2])
-    base = score(model, va, dev); best = (comb(base), None)
+    base = score(model, va, dev); best = (comb(base), None, TH)
     print(f'epoch 0（俊瑋原版） 筆跡抓到 {base[0]:.1%} 印刷誤標 {base[1]:.2%} 圖誤標 {base[2]:.2%}', flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-5)
     pw = torch.tensor(float(os.environ.get('FT_POS', 3)), device=dev)
@@ -110,10 +113,14 @@ def main():
             bce = torch.nn.functional.binary_cross_entropy_with_logits(out[:, 1:2], m, pos_weight=pw, reduction='none')
             loss = (bce * wneg).mean() + float(os.environ.get('FT_KEEP', 1)) * torch.abs(out[:, :1] - ref[:, :1]).mean()
             opt.zero_grad(); loss.backward(); opt.step(); tot += loss.item()
-        model.eval(); s = score(model, va, dev)
+        # 誤標壓低後可以用更低門檻多抓筆跡：每個 epoch 掃 3 個門檻，取綜合分最高者
+        model.eval(); THS = (.15, .25, .35); res = score(model, va, dev, list(THS))
+        k = max(range(len(THS)), key=lambda i: comb(res[i]) if res[i][0] >= .85 else -9); s = res[k]
         ok = s[0] >= .85
-        print(f'epoch {ep}/{a.epochs} loss {tot / a.steps:.4f} 筆跡抓到 {s[0]:.1%} 印刷誤標 {s[1]:.2%} 圖誤標 {s[2]:.2%} 綜合 {comb(s):.3f}（原版 {comb(base):.3f}）{"" if ok else " ✗筆跡抓太少"}', flush=True)
-        if ok and comb(s) > best[0]: best = (comb(s), {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
+        print(f'epoch {ep}/{a.epochs} loss {tot / a.steps:.4f} 門檻 {THS[k]} 筆跡抓到 {s[0]:.1%} 印刷誤標 {s[1]:.2%} 圖誤標 {s[2]:.2%} 綜合 {comb(s):.3f}（原版 {comb(base):.3f}）{"" if ok else " ✗筆跡抓太少"}', flush=True)
+        os.makedirs(a.out, exist_ok=True)
+        torch.save({k2: v.detach().cpu() for k2, v in model.state_dict().items()}, os.path.join(a.out, f'ep{ep}.pt'))   # 每輪都留，事後可挑
+        if ok and comb(s) > best[0]: best = (comb(s), {k2: v.detach().cpu().clone() for k2, v in model.state_dict().items()}, THS[k])
     os.makedirs(a.out, exist_ok=True)
     if best[1] is None: print('沒有任何 epoch 的綜合分贏過俊瑋原版，不輸出模型'); return
     model.load_state_dict(best[1]); model = model.cpu().eval()
@@ -121,8 +128,8 @@ def main():
     path = os.path.join(a.out, 'dehand_jwmask.onnx')
     torch.onnx.export(model, torch.ones(1, 3, 512, 512), path, input_names=['image'], output_names=['out'], opset_version=17, dynamo=False,
                       dynamic_axes={'image': {0: 'b', 2: 'h', 3: 'w'}, 'out': {0: 'b', 2: 'h', 3: 'w'}})
-    s = score(model, va, torch.device('cpu'))
-    json.dump({'base': base, 'final': s, 'metric': '(筆跡抓到率, 印刷誤標率, 圖誤標率) @ p>%.2f' % TH, 'validation_exams': sorted(ve)},
+    s = score(model, va, torch.device('cpu'), best[2])
+    json.dump({'base': base, 'final': s, 'threshold': best[2], 'metric': '(筆跡抓到率, 印刷誤標率, 圖誤標率) @ p>threshold', 'validation_exams': sorted(ve)},
               open(os.path.join(a.out, 'dehand_jwmask.json'), 'w'), ensure_ascii=False, indent=2)
     print('完成：', path)
 
