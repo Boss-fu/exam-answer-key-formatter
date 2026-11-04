@@ -79,12 +79,22 @@ class FixOcrTest(unittest.TestCase):
         self.assertTrue(rs[1]["題組文章"].startswith("真真將天竺葵"))
 
     def test_passage_drops_headings_and_figure_labels(self):
-        from to_qbank_xlsx import tidy_passage
+        from to_qbank_xlsx import tidy_passage, restore_truncated_group
         self.assertEqual(tidy_passage("題組一、小軒由科學雜誌上得知"), "小軒由科學雜誌上得知")
         self.assertEqual(tidy_passage("(二)宏志要探討酵素"), "宏志要探討酵素")
         self.assertEqual(tidy_passage("圖為消化道示意圖,回答10-12題丙丁甲乙"), "圖為消化道示意圖,回答10-12題")
         self.assertEqual(tidy_passage("請閱讀文章,回答下列問題:人工心肺機主要的功能"), "請閱讀文章,回答下列問題:人工心肺機主要的功能")
         self.assertEqual(tidy_passage("請閱讀文章，回答下列問題：=====人工心肺機"), "請閱讀文章，回答下列問題：人工心肺機")
+        self.assertEqual(tidy_passage("附圖為葉的構造，回答下列問題：(29~32題)太陽"),
+                         "附圖為葉的構造，回答下列問題：(29~32題)")
+        group, stem = restore_truncated_group("題組一、附圖為肺泡模式圖，請依據此圖回", "答下列問題：(33)何者正確？")
+        self.assertEqual(group, "題組一、附圖為肺泡模式圖，請依據此圖回答下列問題：")
+        self.assertEqual(stem, "(33)何者正確？")
+
+    def test_does_not_move_an_ordinary_question_into_group(self):
+        from to_qbank_xlsx import restore_truncated_group
+        self.assertEqual(restore_truncated_group("附圖為消化系統", "下列何者正確？"),
+                         ("附圖為消化系統", "下列何者正確？"))
 
     def test_one_passage_per_group(self):
         from to_qbank_xlsx import one_passage_per_group

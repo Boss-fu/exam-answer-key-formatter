@@ -180,6 +180,28 @@ def question_text(q, with_option_count=False):
     return (text, len(opts)) if with_option_count else text
 
 
+# 題組引言有時被圖的 OCR 框從中間切開：前一行停在「附／回／下」，
+# 下一個小題的題幹才接「圖所示，回答下列問題：」。這不是題幹，必須
+# 在輸出 Excel 前接回題組文章；只接受明確的「回答……問題」收尾，避免
+# 把一般題目第一句誤搬走。
+RE_BROKEN_GROUP_END = re.compile(r"(?:回答|作答|答)?(?:下列)?問題\s*[：:]")
+RE_CONTINUED_GROUP_START = re.compile(r"^[圖表所示答列流動，、；：:（）()\s]")
+
+
+def restore_truncated_group(group, text):
+    """將被換行／圖框切斷、落在小題題幹開頭的題組引言接回。"""
+    if not group or not text or re.search(r"[。！？!?：:]\s*$", group):
+        return group, text
+    if not RE_CONTINUED_GROUP_START.match(text):
+        return group, text
+    m = RE_BROKEN_GROUP_END.search(text[:220])
+    if not m:
+        return group, text
+    # 題號、圖內標籤可能夾在「問題：」之前；這些本來就在題組引言的
+    # 圖中，保留比把真正題幹截斷安全。題目正文一律從收尾後開始。
+    return clean(group + text[:m.end()]), text[m.end():].lstrip()
+
+
 # 非選題的題幹結尾：問句、配分、作答提示
 RE_STEM_END = re.compile(r"[？?]\s*(?:[(（][^()（）]{0,12}[)）])?|[(（]\s*各?\s*\$?\d+\$?\s*分\s*[)）]|[(（]\s*(?:填|以)代號(?:作答|回答)?\s*[)）]")
 RE_INTRO_WORDS = re.compile(r"回答|下列問題|閱讀|根據|如(?:附|下|右|左)?圖|實驗|資料|題組")
@@ -286,6 +308,7 @@ def rows(pyexam_dir, name):
             why.append("有辨識信心低的字")
         text, option_count = question_text(q, with_option_count=True)
         group_text = fix_ocr(clean(q["group"]))
+        group_text, text = restore_truncated_group(group_text, text)
         mid = re.search(rf"(?:[(（]\s*[)）]\s*)?(?:[(（]\s*{num}\s*[)）]|(?<!\d){num}\s*[.．、]\s*(?:[0Oo○(（]?\s*[)）])?)(?=\s*[一-鿿「])", text.split("\n")[0])
         if mid and mid.start() >= 12:
             # 題組引言黏在題幹前面：「…試回答下列46-47問題：圖(一)46.請問…」——本題題號之前的是引言
@@ -330,6 +353,7 @@ RE_GROUP_HEAD = re.compile(r"^\s*(?:[壹貳參肆伍陸]\s*[、.]\s*)?(?:※\s*)
                            r"|^\s*[(（][一二三四五六七八九十]{1,2}[)）]\s*")
 RE_INTRO_END = re.compile(r"(?:回答|作答|完成)[^。:：]{0,16}?(?:題|問題|題目)\s*[)）]?\s*[。:：]?|試問\s*[:：]|如下\s*[:：]")
 RE_PASSAGE_RULE = re.compile(r"[=＿_]{4,}")
+RE_FIGURE_LABEL_TAIL = re.compile(r"(?:[甲乙丙丁戊己庚辛壬癸A-Z]|太陽|圖\s*[（(]?[一二三四五六七八九十0-9]+[）)]?)+$")
 
 
 def tidy_passage(t):
@@ -340,8 +364,15 @@ def tidy_passage(t):
     ends = list(RE_INTRO_END.finditer(t))
     if ends:
         rest = t[ends[-1].end():]
-        if 0 < len(rest) <= 16 and "。" not in rest and not re.search(r"[一-鿿]{5}", rest):
+        if 0 < len(rest) <= 16 and "。" not in rest and not re.search(r"[一-鿿]{5}", rest) and not re.search(r"\d+\s*[~～至\-－—]\s*\d+\s*題", rest):
             t = t[:ends[-1].end()].rstrip()
+    # 題號範圍後只剩圖內標籤（例如「(29~32題)太陽」）時，標籤不是
+    # 題組文章；保留題號範圍，讓題組範圍仍可供後面的 ID 校正使用。
+    m = re.search(r"(?:[(（]\s*\d+\s*[~～至\-－—]\s*\d+\s*題?\s*[)）]?|\d+\s*[~～至\-－—]\s*\d+\s*題)", t)
+    if m:
+        tail = t[m.end():].strip()
+        if tail and len(tail) <= 16 and RE_FIGURE_LABEL_TAIL.fullmatch(tail):
+            t = t[:m.end()].rstrip()
     return t
 
 
