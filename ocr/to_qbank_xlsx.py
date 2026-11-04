@@ -370,6 +370,7 @@ def rows(pyexam_dir, name):
         elif r["題組文章"]:                       # 非選題後面拆出來的引言：自己當題組開頭
             r["_gid"] = ("intro", r["題號"])
             r["題組ID"] = f"{info['gid']}-{r['題號']}" if info["gid"] else ""
+    end_period_d(out)
     one_passage_per_group(out)
     return out
 
@@ -425,6 +426,18 @@ def tidy_passage(t):
         if tail and len(tail) <= 16 and RE_FIGURE_LABEL_TAIL.fullmatch(tail):
             t = t[:m.end()].rstrip()
     return strip_figure_label_tail(t).strip()
+
+
+def end_period_d(rs):
+    """句號小、掃描常漏。這份卷 OCR 已認到的 (D) 選項有 ≥30% 以「。」結尾＝出題習慣是句子加句號，
+    就把漏掉的補上；只補完整句子（≥6 個中文字），「(D)大腸」這種短詞不補（混用的卷短詞多半沒句號）。"""
+    ds = [r for r in rs if "\n(D)" in r["題目"]]
+    if len(ds) < 10 or sum(r["題目"].rstrip().endswith("。") for r in ds) < .3 * len(ds):
+        return
+    for r in ds:
+        t = r["題目"].rstrip(); last = t.split("\n")[-1]
+        if not re.search(r"[。？?！!：:；;，,、)）$]$", last) and len(re.findall(r"[\u4e00-\u9fff]", last)) >= 6:
+            r["題目"] = t + "。"
 
 
 def one_passage_per_group(rs):
