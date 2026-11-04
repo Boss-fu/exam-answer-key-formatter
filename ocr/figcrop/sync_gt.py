@@ -41,6 +41,26 @@ def main():
         for z in zips:
             unzip(os.path.join(SRC, z), os.path.join(out, "auto" if "自動" in z else "manual"))
         print(f"{year}_{school}：", "、".join(sorted("auto" if "自動" in z else "manual" for z in zips)))
+        img_variant(out)
+
+
+def img_variant(out):
+    """有文字層的 PDF 另做一份「純圖片」版（200 dpi 影像、無文字層），模擬掃描卷：
+    截圖程式在圖片型 PDF 只能靠 OCR，這才是實際會出錯的情況。標準答案共用同一份手動截圖。"""
+    import pymupdf
+    src = pymupdf.open(os.path.join(out, "exam.pdf"))
+    if len(src[0].get_text().strip()) <= 40:
+        return                                    # 本來就是掃描卷
+    dst_dir = out + "_圖片型"; os.makedirs(dst_dir, exist_ok=True)
+    doc = pymupdf.open()
+    for page in src:
+        pix = page.get_pixmap(dpi=200)
+        p2 = doc.new_page(width=page.rect.width, height=page.rect.height)
+        p2.insert_image(p2.rect, stream=pix.tobytes("jpeg", jpg_quality=88))
+    doc.save(os.path.join(dst_dir, "exam.pdf"))
+    if os.path.isdir(os.path.join(dst_dir, "manual")):
+        shutil.rmtree(os.path.join(dst_dir, "manual"))
+    shutil.copytree(os.path.join(out, "manual"), os.path.join(dst_dir, "manual"))
 
 
 if __name__ == "__main__":
