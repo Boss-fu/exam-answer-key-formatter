@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from to_qbank_xlsx import fix_ocr, rebuild_options, resolved_question_numbers
+from to_qbank_xlsx import complete_single_choice_options, fix_ocr, rebuild_options, resolved_question_numbers
 
 
 class FixOcrTest(unittest.TestCase):
@@ -47,6 +47,13 @@ class FixOcrTest(unittest.TestCase):
         stem, opts, rebuilt = rebuild_options("題幹", ["(A)甲", "(B)乙", "(C)丙"])
         self.assertFalse(rebuilt)
         self.assertEqual(len(opts), 3)
+
+    def test_completes_only_ordered_single_choice_labels(self):
+        self.assertEqual(complete_single_choice_options(["(B)乙", "(C)丙", "(D)丁"]),
+                         ["(A)", "(B)乙", "(C)丙", "(D)丁"])
+        self.assertEqual(complete_single_choice_options([], picture=True), ["(A)", "(B)", "(C)", "(D)"])
+        self.assertEqual(complete_single_choice_options(["(A)甲", "(C)丙", "(B)乙"]),
+                         ["(A)甲", "(C)丙", "(B)乙"])
 
     def test_question_numbers_follow_continuity_when_print_is_wrong(self):
         self.assertEqual(resolved_question_numbers([

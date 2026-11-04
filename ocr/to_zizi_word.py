@@ -32,6 +32,10 @@ RE_Q = re.compile(r"^(?:[\(（]?\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）]\s*)?(\d
 # split_opts 的明確「圖」判斷排除，不能只靠放寬此 regex。
 RE_OPT = re.compile(r"[\(（]\s*([A-E])\s*[\)）]|^[\(（]?\s*([A-E])\s*[\)）]|^[\(（]\s*([A-E])(?=[\u4e00-\u9fff])"
                     r"|(?<![A-Za-z0-9(（])([B-E])[\)）](?=\S)|[\(（]([B-E])(?=[\u4e00-\u9fff])")
+# 選項代號常被 OCR 讀成「（13）」「（T）」「（及」或「（E.）」。
+# 只在整行剛好有四個候選代號、且已辨識出的 A～D 都落在正確位置時才修；
+# 一般的 (1)、(甲) 等選項內容不會滿足這個完整序列條件。
+RE_DAMAGED_OPT = re.compile(r"[\(（]\s*(?:[A-Da-d]\s*[\)）]?|13\s*[\)）]?|[Tt及]\s*[\)）]{0,2}|[Ee]\s*[.．]\s*[\)）]?)")
 RE_Q_NOANS = re.compile(r"^(?:[\(（]\s*[A-Ea-e]?\s*[\)）]\s*)?(\d{1,2})\s*[.．、](?!\d)\s*")
 RE_ANS_START = re.compile(r"^[^\u4e00-\u9fff]{0,4}?[\(（]\s*[A-Ea-e]\s*[\)）]\s*(?=[\u4e00-\u9fff「])")
 RE_MID_Q = re.compile(r"(?<=\S)(?=[\(（]\s*[^\u4e00-\u9fff\s()（）]?\s*[\)）]\s*\d{1,2}\s*[.．、。](?!\d))")
@@ -154,6 +158,21 @@ def split_opts(line):
     # 正常選項以「(B)的…」開頭極少見，寧可保住圖題的整題結構。
     if re.match(r"^\s*[\(（]\s*[A-D]\s*[\)）]\s*(?:的|中)", line):
         return line, []
+    damaged = list(RE_DAMAGED_OPT.finditer(line))
+    if len(damaged) == 4:
+        known = []
+        for i, m in enumerate(damaged):
+            letter = re.search(r"[A-Da-d]", m.group())
+            if letter:
+                known.append((i, letter.group().upper()))
+        # 例如 A、（13）、C、D 或 A、（及）、（E.）、D：已知的位置
+        # 和 A→D 一致，故中間殘字可安全依位置復原。
+        if known and all(letter == "ABCD"[i] for i, letter in known):
+            out, last = [], 0
+            for i, m in enumerate(damaged):
+                out.append(line[last:m.start()] + f"({'ABCD'[i]})")
+                last = m.end()
+            line = "".join(out) + line[last:]
     # 第四個分支會由 ``B)`` 起配對；明確排除前面接「(圖」的情況。
     idx = [m.start() for m in RE_OPT.finditer(line)
            if line[max(0, m.start() - 2):m.start()] not in ("(圖", "（圖")]

@@ -153,6 +153,27 @@ def rebuild_options(stem, opts):
     return head, [f"({'ABCD'[i]}){part}" for i, part in enumerate(parts)], True
 
 
+def complete_single_choice_options(opts, picture=False):
+    """補齊可由結構唯一判定的四個單選選項，不猜選項文字。
+
+    已抓到的代號必須遞增且沒有重複，才會補中間／首尾的空白代號；圖中
+    只有 A～D 標示而 OCR 沒有讀到任何文字時，``picture`` 才可補四個空白。
+    """
+    labels = []
+    for opt in opts:
+        m = re.match(r"^\s*\(([A-D])\)", opt)
+        if not m:
+            return opts
+        labels.append(m.group(1))
+    indexes = ["ABCD".index(label) for label in labels]
+    if 2 <= len(opts) < 4 and indexes == sorted(indexes) and len(set(indexes)) == len(indexes):
+        by_label = dict(zip(labels, opts))
+        return [by_label.get(label, f"({label})") for label in "ABCD"]
+    if not opts and picture:
+        return [f"({label})" for label in "ABCD"]
+    return opts
+
+
 def clean(t):
     t = re.sub(r"\s*⚠需確認", "", t or "")
     t = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", t)
@@ -174,6 +195,10 @@ def question_text(q, with_option_count=False):
         opts = ["(A)正確", "(B)錯誤"]       # 是非題：題庫格式把正確／錯誤當成 (A)(B) 選項
     elif not q.get("tf"):
         stem, opts, _ = rebuild_options(stem, opts)
+        # 題幹明確問「何者」且選項畫在附圖中時，圖上的 A～D
+        # 沒有可 OCR 的文字，仍須輸出四個可匯入的空白選項。
+        picture_choice = bool(q.get("pn")) and bool(q["kinds"]) and "何者" in stem
+        opts = complete_single_choice_options(opts, picture_choice)
     else:
         opts = relabel(opts)
     text = fix_ocr("\n".join([stem] + opts))
