@@ -269,9 +269,11 @@ const server = http.createServer(async (req, res) => {
         { cwd: path.join(__dirname, ".."), maxBuffer: 256 * 1024 * 1024, timeout: 10 * 60 * 1000 },
         (err, stdout, stderr) => {
           fs.rm(dir, { recursive: true, force: true }, () => {});
-          if (err) return sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || err.message).slice(-400) });
-          try { sendJson(res, 200, JSON.parse(stdout.slice(stdout.indexOf("{")))); }
-          catch (e) { sendJson(res, 500, { ok: false, error: "自動截圖結果無法解析" }); }
+          // 模型引擎偶爾在程式結束時才當掉（recursive_mutex），結果已完整輸出：能解析出 ok 的 JSON 就採用
+          let data = null;
+          try { data = JSON.parse(stdout.slice(stdout.indexOf("{"))); } catch (e) {}
+          if (data && data.ok) return sendJson(res, 200, data);
+          sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || (err && err.message) || "結果無法解析").slice(-400) });
         });
       return;
     }
