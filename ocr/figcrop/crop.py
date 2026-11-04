@@ -49,11 +49,27 @@ RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\
 RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
 
 
+def _columns(raw_lines, W):
+    """題號行的 x 起點分群＝實際欄位（A3 跨頁一頁可能 4 欄），回傳各欄起點。"""
+    xs = sorted(l[0] for l, t in raw_lines if RE_QNUM.match(str(t)))
+    cols = []
+    for x in xs:
+        if cols and x - cols[-1][-1] < .08 * W:
+            cols[-1].append(x)
+        else:
+            cols.append([x])
+    starts = [c[0] for c in cols if len(c) >= 2]
+    return starts if len(starts) >= 2 else ([c[0] for c in cols] or [0])
+
+
+def _col_of(x, starts):
+    return max((i for i, c in enumerate(starts) if c <= x + 40), default=0)
+
+
 def guess_qno(box, raw_lines, W):
-    """取同欄圖上最近題號；題組引言「第 N～M 題」一律歸 N。"""
-    cx = (box[0] + box[2]) / 2
-    # 以圖的中心判欄，不用題號 x 座標；右欄題號常因掃描歪斜而偏左。
-    side = cx >= W / 2
+    """題號：同一欄、圖上方最近的題號；題組引言「第 N～M 題」歸 N。欄位看題號實際排列，不假設左右兩半。"""
+    starts = _columns(raw_lines, W)
+    col = _col_of((box[0] + box[2]) / 2 - .05 * W, starts)
     best = None; fallback = None
     for (l, text) in raw_lines:
         if l[1] > box[1] + 12:
@@ -62,13 +78,10 @@ def guess_qno(box, raw_lines, W):
         m = RE_GROUP.search(clean) or RE_QNUM.match(clean)
         if not m:
             continue
-        d = box[1] - l[1]
-        row = (d, int(m.group(1)))
-        # 圖在右側、題號在左側是單欄橫跨整頁題目的常態；先吃同欄，
-        # 沒有才退回最近的任何欄題號，避免因此整批 qno 都是 null。
-        if ((l[0] + l[2]) / 2 >= W / 2) == side and (best is None or d < best[0]):
+        row = (box[1] - l[1], int(m.group(1)))
+        if _col_of(l[0], starts) == col and (best is None or row[0] < best[0]):
             best = row
-        if fallback is None or d < fallback[0]:
+        if fallback is None or row[0] < fallback[0]:
             fallback = row
     return (best or fallback)[1] if (best or fallback) else None
 
