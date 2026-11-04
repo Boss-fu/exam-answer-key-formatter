@@ -1,4 +1,4 @@
-任務：自動截圖系統——從考卷頁自動裁出「圖形」與「表格」，取代使用者手動截圖。新增 ocr/figcrop/（不要改 pyexam.py、to_*.py）。
+任務：自動截圖系統（Claude 已寫好第一版 ocr/figcrop/crop.py：PP-DocLayout v3＋墨跡連通塊精修＋排除題目句與文字選項，請先讀它、在它上面改進，不要另起爐灶）——從考卷頁自動裁出「圖形」與「表格」，取代使用者手動截圖。新增 ocr/figcrop/（不要改 pyexam.py、to_*.py）。
 使用者硬性要求：裁出的圖不可漏字（圖內標籤、軸標、圖號「圖(一)」都要在框內）、不可偏移、不可缺角缺邊（框線、表格外框完整）、也不可多出旁邊題目的文字。
 1) bench.py：在 ~/Desktop/待匯入/*_題目.pdf（300dpi 渲染、可先用 ocr/pyexam.remove_color_ink(…)[0] 與 dehand 清過的版面）比較候選偵測器：已安裝的 rapid_layout（ModelType：pp_doc_layoutv3、doclayout_docstructbench、pp_layout_cdla、pp_layout_table；注意 RapidLayout 的正確建構參數，先讀 site-packages/rapid_layout 原始碼——直接 params={"model_type":…} 會退回預設 cdla）與現有 pyexam.figure_candidates／detect_tables 當基準。輸出每頁每個偵測器的框 JSON 與裁圖到 ocr/results/figcrop/<偵測器>/。
 2) refine.py：框的精修（這是品質關鍵）——往外擴到四周都是連續空白（墨跡投影找邊界）、把緊鄰的圖說／圖號／軸標／(A)(B)(C)(D) 圖選項標籤併入、遇到題目正文行（本機 OCR 框、與欄寬同寬的文字行）就停、表格以框線外框為準再留 6px 邊。輸出精修後裁圖。
