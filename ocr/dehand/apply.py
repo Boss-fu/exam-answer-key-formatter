@@ -19,7 +19,9 @@ import numpy as np
 MODELS = os.environ.get("DEHAND_MODEL_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")   # 候選模型驗收時可指向 runs/<rN>
 _SESS = None
 LAST_TIMINGS = {"model": 0.0, "qnum": 0.0}
-LAST_HAND = None            # 最近一次 img2img 的逐像素筆跡機率（原解析度），hand 輸出模式用
+# 最近一次 img2img 的筆跡機率，保留在模型原生解析度。hand 模式必須先在這
+# 個座標系做閾值，不能先線性放大機率圖，否則閾值附近會長出（或吃掉）一圈像素。
+LAST_HAND = None
 
 # 題號有時前面帶作答括號「( )12.」，OCR 又可能把全／半形標點混用。
 _RE_QNUM = re.compile(r"^\s*(?:[（(]\s*[）)]\s*)?(?:[（(]\s*)?\d{1,2}\s*[\.、．)]")
@@ -279,10 +281,31 @@ def _img2img_erased(gray, dpi):
             hand[y0:y0 + T, x0:x0 + T] += 1 / (1 + np.exp(-np.clip(o[1], -30, 30))) * wt
     clean = np.clip(((acc / ws)[:h, :w] - .25) / .63, 0, 1)
     global LAST_HAND
-    LAST_HAND = cv2.resize((hand / ws)[:h, :w], (W, H), interpolation=cv2.INTER_LINEAR)
+    LAST_HAND = (hand / ws)[:h, :w]
     th = float(os.environ.get("DEHAND_I2I_TH", ".75"))
     erased = ((small < 200) & (clean > th)).astype(np.uint8)          # 原本有墨、輸出接近白（> th）＝被擦掉
     return cv2.resize(erased, (W, H), interpolation=cv2.INTER_NEAREST), cv2.resize((clean * 255).astype(np.uint8), (W, H), interpolation=cv2.INTER_CUBIC)
+
+
+def _hand_hit_at_page_size(hand, thresholds, shape):
+    """在模型格點判定筆跡，再最近鄰映回頁面，避免縮放改變門檻語意。"""
+    H, W = shape
+    native_thresholds = cv2.resize(thresholds, (hand.shape[1], hand.shape[0]),
+                                   interpolation=cv2.INTER_NEAREST)
+    native_hit = (hand > native_thresholds).astype(np.uint8)
+    return cv2.resize(native_hit, (W, H), interpolation=cv2.INTER_NEAREST).astype(bool)
+
+
+def _tone_paper_only(bgr):
+    """只提亮中性紙底；印刷、圖線與彩色內容保留原始色階。"""
+    lut = np.clip((np.arange(256) / 255 - .25) / .63 * 255, 0, 255).astype(np.uint8)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    neutral = (bgr.max(axis=2).astype(np.int16) - bgr.min(axis=2).astype(np.int16)) <= 12
+    paper = neutral & (gray >= 210)
+    out = bgr.copy()
+    toned = cv2.LUT(bgr, lut)
+    out[paper] = toned[paper]
+    return out
 
 
 def erase(bgr, dpi=300, detected_boxes=None):
@@ -307,16 +330,19 @@ def erase(bgr, dpi=300, detected_boxes=None):
         if out_mode == "hand" and LAST_HAND is not None:
             # hand：直接用模型的筆跡機率圖擦，印刷保留原圖；圖的區塊內要更有把握（v10 會把細曲線也標成筆跡）
             p = LAST_HAND
-            th = np.full(p.shape, float(os.environ.get("DEHAND_HAND_TH", ".5")), np.float32)
+            th = np.full((H, W), float(os.environ.get("DEHAND_HAND_TH", ".5")), np.float32)
             try:
                 from pyexam import figure_candidates
             except ImportError:
                 from ocr.pyexam import figure_candidates
             m = int(.04 * W)                 # 圖下方／旁邊的 (A)(B) 標籤、軸標也算圖的一部分
             for fx0, fy0, fx1, fy1 in figure_candidates(bgr, dpi=dpi):
-                th[max(0, fy0 - m):fy1 + m, max(0, fx0 - m):fx1 + m] = float(os.environ.get("DEHAND_HAND_FIG_TH", ".97"))
+                th[max(0, fy0 - m):fy1 + m, max(0, fx0 - m):fx1 + m] = float(os.environ.get("DEHAND_HAND_FIG_TH", ".5"))   # 整條流程 10 頁：.97→.5 筆跡清除 60.7→85.2%，圖誤擦 9.3→9.4%
             k = int(os.environ.get("DEHAND_HAND_DILATE", "5"))
-            hit = cv2.dilate((p > th).astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+            # 先在模型輸出格點閾值化、再映回原圖；膨脹則必須在原圖像素上做，
+            # 才與題號／印刷保護遮罩使用同一個實際擦除座標。
+            hit = _hand_hit_at_page_size(p, th, (H, W))
+            hit = cv2.dilate(hit.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
             if os.environ.get("DEHAND_PROTECT_QNUM", "1") != "0":
                 t_qnum = time.perf_counter()
                 hit[_qnum_protect_mask(bgr, detected_boxes=detected_boxes, erased_mask=hit.astype(np.uint8)) > 0] = False
@@ -327,9 +353,9 @@ def erase(bgr, dpi=300, detected_boxes=None):
                 hit[_printed_ink_protect_mask(bgr, hit.astype(np.uint8), detected_boxes=detected_boxes) > 0] = False
             out = bgr.copy(); out[hit] = 255
             if os.environ.get("DEHAND_HAND_PRINT", "1") != "0":
-                # 打印版色階（同俊瑋 v10 輸出的 (g-.25)/.63）：掃描的灰字拉成飽滿的黑、底色拉白
-                lut = np.clip((np.arange(256) / 255 - .25) / .63 * 255, 0, 255).astype(np.uint8)
-                out = cv2.LUT(out, lut)
+                # 打印版只整理紙底。過去對整頁套 LUT，會重寫已保護的印刷和圖的
+                # 原始色階，甚至改變彩色標記；這裡讓它們維持原樣。
+                out = _tone_paper_only(out)
             return out, float(hit.mean())
         if out_mode == "full":
             # full：直接用模型輸出（像俊瑋網頁的打印版）；13 份測試卷上漏字較多，所以預設 mask
