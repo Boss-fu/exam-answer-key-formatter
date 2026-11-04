@@ -24,6 +24,9 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   log "開始 $name（$(grep 'Excel 合計' $R/$name.before | grep -o '正確率 [0-9.]*%')）"
   ocr/codex_role.sh worker "$(cat "$task")" >/dev/null 2>&1
   lg=$(ls -t ocr/results/codex/*_worker_codex.log | head -1); rep="${lg%.log}.md"
+  if grep -q "routing discovery failed\|Reconnecting\|stream error\|connection" "$lg" 2>/dev/null && [ ! -s "$rep" ]; then
+    git checkout -- ocr 2>/dev/null; log "Codex 連線失敗（$name），30 分鐘後重試"; sleep 1800; continue
+  fi
   if grep -q "usage limit" "$lg" 2>/dev/null; then
     git checkout -- ocr 2>/dev/null
     at=$(grep -o "try again at [0-9:]* [AP]M" "$lg" | tail -1 | sed 's/try again at //')
