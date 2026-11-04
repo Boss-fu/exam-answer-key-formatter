@@ -379,11 +379,37 @@ RE_GROUP_HEAD = re.compile(r"^\s*(?:[壹貳參肆伍陸]\s*[、.]\s*)?(?:※\s*)
 RE_INTRO_END = re.compile(r"(?:回答|作答|完成)[^。:：]{0,16}?(?:題|問題|題目)\s*[)）]?\s*[。:：]?|試問\s*[:：]|如下\s*[:：]")
 RE_PASSAGE_RULE = re.compile(r"[=＿_]{4,}")
 RE_FIGURE_LABEL_TAIL = re.compile(r"(?:[甲乙丙丁戊己庚辛壬癸A-Z]|太陽|圖\s*[（(]?[一二三四五六七八九十0-9]+[）)]?)+$")
+# 題組行首的圖示／閱讀指令不是文章；它會讓題庫把同一段文章誤判成
+# 不同內容。僅收卷面已明示題號範圍的固定指令，避免刪掉一般題幹。
+RE_READING_PROMPT = re.compile(r"^\s*[⚫●◆■◎※]+\s*(?:請\s*)?閱讀(?:以下|下列)?敘述後(?:完成|回答)第?\s*\d+\s*[~～至\-－—]\s*\d+\s*題\s*[：:]?\s*")
+RE_GROUP_HEAD_NOISY = re.compile(r"^\s*(?:題\s*)?(?:【\s*)?題組\s*[一二三四五六七八九十\d]*\s*[、】【、:：.]?\s*")
+RE_SOURCE_TAIL = re.compile(r"\s*[（(]\s*(?:圖)?片?來源\s*[:：].{0,100}[)）]\s*$")
+
+
+def strip_figure_label_tail(t):
+    """移除緊貼題組末尾、但不屬於文章的圖內代號。
+
+    只處理有明確分界（句點／空白）且尾巴含圖號或全由短代號組成的
+    情形；例如「……組織圖。圖1 圖2」。這樣不會碰到正文的「圖(一)」。
+    """
+    m = re.search(r"(?:[。！？]|\s+)([^。！？]{1,32})$", t)
+    if not m:
+        return t
+    tail = m.group(1).strip()
+    compact = re.sub(r"\s", "", tail)
+    label_only = bool(RE_FIGURE_LABEL_TAIL.fullmatch(compact))
+    has_figure = "圖" in compact and bool(re.fullmatch(r"(?:圖\s*[（(]?[一二三四五六七八九十0-9]+[）)]?|[甲乙丙丁戊己庚辛壬癸A-Z])+", compact))
+    if label_only or has_figure:
+        return t[:m.start(1)].rstrip()
+    return t
 
 
 def tidy_passage(t):
     """題組文章：去掉「題組一、」「(二)」這類大題標頭；引言結尾後面只剩幾個字的圖中標籤（丙丁甲乙、圖(一)圖(二)）丟掉。"""
     t = RE_GROUP_HEAD.sub("", t or "").strip()
+    t = RE_GROUP_HEAD_NOISY.sub("", t)
+    t = RE_READING_PROMPT.sub("", t)
+    t = RE_SOURCE_TAIL.sub("", t)
     # OCR 把欄線或閱讀文章的分隔線認成連續等號，不是題組內容。
     t = RE_PASSAGE_RULE.sub("", t)
     ends = list(RE_INTRO_END.finditer(t))
@@ -398,7 +424,7 @@ def tidy_passage(t):
         tail = t[m.end():].strip()
         if tail and len(tail) <= 16 and RE_FIGURE_LABEL_TAIL.fullmatch(tail):
             t = t[:m.end()].rstrip()
-    return t
+    return strip_figure_label_tail(t).strip()
 
 
 def one_passage_per_group(rs):

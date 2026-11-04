@@ -98,6 +98,15 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(group, "題組一、附圖為肺泡模式圖，請依據此圖回答下列問題：")
         self.assertEqual(stem, "(33)何者正確？")
 
+    def test_passage_drops_reading_prompts_sources_and_terminal_figure_labels(self):
+        from to_qbank_xlsx import tidy_passage
+        self.assertEqual(tidy_passage("⚫請閱讀以下敘述後完成第39~41題：新冠肺炎資料。"),
+                         "新冠肺炎資料。")
+        self.assertEqual(tidy_passage("題題組一、下圖1為葉片圖。圖1 圖2"),
+                         "下圖1為葉片圖。")
+        self.assertEqual(tidy_passage("請參考圖片內容。（圖片來源：健談https://example.com/）"),
+                         "請參考圖片內容。")
+
     def test_does_not_move_an_ordinary_question_into_group(self):
         from to_qbank_xlsx import restore_truncated_group
         self.assertEqual(restore_truncated_group("附圖為消化系統", "下列何者正確？"),
