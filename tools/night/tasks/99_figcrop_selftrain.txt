@@ -1,0 +1,5 @@
+任務：自動截圖自我改進（只改 ocr/figcrop/ 底下）。使用者要求：用 ~/Desktop/待匯入/ 的 27 份考卷（*_題目.pdf；掃描卷可先用 ocr/clean_pdf.py 產清稿到 ocr/results/figcrop_selftrain/，已產過就重用）自己訓練、反覆改進；有新的手動截圖會再放進標準答案。
+1) 先修 gt_eval.py 的錯：IndexError: page 1 not in document（某份 manifest 的 page 對不上 PDF 頁數，例如 111_南市復興 的 exam.pdf 是「答案」卷、手動截圖可能來自題目卷；頁碼超出就用模板比對在所有頁找，不要崩潰）。
+2) 用 selfcheck.py 在 27 份清稿全部頁面跑，統計：每張裁圖邊緣 4px 被切斷的墨跡、框內含題目句或文字選項 (A)…（OCR 判定）、題號推不到的比例、同題多張未合併的圖選項 (A)(B)(C)(D)、四周留白過大（>40px 純白）。輸出 ocr/results/figcrop_selftrain/report.json 與最差 30 張的並排檢視圖。
+3) 依最大宗問題改 crop.py／refine.py，每改一項重跑 selfcheck＋gt_eval（ocr/results/figcrop_gt 三份手動標準答案）；selfcheck 各項要變好，gt_eval 的召回、IoU、多框、題號一致率都不可變差。
+沙箱單指令 30 秒：逐頁、分批跑，可寫 shell 迴圈分段。執行期不可用生成式 AI。不要 commit。報告 15 行內繁中：各項指標前後數字、改了什麼。
