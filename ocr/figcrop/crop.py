@@ -85,6 +85,16 @@ def guess_qno(box, raw_lines, W):
             best = row
         if fallback is None or row[0] < fallback[0]:
             fallback = row
+    if best:
+        # 上一題選項 (D) 已結束，到下一個題號之間還有幾行句子＝新題組的文章，圖屬於下一題。
+        same = sorted(((l, str(t)) for l, t in raw_lines if _col_of(l[0], starts) == col), key=lambda x: x[0][1])
+        y_best = box[1] - best[0]
+        below = [(l[1], int(m.group(1))) for l, t in same for m in [RE_QNUM.match(t)] if m and l[1] > y_best + 10 and l[1] > box[1]]
+        if below:
+            y_next, q_next = min(below)
+            ends = [l[3] for l, t in same if y_best <= l[1] < y_next and re.search(r"[(（]\s*[DＤ]\s*[)）]", t)]
+            if ends and min(ends) < box[1] and sum(1 for l, t in same if min(ends) <= l[1] < y_next and text_like(t)) >= 2:
+                return q_next
     return (best or fallback)[1] if (best or fallback) else None
 
 
@@ -195,7 +205,7 @@ def merge_option_panels(boxes, ocr_lines, W, H):
                 b = boxes[j]; ha, hb = a[3] - a[1], b[3] - b[1]; wa, wb = a[2] - a[0], b[2] - b[0]
                 vov = min(a[3], b[3]) - max(a[1], b[1]); hov = min(a[2], b[2]) - max(a[0], b[0])
                 hgap = max(a[0], b[0]) - min(a[2], b[2]); vgap = max(a[1], b[1]) - min(a[3], b[3])
-                row = vov > .8 * min(ha, hb) and min(ha, hb) > .7 * max(ha, hb) and 0 <= hgap <= .12 * W \
+                row = vov > .8 * min(ha, hb) and min(ha, hb) > .7 * max(ha, hb) and 0 <= hgap <= .07 * W \
                     and not text_between(min(a[2], b[2]), max(a[1], b[1]), max(a[0], b[0]), min(a[3], b[3]))
                 grid = hov > .8 * min(wa, wb) and min(wa, wb) > .7 * max(wa, wb) and 0 <= vgap <= .03 * H \
                     and not text_between(max(a[0], b[0]), min(a[3], b[3]), min(a[2], b[2]), max(a[1], b[1]))
@@ -248,7 +258,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     # 正好補這類圖。只收完全未被 layout 命中的候選，避免表格與已偵測圖重複。
     layout_boxes = [tuple(b) for _, b, _ in candidates]
     for b in pyexam.figure_candidates(img, dpi=300):
-        if not any(overlap(b, x) / max(1, (b[2]-b[0])*(b[3]-b[1])) > .15 for x in layout_boxes):
+        # 分母取小框：整頁寬的備援框只蓋到模型框一點比例，也是重複，留著會把模型框吃掉。
+        if not any(overlap(b, x) / max(1, min((b[2]-b[0])*(b[3]-b[1]), (x[2]-x[0])*(x[3]-x[1]))) > .15 for x in layout_boxes):
             candidates.append(("figure", list(b), True))
     boxes = []
     for c, b, _fallback in candidates:
