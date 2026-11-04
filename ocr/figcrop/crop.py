@@ -12,8 +12,19 @@ KINDS = {"figure", "image", "chart", "table", "figure_caption", "table_caption"}
 _ENG = {}
 
 
+def _rapid_layout():
+    """主機的自動更新只拉程式碼、不裝套件：第一次用到時缺 rapid-layout 就自動裝（版本同 requirements.txt）。"""
+    try:
+        from rapid_layout import RapidLayout
+    except ImportError:
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "rapid-layout==1.2.1"], check=True)
+        from rapid_layout import RapidLayout
+    return RapidLayout
+
+
 def detect(img, model):
-    from rapid_layout import RapidLayout
+    RapidLayout = _rapid_layout()
     if model not in _ENG:
         _ENG[model] = RapidLayout(model_type=model)
     r = _ENG[model](img)
