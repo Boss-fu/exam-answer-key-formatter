@@ -5,7 +5,7 @@ PDF「111_南市復興_國七上二段_…pdf」與 ZIP「南市復興國中-七
     python ocr/figcrop/sync_gt.py [來源資料夾]"""
 import os, re, shutil, sys, zipfile
 
-SRC = sys.argv[1] if len(sys.argv) > 1 else "/Volumes/教務部門/B自然教材部/02國中/4段考考古題/自動切圖訓練資料"
+SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/自動切圖訓練資料")   # 使用者持續丟入；NAS 版：/Volumes/教務部門/…/自動切圖訓練資料
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results", "figcrop_gt")
 
 
@@ -26,9 +26,13 @@ def main():
     files = os.listdir(SRC)
     for pdf in sorted(f for f in files if f.lower().endswith(".pdf")):
         m = re.match(r"(\d{3})_([^_]+?)_", pdf)
-        if not m:
-            continue
-        year, school = m.groups()
+        if m:
+            year, school = m.groups()
+        else:                                   # 「石牌國中-七年級-111-上學期-…_乾淨.pdf」
+            m = re.match(r"(.+?)(?:國中|高中|中學)?-[^-]*年級-(\d{3})-", pdf)
+            if not m:
+                continue
+            school, year = m.groups()
         zips = [z for z in files if z.lower().endswith(".zip") and school in z and year in z]
         if not zips:
             continue
