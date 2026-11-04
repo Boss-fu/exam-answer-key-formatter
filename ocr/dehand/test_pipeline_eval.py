@@ -33,6 +33,22 @@ class PipelineEvalTest(unittest.TestCase):
         self.assertEqual(got['figure_erased'], 1)
         self.assertEqual(got['figure_total'], 1)
 
+    def test_page_metrics_rejects_misaligned_annotations(self):
+        q = {
+            'x': np.full((4, 4), 255, np.uint8),
+            'c': np.full((3, 4), 255, np.uint8),
+            'hand': np.zeros((4, 4), bool),
+        }
+        with self.assertRaisesRegex(ValueError, '尺寸必須完全一致'):
+            pipeline_eval.page_metrics(q, np.zeros((4, 4, 3), np.uint8), [])
+
+    def test_erase_mask_only_whitens_requested_pixels(self):
+        source = np.full((2, 2, 3), 100, np.uint8)
+        hit = np.array([[True, False], [False, True]])
+        actual = pipeline_eval._erase_mask(source, hit)
+        self.assertTrue(np.all(actual[hit] == 255))
+        self.assertTrue(np.all(actual[~hit] == 100))
+
 
 if __name__ == '__main__':
     unittest.main()
