@@ -9,9 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import ppocr_engine
 import pyexam
 try:
-    from .refine import edge_cut_ink, refine_box
+    from .refine import edge_cut_ink, refine_box, text_like
 except ImportError:
-    from refine import edge_cut_ink, refine_box
+    from refine import edge_cut_ink, refine_box, text_like
 
 KINDS = {"figure", "image", "chart", "table", "figure_caption", "table_caption"}
 _ENG = {}
@@ -72,7 +72,7 @@ def guess_qno(box, raw_lines, W):
     col = _col_of((box[0] + box[2]) / 2 - .05 * W, starts)
     best = None; fallback = None
     for (l, text) in raw_lines:
-        if l[1] > box[1] + 12:
+        if l[1] > box[1] + max(12, .012 * W):   # 框有留白，頂端比圖高一點
             continue
         clean = str(text).replace("［", "(").replace("］", ")")
         m = RE_GROUP.search(clean) or RE_QNUM.match(clean)
@@ -147,7 +147,13 @@ def merge(boxes):
     return out
 
 
-def merge_figure_panels(boxes, gap=110):
+def has_qnum_inside(a, b, ocr_lines):
+    """併起來的範圍內出現題號行＝跨題，不合併。"""
+    x0, y0, x1, y1 = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
+    return any(RE_QNUM.match(str(t)) and l0 >= x0 - 10 and l0 <= x1 and l2 >= y0 - 10 and l3 <= y1 + 10 for l0, l2, l1, l3, t in ocr_lines)
+
+
+def merge_figure_panels(boxes, gap=110, ocr_lines=()):
     """同一題並排的子圖常被 layout 拆開；僅在高度實質重疊時合併。"""
     boxes = list(boxes)
     changed = True
@@ -158,10 +164,43 @@ def merge_figure_panels(boxes, gap=110):
                 b = boxes[j]
                 vertical = min(a[3], b[3]) - max(a[1], b[1])
                 horiz_gap = max(a[0], b[0]) - min(a[2], b[2])
-                if vertical > .45 * min(a[3]-a[1], b[3]-b[1]) and 0 <= horiz_gap <= gap:
+                if vertical > .45 * min(a[3]-a[1], b[3]-b[1]) and 0 <= horiz_gap <= gap and not has_qnum_inside(a, b, ocr_lines):
                     boxes[i] = (min(a[0],b[0]), min(a[1],b[1]), max(a[2],b[2]), max(a[3],b[3]))
                     boxes.pop(j); changed = True; break
             if changed: break
+    return boxes
+
+
+def merge_option_panels(boxes, ocr_lines, W, H):
+    """圖選項 (A)(B)(C)(D) 常被拆成幾張：高度相近、對齊、中間沒有題目文字的子圖併成一張（橫排與 2×2）。"""
+    def text_between(x0, y0, x1, y1):
+        return any(text_like(t) and min(l1, x1) - max(l0, x0) > 0 and min(l3, y1) - max(l2, y0) > 0
+                   for l0, l2, l1, l3, t in ocr_lines)
+    def has_option_labels(a, b):
+        """併起來的範圍內看得到 ≥2 個獨立代號 (A)(B)(C)(D) 才是圖選項；沒有代號就是不同題各自的圖。"""
+        m = int(.02 * W); x0, y0, x1, y1 = min(a[0], b[0]) - m, min(a[1], b[1]) - m, max(a[2], b[2]) + m, max(a[3], b[3]) + m
+        found = set()
+        for l0, l2, l1, l3, t in ocr_lines:
+            if l0 >= x0 and l1 <= x1 and l2 >= y0 and l3 <= y1:
+                found |= set(re.findall(r"[(（]\s*([A-DＡ-Ｄ])\s*[)）]", str(t)))
+        return len(found) >= 2
+    boxes = list(boxes); changed = True
+    while changed:
+        changed = False
+        for i, a in enumerate(boxes):
+            for j in range(i + 1, len(boxes)):
+                b = boxes[j]; ha, hb = a[3] - a[1], b[3] - b[1]; wa, wb = a[2] - a[0], b[2] - b[0]
+                vov = min(a[3], b[3]) - max(a[1], b[1]); hov = min(a[2], b[2]) - max(a[0], b[0])
+                hgap = max(a[0], b[0]) - min(a[2], b[2]); vgap = max(a[1], b[1]) - min(a[3], b[3])
+                row = vov > .8 * min(ha, hb) and min(ha, hb) > .7 * max(ha, hb) and 0 <= hgap <= .12 * W \
+                    and not text_between(min(a[2], b[2]), max(a[1], b[1]), max(a[0], b[0]), min(a[3], b[3]))
+                grid = hov > .8 * min(wa, wb) and min(wa, wb) > .7 * max(wa, wb) and 0 <= vgap <= .03 * H \
+                    and not text_between(max(a[0], b[0]), min(a[3], b[3]), min(a[2], b[2]), max(a[1], b[1]))
+                if (row or grid) and has_option_labels(a, b) and not has_qnum_inside(a, b, ocr_lines):
+                    boxes[i] = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+                    boxes.pop(j); changed = True; break
+            if changed:
+                break
     return boxes
 
 
@@ -181,17 +220,16 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = []
     for c, b, _fallback in candidates:
         kind = "table" if c == "table" else "figure"
-        # 先排除明確的題目句／文字選項，再讓保守精修補回框線、軸標與圖號。
-        # 單靠 layout 框會把「附圖為…？」的整段題幹一併當圖。
-        candidate = refine(img, b, lines, pad=4)
-        half = img.shape[1] // 2
-        column = (0, 0, half, img.shape[0]) if (candidate[0] + candidate[2]) / 2 < half else (half, 0, img.shape[1], img.shape[0])
-        candidate = refine_box(img, candidate, kind=kind, ocr_lines=ocr_lines, column=column)
-        # 確認 4px 邊帶沒有截斷元件；仍有斷墨時採保守舊式連通塊擴張。
-        if edge_cut_ink(img, candidate, band=4):
-            candidate = refine(img, candidate, lines, pad=10)
+        # 版面模型的框本身就準（掃描卷也是）；只在頁寬 2.5% 內小幅外擴補回被切到的筆畫，
+        # 不用連通塊整塊併入——掃描卷的外框或文字一連通，框就會爆到整頁。
+        m = int(.025 * img.shape[1])
+        column = (b[0] - m, b[1] - m, b[2] + m, b[3] + m)
+        candidate = refine_box(img, b, kind=kind, ocr_lines=ocr_lines, column=column)
         boxes.append(candidate)
-    boxes = merge_figure_panels(merge(boxes))
+    boxes = merge_figure_panels(merge(boxes), gap=int(.045 * img.shape[1]), ocr_lines=ocr_lines)
+    boxes = merge_option_panels(boxes, ocr_lines, img.shape[1], img.shape[0])
+    p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
+    boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
     return boxes, dets

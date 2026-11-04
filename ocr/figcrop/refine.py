@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -42,6 +43,25 @@ def _grow_to_blank(ink, box, limit, blank=0.003, step=2):
     return x0, y0, x1, y1
 
 
+def text_like(text):
+    """像題目文字（不是圖內標籤或圖說）：句尾標點、選項代號、或 ≥8 個中文字；「圖(十三)」「表一」這類圖說不算。"""
+    t = str(text).strip()
+    if re.match(r"^[圖表]\s*[(（]?\s*[一二三四五六七八九十\d]", t) and len(t) <= 10:
+        return False
+    cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
+    return cjk >= 8 or (cjk >= 3 and bool(re.search(r"[。？?；：]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
+
+
+def _drop_frames(ink, box):
+    """題組外框：比候選框長很多的直／橫線不算圖的墨跡，否則框會沿著外框一路長到整個題組。"""
+    x0, y0, x1, y1 = box
+    k = np.ones((1, max(120, int(1.3 * (x1 - x0)))), np.uint8)
+    v = np.ones((max(120, int(1.3 * (y1 - y0))), 1), np.uint8)
+    m = ink.astype(np.uint8)
+    lines = cv2.morphologyEx(m, cv2.MORPH_OPEN, k) | cv2.morphologyEx(m, cv2.MORPH_OPEN, v)
+    return ink & ~(cv2.dilate(lines, np.ones((3, 3), np.uint8)) > 0)
+
+
 def _touch_or_near(a, b, gap=28):
     return not (a[2] + gap < b[0] or b[2] + gap < a[0] or a[3] + gap < b[1] or b[3] + gap < a[1])
 
@@ -59,7 +79,8 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
     if column is None:
         column = (0, 0, w, h)
     x0, y0, x1, y1 = clip(box, image.shape)
-    colw = column[2] - column[0]
+    colw = max(column[2] - column[0], w / 2)
+    column = (max(0, column[0]), max(0, column[1]), min(w, column[2]), min(h, column[3]))
     # 圖號、圖說、軸標、(A) 等短且緊鄰的 OCR 框可併入；長正文一律不併。
     for line in ocr_lines:
         lx0, ly0, lx1, ly1, text = line[:5]
@@ -75,7 +96,9 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
     for lx0, ly0, lx1, ly1, text in ocr_lines:
         # 掃描卷的一行題幹有時只佔欄寬 35%（右欄縮排題組），不能只靠
         # 寬度判斷；長辨識字串同樣是不可跨越的正文停損線。圖內標籤通常短。
-        body = lx1-lx0 > .60 * colw or ((lx1-lx0 > .35 * colw) and len(str(text).strip()) >= 18)
+        inside = max(0, min(lx1, x1) - max(lx0, x0)) * max(0, min(ly1, y1) - max(ly0, y0)) > .5 * max(1, (lx1 - lx0) * (ly1 - ly0))
+        body = lx1-lx0 > .60 * colw or ((lx1-lx0 > .35 * colw) and len(str(text).strip()) >= 18) \
+            or (kind != "table" and not inside and text_like(text))
         if body and not (lx1 < x0 or lx0 > x1):
             if ly1 <= y0: top = max(top, ly1)
             elif ly0 >= y1: bottom = min(bottom, ly0)
@@ -84,7 +107,21 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
             if lx1 <= x0: left = max(left, lx1)
             elif lx0 >= x1: right = min(right, lx0)
     limit = (left, top, right, bottom)
-    out = _grow_to_blank(_ink(image), (x0,y0,x1,y1), limit)
+    ink = _ink(image)
+    if kind != "table":
+        ink = _drop_frames(ink, (x0, y0, x1, y1))
+    out = _grow_to_blank(ink, (x0,y0,x1,y1), limit)
+    if kind != "table":                 # 框的上下緣還有題目文字行（版面模型自己框進來的）就切掉
+        ax0, ay0, ax1, ay1 = out; hh = ay1 - ay0
+        for lx0, ly0, lx1, ly1, text in ocr_lines:
+            if not text_like(text) or min(lx1, ax1) - max(lx0, ax0) <= 0:
+                continue
+            if ay0 - 5 <= ly0 and (ly0 + ly1) / 2 < ay0 + .25 * hh:
+                ay0 = max(ay0, ly1 + 4)
+            elif ly1 <= ay1 + 5 and (ly0 + ly1) / 2 > ay1 - .25 * hh:
+                ay1 = min(ay1, ly0 - 4)
+        if ay1 - ay0 > 40:
+            out = (ax0, ay0, ax1, ay1)
     # 表格一定以框線外緣為準，另留 6px 防止外框被裁掉。
     if kind == "table":
         out = (out[0]-6, out[1]-6, out[2]+6, out[3]+6)
