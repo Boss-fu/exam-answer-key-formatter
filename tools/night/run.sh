@@ -40,6 +40,20 @@ for base in $(cat tools/night/order.txt); do task=tools/night/tasks/$base.txt; [
   changed=$(echo $(git diff --name-only -- ocr) $newpy); newtests=$(comm -13 <(echo "$pre" | sort) <(git ls-files --others --exclude-standard ocr | grep -E "test_.*\.py$" | sort))
   if [ -z "$changed" ]; then log "$name：沒有改動"; touch $R/$name.done; continue; fi
   tok=$(grep -A1 "tokens used" "$lg" | tail -1 | tr -d ','); log "$name Codex 用量 ${tok:-?} tokens"
+  if [ -n "$changed" ] && ! echo "$changed" | tr ' ' '\n' | grep -v "^ocr/figcrop/" | grep -q .; then
+    # 只改自動截圖：用使用者手動截圖標準答案驗收（gt_eval），不看 Excel
+    FG=ocr/results/figcrop_gt; $P ocr/figcrop/gt_eval.py --gt-dir $FG --out $R/$name.fig > $R/$name.fig.log 2>&1
+    v=$($P tools/night/gate_figcrop.py $FG/baseline.json $R/$name.fig/gt_eval.json 2>&1 | tail -1)
+    if [[ "$v" == PASS* ]] && $P -m py_compile $changed; then
+      git add $changed $newtests; git commit -q -m "夜間 Codex：$name（$v）
+
+$(tail -12 "$rep" 2>/dev/null)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>/dev/null
+      cp $R/$name.fig/gt_eval.json $FG/baseline.json; log "✅ $name 已提交（截圖驗收）：$v"
+    else git checkout -- $(git diff --name-only -- ocr) 2>/dev/null; rm -f $newpy $newtests; log "❌ $name 還原（截圖驗收）：$v"; fi
+    touch $R/$name.done; sleep "${COOLDOWN:-900}"; continue
+  fi
   tracked=$(git diff --name-only -- ocr)
   if [ -n "$changed" ] && { [ -z "$tracked" ] || { ! echo "$changed" | tr ' ' '\n' | grep -v "^ocr/dehand/" | grep -q . && ! echo "$changed" | grep -q "ocr/dehand/apply.py"; }; }; then
     # 只改去筆跡的訓練程式／新工具（不動正式流程 apply.py）：驗收＝能編譯、單元測試過、改到訓練就小量訓練跑得完（Excel 不受影響）
