@@ -9,9 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import ppocr_engine
 import pyexam
 try:
-    from .refine import edge_cut_ink, refine_box, text_like
+    from .refine import edge_cut_ink, option_caption, refine_box, text_like
 except ImportError:
-    from refine import edge_cut_ink, refine_box, text_like
+    from refine import edge_cut_ink, option_caption, refine_box, text_like
 
 KINDS = {"figure", "image", "chart", "table", "figure_caption", "table_caption"}
 _ENG = {}
@@ -47,6 +47,8 @@ RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 
 RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\d{1,2})\s*[.．、]")
 RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
+RE_NOTICE = re.compile(r"試題結束|再.{0,4}檢查")
+RE_PURE_OPT = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]$")
 
 
 def _columns(raw_lines, W):
@@ -174,14 +176,15 @@ def merge_figure_panels(boxes, gap=110, ocr_lines=()):
 def merge_option_panels(boxes, ocr_lines, W, H):
     """圖選項 (A)(B)(C)(D) 常被拆成幾張：高度相近、對齊、中間沒有題目文字的子圖併成一張（橫排與 2×2）。"""
     def text_between(x0, y0, x1, y1):
-        return any(text_like(t) and min(l1, x1) - max(l0, x0) > 0 and min(l3, y1) - max(l2, y0) > 0
+        return any(text_like(t) and not option_caption(t) and min(l1, x1) - max(l0, x0) > 0 and min(l3, y1) - max(l2, y0) > 0
                    for l0, l2, l1, l3, t in ocr_lines)
     def has_option_labels(a, b):
         """併起來的範圍內看得到 ≥2 個獨立代號 (A)(B)(C)(D) 才是圖選項；沒有代號就是不同題各自的圖。"""
         m = int(.02 * W); x0, y0, x1, y1 = min(a[0], b[0]) - m, min(a[1], b[1]) - m, max(a[2], b[2]) + m, max(a[3], b[3]) + m
         found = set()
         for l0, l2, l1, l3, t in ocr_lines:
-            if l0 >= x0 and l1 <= x1 and l2 >= y0 and l3 <= y1:
+            pure = RE_PURE_OPT.match(str(t).strip())    # 純代號可能印在圖左邊一段距離
+            if (l0 >= x0 or (pure and l0 >= x0 - .1 * W)) and l1 <= x1 and l2 >= y0 and l3 <= y1:
                 found |= set(re.findall(r"[(（]\s*([A-DＡ-Ｄ])\s*[)）]", str(t)))
         return len(found) >= 2
     boxes = list(boxes); changed = True
@@ -201,7 +204,37 @@ def merge_option_panels(boxes, ocr_lines, W, H):
                     boxes.pop(j); changed = True; break
             if changed:
                 break
-    return boxes
+    # 併好的圖選項：印在左邊的純代號 (A)(C) 也要框進來，手動截圖都會帶到。
+    out = []
+    for b in boxes:
+        inside = sum(1 for l0, l2, l1, l3, t in ocr_lines if RE_PURE_OPT.match(str(t).strip()) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] - 10 and l3 <= b[3] + 10)
+        x0 = b[0]
+        if inside:
+            for l0, l2, l1, l3, t in ocr_lines:
+                if RE_PURE_OPT.match(str(t).strip()) and l1 <= b[0] + 20 and l0 >= b[0] - .1 * W and l2 >= b[1] - 10 and l3 <= b[3] + 10:
+                    x0 = min(x0, l0)
+        out.append((x0, b[1], b[2], b[3]))
+    return out
+
+
+def sentence_cover(box, ocr_lines):
+    """框內被句子行蓋掉的面積比例：備援候選常把壓在題目上的手寫筆跡當成圖。"""
+    x0, y0, x1, y1 = box
+    area = sum(max(0, min(l1, x1) - max(l0, x0)) * max(0, min(l3, y1) - max(l2, y0))
+               for l0, l2, l1, l3, t in ocr_lines if text_like(t))
+    return area / max(1, (x1 - x0) * (y1 - y0))
+
+
+def is_red_mark(img, box):
+    """窄小且墨跡幾乎全是彩色＝老師／學生的批改筆跡，不是印刷的圖。"""
+    x0, y0, x1, y1 = [int(v) for v in box]
+    if x1 - x0 > .08 * img.shape[1]:
+        return False
+    sub = img[max(0, y0):y1, max(0, x0):x1]
+    if sub.size == 0:
+        return False
+    ink = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) < 180
+    return ink.any() and (cv2.cvtColor(sub, cv2.COLOR_BGR2HSV)[:, :, 1] > 80)[ink].mean() > .8
 
 
 def crop_page(img, model="pp_doc_layoutv3", raw=None):
@@ -220,6 +253,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = []
     for c, b, _fallback in candidates:
         kind = "table" if c == "table" else "figure"
+        if (_fallback and sentence_cover(b, ocr_lines) >= .5) or (kind == "figure" and is_red_mark(img, b)):
+            continue
         # 版面模型的框本身就準（掃描卷也是）；只在頁寬 2.5% 內小幅外擴補回被切到的筆畫，
         # 不用連通塊整塊併入——掃描卷的外框或文字一連通，框就會爆到整頁。
         m = int(.025 * img.shape[1])
@@ -232,6 +267,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
+    # 卷末的「試題結束，請再次檢查」方框不是題目的圖
+    boxes = [b for b in boxes if not any(RE_NOTICE.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] for l0, l2, l1, l3, t in ocr_lines)]
     return boxes, dets
 
 

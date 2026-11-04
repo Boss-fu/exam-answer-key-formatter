@@ -52,6 +52,12 @@ def text_like(text):
     return cjk >= 8 or (cjk >= 3 and bool(re.search(r"[。？?；：]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
 
 
+def option_caption(text):
+    """圖選項底下的短圖說，如「(B)加熱」：只有代號加幾個字，不是文字選項（有數字的「(A)136大卡」不算）。"""
+    t = str(text).strip()
+    return bool(re.match(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*[\u4e00-\u9fff]{0,4}$", t))
+
+
 def _drop_frames(ink, box):
     """題組外框：比候選框長很多的直／橫線不算圖的墨跡，否則框會沿著外框一路長到整個題組。"""
     x0, y0, x1, y1 = box
@@ -60,6 +66,29 @@ def _drop_frames(ink, box):
     m = ink.astype(np.uint8)
     lines = cv2.morphologyEx(m, cv2.MORPH_OPEN, k) | cv2.morphologyEx(m, cv2.MORPH_OPEN, v)
     return ink & ~(cv2.dilate(lines, np.ones((3, 3), np.uint8)) > 0)
+
+
+def shrink_to_figure(ink, box, ocr_lines):
+    """框內挖掉句子行後，把框收到剩下的墨跡（真正的圖）範圍：版面模型常把圖旁邊的題目文字一起框進來。
+    圖內短標籤不算句子，會留著。剩下的墨跡太少（整個框都是字）就不動。"""
+    x0, y0, x1, y1 = box
+    sub = ink[y0:y1, x0:x1].copy()
+    if sub.size == 0:
+        return box
+    total = sub.sum()
+    for lx0, ly0, lx1, ly1, text in ocr_lines:
+        if text_like(text) and min(lx1, x1) - max(lx0, x0) > 0 and min(ly1, y1) - max(ly0, y0) > 0:
+            sub[max(0, ly0 - y0 - 3):max(0, ly1 - y0 + 3), max(0, lx0 - x0 - 3):max(0, lx1 - x0 + 3)] = False
+    if total == 0 or sub.sum() < .25 * total:
+        return box
+    cols = np.where(sub.mean(0) > .004)[0]; rows = np.where(sub.mean(1) > .004)[0]
+    if len(cols) < 20 or len(rows) < 20:
+        return box
+    out = (x0 + int(cols[0]), y0 + int(rows[0]), x0 + int(cols[-1]) + 1, y0 + int(rows[-1]) + 1)
+    for lx0, ly0, lx1, ly1, text in ocr_lines:      # 圖說屬於圖，墨跡淡也要留
+        if re.match(r"^[圖表]\s*[(（]?\s*[一二三四五六七八九十\d]", str(text).strip()) and lx0 >= x0 and lx1 <= x1 and ly0 >= y0 and ly1 <= y1:
+            out = _merge(out, (lx0, ly0, lx1, ly1))
+    return out
 
 
 def _touch_or_near(a, b, gap=28):
@@ -87,6 +116,9 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         lw = lx1 - lx0
         short = lw <= .60 * colw and len(str(text).strip()) <= 24
         marker = str(text).strip().startswith(("圖", "Fig", "("))
+        # 旁邊的文字選項「(D)272卡。」也以括號開頭；沒碰到框的句子行不是圖的標籤。
+        if text_like(text) and (min(lx1, x1) <= max(lx0, x0) or min(ly1, y1) <= max(ly0, y0)):
+            continue
         # 「附圖為…」和 (A)文字選項在窄欄也可能低於 42% 欄寬；非圖號
         # 只接受真正短的軸名／代號，才不會在 grow 前先把題幹併進來。
         if short and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
@@ -122,6 +154,7 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
                 ay1 = min(ay1, ly0 - 4)
         if ay1 - ay0 > 40:
             out = (ax0, ay0, ax1, ay1)
+        out = shrink_to_figure(ink, clip(out, image.shape), ocr_lines)
     # 表格一定以框線外緣為準，另留 6px 防止外框被裁掉。
     if kind == "table":
         out = (out[0]-6, out[1]-6, out[2]+6, out[3]+6)
