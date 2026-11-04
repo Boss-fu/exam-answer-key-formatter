@@ -1,0 +1,6 @@
+任務：自動截圖系統——從考卷頁自動裁出「圖形」與「表格」，取代使用者手動截圖。新增 ocr/figcrop/（不要改 pyexam.py、to_*.py）。
+使用者硬性要求：裁出的圖不可漏字（圖內標籤、軸標、圖號「圖(一)」都要在框內）、不可偏移、不可缺角缺邊（框線、表格外框完整）、也不可多出旁邊題目的文字。
+1) bench.py：在 ~/Desktop/待匯入/*_題目.pdf（300dpi 渲染、可先用 ocr/pyexam.remove_color_ink(…)[0] 與 dehand 清過的版面）比較候選偵測器：已安裝的 rapid_layout（ModelType：pp_doc_layoutv3、doclayout_docstructbench、pp_layout_cdla、pp_layout_table；注意 RapidLayout 的正確建構參數，先讀 site-packages/rapid_layout 原始碼——直接 params={"model_type":…} 會退回預設 cdla）與現有 pyexam.figure_candidates／detect_tables 當基準。輸出每頁每個偵測器的框 JSON 與裁圖到 ocr/results/figcrop/<偵測器>/。
+2) refine.py：框的精修（這是品質關鍵）——往外擴到四周都是連續空白（墨跡投影找邊界）、把緊鄰的圖說／圖號／軸標／(A)(B)(C)(D) 圖選項標籤併入、遇到題目正文行（本機 OCR 框、與欄寬同寬的文字行）就停、表格以框線外框為準再留 6px 邊。輸出精修後裁圖。
+3) 自評指標（不用 AI）：裁切邊緣 4px 帶內不可有被切斷的墨跡（連通元件跨邊＝缺邊／漏字）、框內不可含完整正文行（OCR 行寬 >60% 欄寬＝多字）。報告每個偵測器＋精修的通過率。
+附單元測試。只新增 ocr/figcrop/ 檔案。規則：執行期不可用生成式 AI；沙箱單指令 30 秒（用少量頁測、完整評比由 Claude 跑）；不要 commit；報告 15 行內繁中，寫清楚建議用哪個偵測器與完整評比指令。

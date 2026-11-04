@@ -1,0 +1,1 @@
+修改 `ocr/dehand/pipeline_eval.py`、`ocr/dehand/apply.py` 與對應 unittest：新增整條流程的門檻／膨脹／印刷保護 Pareto 掃描，採驗證集自動選擇筆跡清除率≥97%且印刷／圖誤擦最小的設定，並以安全預設接入 `apply.erase`；執行期不可用生成式 AI、不要 commit；驗證跑 `python -m unittest ocr.dehand.test_pipeline_eval`、`python ocr/dehand/pipeline_eval.py` 全驗證頁及 `python ocr/qbank_eval.py --xlsx`，須輸出掃描表與 OCR 4 頁 ≤25 秒。

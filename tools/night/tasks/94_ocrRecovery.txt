@@ -1,0 +1,1 @@
+修改 `ocr/pyexam.py` 與 `ocr/test_pyexam_columns.py`：對偵測到但低信心或漏讀的印刷文字框，以原始未去筆跡影像做局部 `rec_only` 補辨並只在字串較完整且不落圖區時替換，專攻「少了文字」32 題；執行期不可用生成式 AI、不要 commit；驗證用 `~/.venvs/zizi-exam/bin/python -m unittest ocr.test_pyexam_columns`、`python ocr/qbank_eval.py --xlsx` 全 27 份、逐份比較少字損失，並量 OCR 4 頁 ≤25 秒。  

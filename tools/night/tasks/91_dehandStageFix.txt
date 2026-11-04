@@ -1,0 +1,1 @@
+先依 `ocr/dehand/pipeline_eval.py --stages` 的階段報告寫 1 頁設計，再只修改最大損失階段的 `ocr/dehand/apply.py` 與對應 unittest，修正模型遮罩到實際擦除間的縮放/保護/色階失真；驗證全驗證頁筆跡清除率≥97%、印刷與圖誤擦率不升、`python ocr/qbank_eval.py --xlsx` 不低於 97.3%、OCR 4 頁≤25 秒；執行期不可用生成式 AI、不要 commit。

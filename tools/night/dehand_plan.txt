@@ -1,5 +1,2 @@
-# 名稱 環境變數 參數（從目前冠軍接著訓練）
-# r9 加偽標註＋更多印刷負樣本 → 抓到率下降。先拿掉偽標註、減少印刷負樣本、加重筆跡權重，看抓到率能不能上去
-r10a FT_POS=5 FT_NEG=1 --epochs 6
-# 若 r10a 沒贏：維持負樣本、降學習率細調
-r10b FT_POS=4 FT_NEG=2 --epochs 6 --lr 1e-5
+# r12 抓到率升但誤標也升：偽標註權重降、印刷負樣本加重
+r13agree FT_POS=3 FT_NEG=4 --pseudo --pseudo-dir ocr/dehand/data/_agree --pseudo-weight .2 --epochs 6 --lr 1e-5
