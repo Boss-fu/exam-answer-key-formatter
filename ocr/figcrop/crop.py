@@ -272,6 +272,38 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     return boxes, dets
 
 
+def page_rotation(img):
+    """掃描卷可能轉 90°／180°。回傳 k：np.rot90(img, k) 才是正的。
+    OCR 會自動把直立的行轉過來讀，所以轉正的頁、再逆時針差 90° 的頁都讀得到字，要用行框方向再分一次。"""
+    small = cv2.resize(img, None, fx=.4, fy=.4, interpolation=cv2.INTER_AREA)
+    def read(k):
+        raw = []; text_lines(np.rot90(small, k).copy(), raw)
+        good = [b for b, t in raw if len(re.findall(r"[\u4e00-\u9fff]", str(t))) >= 4]
+        return len(good), sum(1 for b in good if b[3] - b[1] > b[2] - b[0])
+    n0, tall0 = read(0)
+    if n0 >= 5:
+        return 1 if tall0 > .5 * n0 else 0
+    n1, tall1 = read(1)
+    if n1 >= 5:
+        return 2 if tall1 > .5 * n1 else 1
+    return 3 if read(3)[0] >= 5 else 0
+
+
+def unrotate_box(box, k, shape):
+    """np.rot90(img, k) 上的框換回原頁座標；shape 是原頁。"""
+    H, W = shape[:2]; x0, y0, x1, y1 = box
+    return {0: (x0, y0, x1, y1), 1: (W - y1, x0, W - y0, x1), 2: (W - x1, H - y1, W - x0, H - y0), 3: (y0, H - x1, y1, H - x0)}[k % 4]
+
+
+def crop_items(img, model="pp_doc_layoutv3"):
+    """整頁流程：先轉正再切。回傳每張圖的 box（原頁座標）、qno、crop（轉正後的圖）。"""
+    k = page_rotation(img)
+    up = np.rot90(img, k).copy() if k else img
+    raw = []; boxes, _ = crop_page(up, model, raw)
+    return [{"box": tuple(int(v) for v in unrotate_box(b, k, img.shape)), "qno": guess_qno(b, raw, up.shape[1]),
+             "crop": up[b[1]:b[3], b[0]:b[2]]} for b in boxes]
+
+
 def page_numbers(spec, total):
     """解析 1,3-5；無指定時回傳全部（CLI 可在 30 秒限制下逐頁呼叫）。"""
     if not spec:
@@ -299,13 +331,13 @@ def main():
             continue
         pix = page.get_pixmap(dpi=a.dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
-        raw = []
-        boxes, _ = crop_page(img, a.model, raw)
+        boxes = crop_items(img, a.model)
         k_pt = 72 / a.dpi; items = []
-        for k, (x0, y0, x1, y1) in enumerate(boxes, 1):
-            path = os.path.join(a.o, f"p{pn}_fig{k}.png"); cv2.imwrite(path, img[y0:y1, x0:x1])
+        for k, it in enumerate(boxes, 1):
+            x0, y0, x1, y1 = it["box"]
+            path = os.path.join(a.o, f"p{pn}_fig{k}.png"); cv2.imwrite(path, it["crop"])
             items.append({"x": x0 * k_pt, "y": y0 * k_pt, "w": (x1 - x0) * k_pt, "h": (y1 - y0) * k_pt,
-                          "qno": guess_qno((x0, y0, x1, y1), raw, img.shape[1]), "file": path})
+                          "qno": it["qno"], "file": path})
         pages.append({"page": pn, "width": page.rect.width, "height": page.rect.height, "items": items})
         if not a.json:
             print(f"p{pn}: {len(boxes)} 張")

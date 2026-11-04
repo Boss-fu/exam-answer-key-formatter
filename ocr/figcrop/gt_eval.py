@@ -122,7 +122,7 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
         if only_pages and pn not in only_pages: continue
         image = render(doc[pn-1]); gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         features = cv2.SIFT_create().detectAndCompute(gray, None)
-        raw = []; boxes, _ = crop.crop_page(image, raw=raw)
+        items = crop.crop_items(image); boxes = [it["box"] for it in items]
         used = set()
         for asset in wanted:
             filename = asset["file"]; templ = cv2.imread(str(work / "manual" / filename), cv2.IMREAD_GRAYSCALE)
@@ -134,7 +134,7 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
             score, j, auto_box = max(scores, default=(0, None, None))
             hit = score >= .8
             if hit: used.add(j)
-            qno = crop.guess_qno(auto_box, raw, image.shape[1]) if auto_box else None
+            qno = items[j]["qno"] if auto_box else None
             auto_img = image[auto_box[1]:auto_box[3], auto_box[0]:auto_box[2]] if auto_box else None
             write_review(review_dir / f"{work.name}_{filename}", templ, auto_img, f"auto IoU={score:.3f} q={qno}")
             rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})

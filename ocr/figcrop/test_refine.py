@@ -2,10 +2,10 @@ import unittest
 import cv2, numpy as np
 try:
  from .refine import refine_box, edge_cut_ink, has_body_line
- from .crop import guess_qno
+ from .crop import guess_qno, unrotate_box
 except ImportError:
  from refine import refine_box, edge_cut_ink, has_body_line
- from crop import guess_qno
+ from crop import guess_qno, unrotate_box
 
 class RefineTest(unittest.TestCase):
  def test_expands_to_include_axes_and_keeps_body_out(self):
@@ -26,4 +26,10 @@ class RefineTest(unittest.TestCase):
   raw=[((132,20,190,40),'回答第 6～8 題'), ((820,55,875,76),')12.'), ((120,80,175,100),')5.')]
   self.assertEqual(guess_qno((800,180,1100,300),raw,1200),12)
   self.assertEqual(guess_qno((100,180,500,300),raw,1200),5)
+ def test_unrotate_box(self):
+  mark=np.zeros((60,100),bool)
+  for k in (0,1,2,3):
+   up=np.zeros(np.rot90(mark,k).shape,bool); b=(5,10,20,30); up[b[1]:b[3],b[0]:b[2]]=True
+   ys,xs=np.where(np.rot90(up,-k))
+   self.assertEqual(unrotate_box(b,k,mark.shape),(xs.min(),ys.min(),xs.max()+1,ys.max()+1))
 if __name__=='__main__': unittest.main()
