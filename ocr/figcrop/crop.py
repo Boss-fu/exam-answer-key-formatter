@@ -7,6 +7,11 @@ import argparse, os, sys
 import cv2, numpy as np, pymupdf
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import ppocr_engine
+import pyexam
+try:
+    from .refine import edge_cut_ink, refine_box
+except ImportError:
+    from refine import edge_cut_ink, refine_box
 
 KINDS = {"figure", "image", "chart", "table", "figure_caption", "table_caption"}
 _ENG = {}
@@ -40,22 +45,32 @@ import re
 RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 
 
-RE_QNUM = re.compile(r"^[\s(（A-Da-dＡ-Ｄ)）|lI]{0,6}?(\d{1,2})\s*[.．、]")   # 「(D)1.」「( )4.」「6.」
+RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\d{1,2})\s*[.．、]")
+RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
 
 
 def guess_qno(box, raw_lines, W):
-    """題號：同一欄、圖的上方（或同高左側）最近的「N.」開頭行。"""
-    cx = (box[0] + box[2]) / 2; best = None
+    """取同欄圖上最近題號；題組引言「第 N～M 題」一律歸 N。"""
+    cx = (box[0] + box[2]) / 2
+    # 以圖的中心判欄，不用題號 x 座標；右欄題號常因掃描歪斜而偏左。
+    side = cx >= W / 2
+    best = None; fallback = None
     for (l, text) in raw_lines:
-        m = RE_QNUM.match(text)
-        if not m or l[1] > box[1] + 10:
+        if l[1] > box[1] + 12:
             continue
-        if (l[0] < W / 2) != (cx < W / 2) and abs(l[0] - box[0]) > W * .25:
+        clean = str(text).replace("［", "(").replace("］", ")")
+        m = RE_GROUP.search(clean) or RE_QNUM.match(clean)
+        if not m:
             continue
         d = box[1] - l[1]
-        if best is None or abs(d) < abs(best[0]):
-            best = (d, int(m.group(1)))
-    return best[1] if best else None
+        row = (d, int(m.group(1)))
+        # 圖在右側、題號在左側是單欄橫跨整頁題目的常態；先吃同欄，
+        # 沒有才退回最近的任何欄題號，避免因此整批 qno 都是 null。
+        if ((l[0] + l[2]) / 2 >= W / 2) == side and (best is None or d < best[0]):
+            best = row
+        if fallback is None or d < fallback[0]:
+            fallback = row
+    return (best or fallback)[1] if (best or fallback) else None
 
 
 def text_lines(img, raw=None):
@@ -119,21 +134,79 @@ def merge(boxes):
     return out
 
 
+def merge_figure_panels(boxes, gap=110):
+    """同一題並排的子圖常被 layout 拆開；僅在高度實質重疊時合併。"""
+    boxes = list(boxes)
+    changed = True
+    while changed:
+        changed = False
+        for i, a in enumerate(boxes):
+            for j in range(i + 1, len(boxes)):
+                b = boxes[j]
+                vertical = min(a[3], b[3]) - max(a[1], b[1])
+                horiz_gap = max(a[0], b[0]) - min(a[2], b[2])
+                if vertical > .45 * min(a[3]-a[1], b[3]-b[1]) and 0 <= horiz_gap <= gap:
+                    boxes[i] = (min(a[0],b[0]), min(a[1],b[1]), max(a[2],b[2]), max(a[3],b[3]))
+                    boxes.pop(j); changed = True; break
+            if changed: break
+    return boxes
+
+
 def crop_page(img, model="pp_doc_layoutv3", raw=None):
     dets = detect(img, model)
     lines = text_lines(img, raw)
-    boxes = merge([refine(img, b, lines) for c, b, s in dets if c in ("figure", "image", "chart", "table")])
+    # refine_box 會用 OCR 長正文行作為硬停損線，再逐邊擴到空白；避免舊版
+    # 「先擴、最後硬切」把軸標／圖號切掉的問題。
+    ocr_lines = [(l[0], l[1], l[2], l[3], text) for l, text in (raw or [])]
+    candidates = [(c, b, False) for c, b, _ in dets if c in ("figure", "image", "chart", "table")]
+    # DocLayout 會漏掉線條非常密的生物剖面圖；既有的本地連通元件候選器
+    # 正好補這類圖。只收完全未被 layout 命中的候選，避免表格與已偵測圖重複。
+    layout_boxes = [tuple(b) for _, b, _ in candidates]
+    for b in pyexam.figure_candidates(img, dpi=300):
+        if not any(overlap(b, x) / max(1, (b[2]-b[0])*(b[3]-b[1])) > .15 for x in layout_boxes):
+            candidates.append(("figure", list(b), True))
+    boxes = []
+    for c, b, _fallback in candidates:
+        kind = "table" if c == "table" else "figure"
+        # 先排除明確的題目句／文字選項，再讓保守精修補回框線、軸標與圖號。
+        # 單靠 layout 框會把「附圖為…？」的整段題幹一併當圖。
+        candidate = refine(img, b, lines, pad=4)
+        half = img.shape[1] // 2
+        column = (0, 0, half, img.shape[0]) if (candidate[0] + candidate[2]) / 2 < half else (half, 0, img.shape[1], img.shape[0])
+        candidate = refine_box(img, candidate, kind=kind, ocr_lines=ocr_lines, column=column)
+        # 確認 4px 邊帶沒有截斷元件；仍有斷墨時採保守舊式連通塊擴張。
+        if edge_cut_ink(img, candidate, band=4):
+            candidate = refine(img, candidate, lines, pad=10)
+        boxes.append(candidate)
+    boxes = merge_figure_panels(merge(boxes))
     return boxes, dets
+
+
+def page_numbers(spec, total):
+    """解析 1,3-5；無指定時回傳全部（CLI 可在 30 秒限制下逐頁呼叫）。"""
+    if not spec:
+        return set(range(1, total + 1))
+    out = set()
+    for part in spec.split(","):
+        a, _, b = part.strip().partition("-")
+        start = int(a); end = int(b or a)
+        out.update(range(start, end + 1))
+    return {n for n in out if 1 <= n <= total}
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("pdf"); ap.add_argument("-o", required=True)
     ap.add_argument("--dpi", type=int, default=300); ap.add_argument("--model", default="pp_doc_layoutv3")
+    ap.add_argument("--pages", help="1 起算頁碼，例如 1,3-5；供逐頁執行")
     ap.add_argument("--json", action="store_true", help="輸出 JSON（座標用 PDF 點、裁圖 base64 PNG、推測題號）給茲茲 OCR／raw.html")
     a = ap.parse_args()
     os.makedirs(a.o, exist_ok=True)
     pages = []
-    for pn, page in enumerate(pymupdf.open(a.pdf), 1):
+    doc = pymupdf.open(a.pdf)
+    wanted = page_numbers(a.pages, len(doc))
+    for pn, page in enumerate(doc, 1):
+        if pn not in wanted:
+            continue
         pix = page.get_pixmap(dpi=a.dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
         raw = []

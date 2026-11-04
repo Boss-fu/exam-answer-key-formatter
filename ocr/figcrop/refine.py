@@ -66,16 +66,21 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         lw = lx1 - lx0
         short = lw <= .60 * colw and len(str(text).strip()) <= 24
         marker = str(text).strip().startswith(("圖", "Fig", "("))
-        if short and (marker or lw < .42 * colw) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
+        # 「附圖為…」和 (A)文字選項在窄欄也可能低於 42% 欄寬；非圖號
+        # 只接受真正短的軸名／代號，才不會在 grow 前先把題幹併進來。
+        if short and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
             x0, y0, x1, y1 = _merge((x0,y0,x1,y1), (lx0,ly0,lx1,ly1))
     # 不跨正文行：把可用欄位限制在候選附近的最近完整正文行之間。
     left, top, right, bottom = column
-    for lx0, ly0, lx1, ly1, _ in ocr_lines:
-        if lx1-lx0 > .60 * colw and not (lx1 < x0 or lx0 > x1):
+    for lx0, ly0, lx1, ly1, text in ocr_lines:
+        # 掃描卷的一行題幹有時只佔欄寬 35%（右欄縮排題組），不能只靠
+        # 寬度判斷；長辨識字串同樣是不可跨越的正文停損線。圖內標籤通常短。
+        body = lx1-lx0 > .60 * colw or ((lx1-lx0 > .35 * colw) and len(str(text).strip()) >= 18)
+        if body and not (lx1 < x0 or lx0 > x1):
             if ly1 <= y0: top = max(top, ly1)
             elif ly0 >= y1: bottom = min(bottom, ly0)
         # 題目文字在同一水平帶時，也不允許擴入它的行框。
-        if lx1-lx0 > .60 * colw and not (ly1 < y0 or ly0 > y1):
+        if body and not (ly1 < y0 or ly0 > y1):
             if lx1 <= x0: left = max(left, lx1)
             elif lx0 >= x1: right = min(right, lx0)
     limit = (left, top, right, bottom)

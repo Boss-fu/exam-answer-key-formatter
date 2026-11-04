@@ -2,8 +2,10 @@ import unittest
 import cv2, numpy as np
 try:
  from .refine import refine_box, edge_cut_ink, has_body_line
+ from .crop import guess_qno
 except ImportError:
  from refine import refine_box, edge_cut_ink, has_body_line
+ from crop import guess_qno
 
 class RefineTest(unittest.TestCase):
  def test_expands_to_include_axes_and_keeps_body_out(self):
@@ -20,4 +22,8 @@ class RefineTest(unittest.TestCase):
   im=np.full((80,80,3),255,np.uint8); cv2.line(im,(10,40),(70,40),(0,0,0),2)
   self.assertGreater(edge_cut_ink(im,(20,20,60,60)),0)
   self.assertTrue(has_body_line((0,0,80,80),[(5,5,70,12,'')],100))
+ def test_qno_same_column_group_and_scanned_prefix(self):
+  raw=[((132,20,190,40),'回答第 6～8 題'), ((820,55,875,76),')12.'), ((120,80,175,100),')5.')]
+  self.assertEqual(guess_qno((800,180,1100,300),raw,1200),12)
+  self.assertEqual(guess_qno((100,180,500,300),raw,1200),5)
 if __name__=='__main__': unittest.main()
