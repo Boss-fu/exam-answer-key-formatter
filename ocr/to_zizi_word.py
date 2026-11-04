@@ -656,6 +656,8 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
                 cur["figs_mid"].append(para)
             continue
         if len(t) <= 80 and re.match(r"^\s*[一二三四五六七八九十]{1,3}\s*[、.．，,]?\s*[^\s]{0,4}?題", t):
+            if ("是非" in t) != tf_sec:
+                flush()                      # 先存好上一大題最後一題（是非題最後一題才會補到 (A)正確 (B)錯誤）
             tf_sec = "是非" in t          # 大題標題：是非題開始／別的大題開始
         if is_boilerplate_line(t, in_header):
             continue                          # 卷頭（每頁都可能重印）、頁碼：由茲茲橫幅取代
