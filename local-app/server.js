@@ -257,6 +257,24 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/label/list") {
       return sendJson(res, 200, await runLabel(["list"]));
     }
+    if (req.method === "POST" && url.pathname === "/api/py-ocr/figcrop") {
+      // 自動截圖：清稿 PDF → 圖形／表格裁圖（本機版面模型＋墨跡邊界精修），回傳 PDF 點座標、300dpi 裁圖與推測題號
+      const { dataBase64 } = JSON.parse(await readBody(req, 64 * 1024 * 1024) || "{}");
+      if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少 PDF" });
+      const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "figcrop-"));
+      const pdf = path.join(dir, "source.pdf");
+      fs.writeFileSync(pdf, Buffer.from(dataBase64, "base64"));
+      const script = path.join(__dirname, "..", "ocr", "figcrop", "crop.py");
+      execFile(pyBin(), [script, pdf, "-o", path.join(dir, "out"), "--json"],
+        { cwd: path.join(__dirname, ".."), maxBuffer: 256 * 1024 * 1024, timeout: 10 * 60 * 1000 },
+        (err, stdout, stderr) => {
+          fs.rm(dir, { recursive: true, force: true }, () => {});
+          if (err) return sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || err.message).slice(-400) });
+          try { sendJson(res, 200, JSON.parse(stdout.slice(stdout.indexOf("{")))); }
+          catch (e) { sendJson(res, 500, { ok: false, error: "自動截圖結果無法解析" }); }
+        });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/label/queue") return sendJson(res, 200, await runLabel(["queue"]));
     if (req.method === "POST" && url.pathname === "/api/label/upload") {
       const { dataBase64 } = JSON.parse(await readBody(req, 48 * 1024 * 1024) || "{}");

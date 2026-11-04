@@ -9,3 +9,4 @@ onnxruntime>=1.17
 # 公式（階段 2 才需要）
 rapid-latex-ocr==0.0.9
 latex2mathml>=3.77
+rapid-layout==1.2.1      # 自動截圖：PP-DocLayout v3 版面偵測（ocr/figcrop/crop.py）

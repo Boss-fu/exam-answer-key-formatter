@@ -29,12 +29,33 @@ import re
 RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 
 
-def text_lines(img):
-    """回傳 (框, 是否為題目正文)。正文＝題目句或文字選項，裁圖時要排除。"""
+RE_QNUM = re.compile(r"^[\s(（A-Da-dＡ-Ｄ)）|lI]{0,6}?(\d{1,2})\s*[.．、]")   # 「(D)1.」「( )4.」「6.」
+
+
+def guess_qno(box, raw_lines, W):
+    """題號：同一欄、圖的上方（或同高左側）最近的「N.」開頭行。"""
+    cx = (box[0] + box[2]) / 2; best = None
+    for (l, text) in raw_lines:
+        m = RE_QNUM.match(text)
+        if not m or l[1] > box[1] + 10:
+            continue
+        if (l[0] < W / 2) != (cx < W / 2) and abs(l[0] - box[0]) > W * .25:
+            continue
+        d = box[1] - l[1]
+        if best is None or abs(d) < abs(best[0]):
+            best = (d, int(m.group(1)))
+    return best[1] if best else None
+
+
+def text_lines(img, raw=None):
+    """回傳 (框, 是否為題目正文)。正文＝題目句或文字選項，裁圖時要排除。raw 給 list 時順便收 (框, 文字)。"""
     lines = []
     for it in ppocr_engine.ocr_lines(img):
         b = it["box"]; xs, ys = [p[0] for p in b], [p[1] for p in b]
-        lines.append(((int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))), bool(RE_TEXT_OPTION.search(it["text"]))))
+        box = (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
+        lines.append((box, bool(RE_TEXT_OPTION.search(it["text"]))))
+        if raw is not None:
+            raw.append((box, it["text"]))
     return lines
 
 
@@ -87,24 +108,39 @@ def merge(boxes):
     return out
 
 
-def crop_page(img, model="pp_doc_layoutv3"):
+def crop_page(img, model="pp_doc_layoutv3", raw=None):
     dets = detect(img, model)
-    lines = text_lines(img)
+    lines = text_lines(img, raw)
     boxes = merge([refine(img, b, lines) for c, b, s in dets if c in ("figure", "image", "chart", "table")])
     return boxes, dets
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("pdf"); ap.add_argument("-o", required=True)
-    ap.add_argument("--dpi", type=int, default=300); ap.add_argument("--model", default="pp_doc_layoutv3"); a = ap.parse_args()
+    ap.add_argument("--dpi", type=int, default=300); ap.add_argument("--model", default="pp_doc_layoutv3")
+    ap.add_argument("--json", action="store_true", help="輸出 JSON（座標用 PDF 點、裁圖 base64 PNG、推測題號）給茲茲 OCR／raw.html")
+    a = ap.parse_args()
     os.makedirs(a.o, exist_ok=True)
+    pages = []
     for pn, page in enumerate(pymupdf.open(a.pdf), 1):
         pix = page.get_pixmap(dpi=a.dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
-        boxes, _ = crop_page(img, a.model)
+        raw = []
+        boxes, _ = crop_page(img, a.model, raw)
+        k_pt = 72 / a.dpi; items = []
         for k, (x0, y0, x1, y1) in enumerate(boxes, 1):
-            cv2.imwrite(os.path.join(a.o, f"p{pn}_fig{k}.png"), img[y0:y1, x0:x1])
-        print(f"p{pn}: {len(boxes)} 張")
+            path = os.path.join(a.o, f"p{pn}_fig{k}.png"); cv2.imwrite(path, img[y0:y1, x0:x1])
+            items.append({"x": x0 * k_pt, "y": y0 * k_pt, "w": (x1 - x0) * k_pt, "h": (y1 - y0) * k_pt,
+                          "qno": guess_qno((x0, y0, x1, y1), raw, img.shape[1]), "file": path})
+        pages.append({"page": pn, "width": page.rect.width, "height": page.rect.height, "items": items})
+        if not a.json:
+            print(f"p{pn}: {len(boxes)} 張")
+    if a.json:
+        import base64, json
+        for p in pages:
+            for it in p["items"]:
+                it["png"] = base64.b64encode(open(it.pop("file"), "rb").read()).decode()
+        print(json.dumps({"ok": True, "pages": pages}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
