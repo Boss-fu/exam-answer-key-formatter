@@ -179,6 +179,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
             candidate = refine(img, candidate, lines, pad=10)
         boxes.append(candidate)
     boxes = merge_figure_panels(merge(boxes))
+    H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
+    boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
     return boxes, dets
 
 

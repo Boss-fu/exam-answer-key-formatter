@@ -156,7 +156,7 @@ def main():
     hits = [r for r in all_rows if "hit" in r]; matched = [r for r in hits if r["hit"]]; extras = sum(1 for r in all_rows if r.get("extra")); located = len(hits)
     offsets = np.array([r["offset"] for r in matched if r.get("offset")], float)
     summary = {"manual": located, "recall_iou80": round(len(matched)/located, 4) if located else None, "mean_iou": round(float(np.mean([r["iou"] for r in hits])), 4) if hits else None, "extras": extras, "qno_accuracy": round(sum(r["qno_ok"] for r in matched)/len(matched), 4) if matched else None, "mean_offset_ltrb_px": [round(x,1) for x in offsets.mean(axis=0)] if len(offsets) else None}
-    (out / "gt_eval.json").write_text(json.dumps({"summary": summary, "rows": all_rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "gt_eval.json").write_text(json.dumps({"summary": summary, "rows": all_rows}, ensure_ascii=False, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o)), encoding="utf-8")   # numpy 整數
     print("手動圖  召回@.8  平均IoU  多框  題號一致  平均偏移(L/T/R/B px)")
     print(f"{located:>5}  {summary['recall_iou80']!s:>8}  {summary['mean_iou']!s:>7}  {extras:>4}  {summary['qno_accuracy']!s:>8}  {summary['mean_offset_ltrb_px']}")
 
