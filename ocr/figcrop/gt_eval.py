@@ -18,9 +18,9 @@ import pymupdf
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ocr"))
 try:
-    from . import crop
+    from . import crop, evalcache
 except ImportError:
-    import crop
+    import crop, evalcache
 
 
 def zip_name(name: str) -> str:
@@ -98,6 +98,21 @@ def locate(template: np.ndarray, page_gray: np.ndarray, page_features):
     return tuple(map(int, (x0, y0, x1, y1))), int(mask.sum()), len(good)
 
 
+USE_CACHE = False
+_LOCATE_SIG = None
+
+
+def find_template(templ, gray, page_features):
+    """手動圖在頁面上的位置只跟兩張圖和 locate 本身有關，和切圖規則無關，所以評測時可以快取（占評測時間約 3/4）。"""
+    global _LOCATE_SIG
+    if not USE_CACHE:
+        return locate(templ, gray, page_features())
+    if _LOCATE_SIG is None:
+        import hashlib, inspect
+        _LOCATE_SIG = hashlib.blake2b(inspect.getsource(locate).encode(), digest_size=8).hexdigest() + "|" + cv2.__version__
+    return evalcache.cached("locate", (templ, gray), _LOCATE_SIG, lambda: locate(templ, gray, page_features()))
+
+
 def iou(a, b):
     x0, y0 = max(a[0], b[0]), max(a[1], b[1]); x1, y1 = min(a[2], b[2]), min(a[3], b[3])
     inter = max(0, x1-x0) * max(0, y1-y0)
@@ -132,12 +147,13 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
     for pn, wanted in sorted(by_page.items()):
         if only_pages and pn not in only_pages: continue
         image = render(doc[pn-1]); gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        features = cv2.SIFT_create().detectAndCompute(gray, None)
+        feats = []      # 整頁 SIFT 只在樣板定位沒命中快取時才算
+        page_features = lambda: feats[0] if feats else feats.append(cv2.SIFT_create().detectAndCompute(gray, None)) or feats[0]
         items = crop.crop_items(image); boxes = [it["box"] for it in items]
         used = set()
         for asset in wanted:
             filename = asset["file"]; templ = imread_gray(work / "manual" / filename)
-            found = locate(templ, gray, features) if templ is not None else None
+            found = find_template(templ, gray, page_features) if templ is not None else None
             if not found:
                 rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "error": "樣板定位失敗"}); continue
             gt, inliers, matches = found
@@ -160,7 +176,10 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--gt-dir", default=str(ROOT / "ocr/results/figcrop_gt")); ap.add_argument("--source-dir")
     ap.add_argument("--out", default=str(ROOT / "ocr/results/figcrop_gt")); ap.add_argument("--pages", help="僅跑指定頁，如 1,3-5")
+    ap.add_argument("--no-cache", action="store_true", help="不用評測快取（OCR／版面模型／備援候選／樣板定位全部重算）")
     a = ap.parse_args(); out = Path(a.out); gt = Path(a.gt_dir)
+    global USE_CACHE
+    if not a.no_cache: evalcache.enable(crop); USE_CACHE = True
     if a.source_dir: prepare(Path(a.source_dir), out); gt = out
     wanted = crop.page_numbers(a.pages, 9999) if a.pages else None
     review_dir = out / "review"; review_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +191,7 @@ def main():
     (out / "gt_eval.json").write_text(json.dumps({"summary": summary, "rows": all_rows}, ensure_ascii=False, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o)), encoding="utf-8")   # numpy 整數
     print("手動圖  召回@.8  平均IoU  多框  題號一致  平均偏移(L/T/R/B px)")
     print(f"{located:>5}  {summary['recall_iou80']!s:>8}  {summary['mean_iou']!s:>7}  {extras:>4}  {summary['qno_accuracy']!s:>8}  {summary['mean_offset_ltrb_px']}")
+    if not a.no_cache: print(evalcache.summary())
 
 
 if __name__ == "__main__": main()

@@ -21,9 +21,9 @@ import numpy as np
 import pymupdf
 
 try:
-    from . import crop
+    from . import crop, evalcache
 except ImportError:
-    import crop
+    import crop, evalcache
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMPT = """讀取目前資料夾裡的 {img}。這是一頁國中考卷，紅框是自動切圖的結果，每個紅框左上角有編號。
@@ -140,10 +140,13 @@ def cmd_report(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=ROOT / "ocr/results/figcrop_wild")
+    ap.add_argument("--no-cache", action="store_true", help="crop 不用評測快取（OCR／版面模型／備援候選全部重算）")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("crop").add_argument("pdfs", nargs="+")
     sub.add_parser("review"); sub.add_parser("report")
     a = ap.parse_args()
+    if a.cmd == "crop" and not a.no_cache:
+        evalcache.enable(crop)
     {"crop": cmd_crop, "review": cmd_review, "report": cmd_report}[a.cmd](a)
 
 

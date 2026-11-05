@@ -28,13 +28,19 @@ def _rapid_layout():
     return RapidLayout
 
 
-def detect(img, model):
+def layout_raw(img, model):
+    """版面模型原始輸出 (boxes, class_names, scores)，還沒套任何規則；評測快取（evalcache）只快取這一層。"""
     RapidLayout = _rapid_layout()
     if model not in _ENG:
         _ENG[model] = RapidLayout(model_type=model)
     r = _ENG[model](img)
+    return r.boxes, r.class_names, r.scores
+
+
+def detect(img, model):
+    boxes, names, scores = layout_raw(img, model)
     out = []
-    for b, c, s in zip(r.boxes, r.class_names, r.scores):
+    for b, c, s in zip(boxes, names, scores):
         if c in KINDS and s >= .35:
             out.append((c, [int(v) for v in b], float(s)))
     return out
