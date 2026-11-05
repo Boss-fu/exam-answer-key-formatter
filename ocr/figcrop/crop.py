@@ -446,7 +446,10 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     # refine_box 會用 OCR 長正文行作為硬停損線，再逐邊擴到空白；避免舊版
     # 「先擴、最後硬切」把軸標／圖號切掉的問題。
     ocr_lines = [(l[0], l[1], l[2], l[3], text) for l, text in (raw or [])]
-    candidates = [(c, b, False) for c, b, _ in dets if c in ("figure", "image", "chart", "table")]
+    # 整頁外框（考卷四周畫一圈框線）會被版面模型當成一個超大表格，把整頁的圖都吃進去；超過半頁的偵測框不是題目的圖。
+    page_area = img.shape[0] * img.shape[1]
+    candidates = [(c, b, False) for c, b, _ in dets if c in ("figure", "image", "chart", "table")
+                  and (b[2] - b[0]) * (b[3] - b[1]) <= .5 * page_area]
     # DocLayout 會漏掉線條非常密的生物剖面圖；既有的本地連通元件候選器
     # 正好補這類圖。只收完全未被 layout 命中的候選，避免表格與已偵測圖重複。
     layout_boxes = [tuple(b) for _, b, _ in candidates]
