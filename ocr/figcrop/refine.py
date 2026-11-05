@@ -23,7 +23,7 @@ def _ink(image):
     return gray < 180
 
 
-def _grow_to_blank(ink, box, limit, blank=0.003, step=2):
+def _grow_to_blank(ink, box, limit, blank=0.006, step=2):
     """每一側只要仍有墨跡便外推；碰到正文 OCR 行或欄界就停。"""
     x0, y0, x1, y1 = clip(box, ink.shape)
     lx0, ly0, lx1, ly1 = limit

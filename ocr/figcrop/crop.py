@@ -198,7 +198,7 @@ def merge_figure_panels(boxes, gap=110, ocr_lines=()):
 def merge_option_panels(boxes, ocr_lines, W, H):
     """圖選項 (A)(B)(C)(D) 常被拆成幾張：高度相近、對齊、中間沒有題目文字的子圖併成一張（橫排與 2×2）。"""
     def text_between(x0, y0, x1, y1):
-        return any(text_like(t) and not option_caption(t) and min(l1, x1) - max(l0, x0) > 0 and min(l3, y1) - max(l2, y0) > 0
+        return any(text_like(t) and not option_caption(t) and min(l1, x1) - max(l0, x0) > 0 and y0 < (l2 + l3) / 2 < y1   # 只擦到邊的上下題目不算夾在中間
                    for l0, l2, l1, l3, t in ocr_lines)
     def has_option_labels(a, b):
         """併起來的範圍內看得到 ≥2 個獨立代號 (A)(B)(C)(D) 才是圖選項；沒有代號就是不同題各自的圖。"""
@@ -259,6 +259,16 @@ def is_red_mark(img, box):
     return ink.any() and (cv2.cvtColor(sub, cv2.COLOR_BGR2HSV)[:, :, 1] > 80)[ink].mean() > .8
 
 
+def is_pencil_mark(img, box):
+    """又窄又沒有純黑線條＝邊欄的鉛筆塗鴉；印刷的圖就算淺也比較寬，所以兩個條件都要成立，免得刪到真圖。"""
+    x0, y0, x1, y1 = [int(v) for v in box]
+    if x1 - x0 > .1 * img.shape[1]:
+        return False
+    gray = cv2.cvtColor(img[max(0, y0):y1, max(0, x0):x1], cv2.COLOR_BGR2GRAY)
+    ink = gray[gray < 200]
+    return ink.size > 50 and np.percentile(ink, 10) >= 125
+
+
 def crop_page(img, model="pp_doc_layoutv3", raw=None):
     dets = detect(img, model)
     lines = text_lines(img, raw)
@@ -273,22 +283,23 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
         # 分母取小框：整頁寬的備援框只蓋到模型框一點比例，也是重複，留著會把模型框吃掉。
         if not any(overlap(b, x) / max(1, min((b[2]-b[0])*(b[3]-b[1]), (x[2]-x[0])*(x[3]-x[1]))) > .15 for x in layout_boxes):
             candidates.append(("figure", list(b), True))
-    boxes = []; extra = []
+    boxes = []; extra = []; tables = []
     for c, b, _fallback in candidates:
         kind = "table" if c == "table" else "figure"
-        if (_fallback and sentence_cover(b, ocr_lines) >= .5) or (kind == "figure" and is_red_mark(img, b)):
+        if (_fallback and sentence_cover(b, ocr_lines) >= .5) or (kind == "figure" and (is_red_mark(img, b) or is_pencil_mark(img, b))):
             continue
         # 細長的備援框多半只是一條線，併進來會把兩邊的圖連成一張
         if _fallback and max(b[2]-b[0], b[3]-b[1]) > 4 * min(b[2]-b[0], b[3]-b[1]):
             continue
-        # 版面模型的框本身就準（掃描卷也是）；只在頁寬 2.5% 內小幅外擴補回被切到的筆畫，
+        # 版面模型的框本身就準（掃描卷也是）；只在頁寬 1.5% 內小幅外擴補回被切到的筆畫，
         # 不用連通塊整塊併入——掃描卷的外框或文字一連通，框就會爆到整頁。
-        m = int(.025 * img.shape[1])
+        m = int(.015 * img.shape[1])
         column = (b[0] - m, b[1] - m, b[2] + m, b[3] + m)
         candidate = refine_box(img, b, kind=kind, ocr_lines=ocr_lines, column=column)
-        (extra if _fallback else boxes).append(candidate)
+        (extra if _fallback else tables if kind == "table" else boxes).append(candidate)
     boxes = merge_figure_panels(merge(boxes), gap=int(.045 * img.shape[1]), ocr_lines=ocr_lines)
-    boxes = merge_option_panels(boxes, ocr_lines, img.shape[1], img.shape[0])
+    boxes = merge(boxes + tables)     # 表格旁邊的圖是另一張，只有真的重疊才併
+    boxes = merge_option_panels(boxes, ocr_lines, img.shape[1], img.shape[0])   # 選項做成表格也要併
     # 備援框併入條件：很近就併；稍遠要高度相近（遠又矮多半是別的東西）。真的重疊最後由 merge 處理。
     for e in extra:
         for i, b in enumerate(boxes):
