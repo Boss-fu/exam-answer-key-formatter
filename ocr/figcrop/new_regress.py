@@ -256,6 +256,8 @@ def cmd_suspects(a):
                 top, bottom = edge_cuts(p, it["box"])
                 if a.only == "topcut":
                     score = top * 3 + bottom
+                elif a.only == "body":
+                    score = it["body"]
                 elif a.only == "edge":
                     score = it["edge"] if it["edge"] >= 5 else 0
                 else:
@@ -284,7 +286,7 @@ def main():
     d = sub.add_parser("diff"); d.add_argument("old"); d.add_argument("new"); d.add_argument("--part", default="work", choices=["work", "hold", "tune"])
     d.add_argument("--per-sheet", type=int, default=24)
     s = sub.add_parser("suspects"); s.add_argument("tag"); s.add_argument("--top", type=int, default=48); s.add_argument("--per-sheet", type=int, default=24)
-    s.add_argument("--only", choices=["all", "topcut", "edge"], default="all")
+    s.add_argument("--only", choices=["all", "topcut", "edge", "body"], default="all")
     t = sub.add_parser("stats"); t.add_argument("tag"); t.add_argument("--parts", nargs="+", default=["tune", "work", "hold"])
     a = ap.parse_args()
     {"run": cmd_run, "diff": cmd_diff, "suspects": cmd_suspects, "stats": cmd_stats}[a.cmd](a)
