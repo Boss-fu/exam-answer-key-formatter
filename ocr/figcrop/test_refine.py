@@ -48,6 +48,14 @@ class RefineTest(unittest.TestCase):
  def test_qno_figure_at_page_top_takes_next_below(self):
   raw=[((100,500,500,530),'40.下列何者正確？'),((100,700,500,730),'41.甲'),((800,500,1100,530),'45.乙'),((800,700,1100,730),'46.丙')]
   self.assertEqual(guess_qno((100,50,500,450),raw,1200),40)
+ def test_answer_paren_is_not_a_label(self):
+  im=np.full((400,800,3),255,np.uint8); cv2.rectangle(im,(100,50),(300,200),(0,0,0),2)
+  lines=[(110,225,140,255,'('),(200,220,780,260,')(37)將裝置放在通風的暗室中一天，並分別')]
+  self.assertLess(refine_box(im,(102,52,298,198),ocr_lines=lines,column=(60,10,340,240))[3],225)
+ def test_table_does_not_grow_over_stem(self):
+  im=np.full((400,800,3),255,np.uint8); cv2.putText(im,'XXXX',(150,45),0,1,(0,0,0),3); cv2.rectangle(im,(100,50),(600,300),(0,0,0),2)
+  lines=[(150,20,260,54,'列問題：')]
+  self.assertGreaterEqual(refine_box(im,(100,50,600,300),kind='table',ocr_lines=lines,column=(60,10,640,340))[1],40)
  def test_unrotate_box(self):
   mark=np.zeros((60,100),bool)
   for k in (0,1,2,3):

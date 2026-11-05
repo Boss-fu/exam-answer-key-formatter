@@ -123,7 +123,8 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
             continue
         lw = lx1 - lx0
         short = lw <= .60 * colw and len(str(text).strip()) <= 24
-        marker = str(text).strip().startswith(("圖", "Fig", "(")) or bool(RE_CAPTION.match(str(text).strip()))
+        # 題目前的答題括號「(」也是括號開頭，要有內容才算標籤。
+        marker = bool(re.match(r"圖|Fig|[(（]\s*\w", str(text).strip())) or bool(RE_CAPTION.match(str(text).strip()))
         # 旁邊的文字選項「(D)272卡。」也以括號開頭；沒碰到框的句子行不是圖的標籤。
         if text_like(text) and (min(lx1, x1) <= max(lx0, x0) or min(ly1, y1) <= max(ly0, y0)):
             continue
@@ -156,6 +157,17 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
     if kind != "table":
         ink = _drop_frames(ink, (x0, y0, x1, y1))
     out = _grow_to_blank(ink, (x0,y0,x1,y1), limit)
+    # 中心在模型框外的句子行，框不能長過去（只和模型框邊重疊幾 px 的題幹擋不到）。
+    by0, by1 = int(box[1]), int(box[3]); ox0, oy0, ox1, oy1 = out
+    for lx0, ly0, lx1, ly1, text in ocr_lines:
+        if not text_like(text) or min(lx1, ox1) - max(lx0, ox0) <= 0:
+            continue
+        cy = (ly0 + ly1) / 2
+        if oy0 < cy < by0:
+            oy0 = max(oy0, min(by0, ly1))
+        elif by1 < cy < oy1:
+            oy1 = min(oy1, max(by1, ly0))
+    out = (ox0, oy0, ox1, oy1)
     if kind != "table":                 # 框的上下緣還有題目文字行（版面模型自己框進來的）就切掉
         ax0, ay0, ax1, ay1 = out; hh = ay1 - ay0
         for lx0, ly0, lx1, ly1, text in ocr_lines:

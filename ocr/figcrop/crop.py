@@ -48,7 +48,8 @@ RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\d{1,2})\s*[.．、]")
 RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
 RE_GROUP_CUT = re.compile(r"(?:回答|第)\s*(\d{1,2})\s*[~～至到\-－—]\s*(\d{1,2})\s*$")   # 「題」字被換行切到下一行
-RE_NOTICE = re.compile(r"試題結束|再.{0,4}檢查")
+RE_NOTICE = re.compile(r"試題結束|再.{0,4}檢查|請翻|翻頁|翻到|背面|下一頁")
+RE_ANSWER_PAGE = re.compile(r"答案卷|答案欄|答案紙|答題卷")
 RE_PURE_OPT = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]$")
 
 
@@ -322,7 +323,11 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     # 題組前的裝飾圖示（星星等）：長邊不到頁寬 5%，手動截圖最小的圖也比這大得多
     boxes = [b for b in boxes if max(b[2] - b[0], b[3] - b[1]) >= .05 * img.shape[1]]
     # 卷末的「試題結束，請再次檢查」方框不是題目的圖
-    boxes = [b for b in boxes if not any(RE_NOTICE.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] for l0, l2, l1, l3, t in ocr_lines)]
+    # 提示行要佔框寬一半以上才算：圖的框邊碰巧帶到頁尾「背面還有題目」時圖還是要留
+    boxes = [b for b in boxes if not any(RE_NOTICE.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] and l1 - l0 > .5 * (b[2] - b[0]) for l0, l2, l1, l3, t in ocr_lines)]
+    # 答案卷整頁都是作答格，不是題目的圖。只認短標題，說明句「請將答案填入答案卡」不算。
+    if any(RE_ANSWER_PAGE.search(str(t)) and len(str(t).strip()) <= 14 and l3 < .25 * H for l0, l2, l1, l3, t in ocr_lines):
+        boxes = []
     return boxes, dets
 
 

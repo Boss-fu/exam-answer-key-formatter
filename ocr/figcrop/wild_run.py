@@ -48,6 +48,13 @@ def render(page, dpi=300):
     return cv2.cvtColor(np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3], cv2.COLOR_RGB2BGR)
 
 
+def mask_header(img):
+    k = crop.page_rotation(img)
+    up = np.rot90(img, k).copy()
+    up[:int(.22 * up.shape[0])] = 255
+    return np.rot90(up, -k).copy()
+
+
 def cmd_crop(a):
     for pdf in map(Path, a.pdfs):
         work = a.out / pdf.stem; pages = work / "pages"; pages.mkdir(parents=True, exist_ok=True)
@@ -61,6 +68,8 @@ def cmd_crop(a):
                 cv2.rectangle(vis, (x0, y0), (x1, y1), (0, 0, 230), 6)
                 cv2.putText(vis, str(n), (x0 + 8, y0 + 70), cv2.FONT_HERSHEY_SIMPLEX, 2.6, (0, 0, 230), 7)
                 rows.append({"page": pn, "n": n, "box": it["box"], "qno": it["qno"]})
+            if pn == 1:      # 第一頁表頭有學生姓名、班級座號，送給 AGY 前先遮掉（有筆跡的舊卷才需要，空白卷也一樣遮）
+                vis = mask_header(vis)
             s = 2200 / max(vis.shape[:2])
             cv2.imwrite(str(pages / f"p{pn}.jpg"), cv2.resize(vis, None, fx=s, fy=s, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
         (work / "items.json").write_text(json.dumps({"pdf": str(pdf), "pages": len(doc), "items": rows}, ensure_ascii=False, indent=1, default=int), encoding="utf-8")
