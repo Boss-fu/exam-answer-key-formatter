@@ -302,6 +302,29 @@ def pad_box(box, p, ocr_lines, shape):
     return (max(0, x0 - p), top, min(W, x1 + p), bottom)
 
 
+def drop_partial_lines(img, box, ocr_lines):
+    """框的上／下緣把框外的字行切到一小截（不到半行在框內）：退到行邊，把那一截字拿掉。
+    表格框常這樣（模型框＋外擴比上框線高一點，碰到正上方題幹的下緣）。退的時候不越過長橫線（表格上框線），也不讓框變太扁。"""
+    x0, y0, x1, y1 = box; h = y1 - y0; base = max(0, y0)
+    ink = cv2.cvtColor(img[base:y1, max(0, x0):x1], cv2.COLOR_BGR2GRAY) < 160
+    long_row = ink.mean(1) > .5 if ink.size else np.zeros(0, bool)      # 框線：橫跨框寬一半以上；索引從原框上緣算
+    for l0, l2, l1, l3, t in ocr_lines:
+        lh = l3 - l2
+        if lh < 8 or len(re.findall(r"[一-鿿]", str(t))) < 2 or min(l1, x1) - max(l0, x0) < .5 * (l1 - l0):
+            continue
+        if l2 < y0 < l3 and (l3 - y0) / lh < .5:
+            frame = np.where(long_row[y0 - base:l3 - base + 1])[0]
+            ny = y0 + int(frame[0]) - 2 if len(frame) else l3
+            if ny > y0 and y1 - ny > .6 * h:
+                y0 = ny
+        elif l2 < y1 < l3 and (y1 - l2) / lh < .5:
+            frame = np.where(long_row[l2 - base:y1 - base])[0]
+            ny = l2 + int(frame[-1]) + 2 if len(frame) else l2
+            if ny < y1 and ny - y0 > .6 * h:
+                y1 = ny
+    return (x0, y0, x1, y1)
+
+
 def extend_row(img, box, others, ocr_lines):
     """模型常只抓到半張圖（兩支量筒只抓到甲）：同一列緊鄰處還有一塊不是字的墨跡、高度也夠，就是圖的另一半。"""
     H, W = img.shape[:2]; x0, y0, x1, y1 = box; h = y1 - y0
@@ -430,6 +453,7 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [b if has_table(b) else extend_row(img, b, [o for o in boxes if o != b], ocr_lines) for b in boxes]
     p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
     boxes = [pad_box(b, p, ocr_lines, img.shape) for b in boxes]
+    boxes = [drop_partial_lines(img, b, ocr_lines) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
     # 題組前的裝飾圖示（星星等）：長邊不到頁寬 5%，手動截圖最小的圖也比這大得多
