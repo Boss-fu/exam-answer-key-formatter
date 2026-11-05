@@ -78,8 +78,39 @@ def _col_of(x, starts):
     return max((i for i, c in enumerate(starts) if c <= x + 40), default=0)
 
 
+RE_LEAD_JUNK = re.compile(r"^[)）\s\d.．、]*")
+
+
+def repair_qnums(raw_lines, W):
+    """OCR 漏讀題號（「10.」讀成「1」、作答括號旁的題號被手寫蓋掉）：同一欄相鄰兩個題號差 g（2～4），
+    中間剛好 g−1 行從題號的 x 起頭（比續行、選項凸出）、不是題號也不是選項，就依序補上漏掉的題號。"""
+    starts = _columns(raw_lines, W); tol = .006 * W
+    numbered = [(l, int(m.group(1))) for l, t in raw_lines for m in [RE_QNUM.match(str(t))] if m]
+    fixed = {}
+    for col in range(len(starts)):
+        nums = sorted((l[1], n, l[0]) for l, n in numbered if _col_of(l[0], starts) == col)
+        if len(nums) < 3:
+            continue
+        qx = float(np.median([x for _y, _n, x in nums]))
+        for (ya, na, _), (yb, nb, _) in zip(nums, nums[1:]):
+            if not 2 <= nb - na <= 4:
+                continue
+            between = [(i, l, str(t)) for i, (l, t) in enumerate(raw_lines) if ya < l[1] < yb and _col_of(l[0], starts) == col]
+            rest = [l[0] for _i, l, _t in between]
+            cands = [(i, t) for i, l, t in between if abs(l[0] - qx) <= tol and not RE_QNUM.match(t)
+                     and not RE_PURE_OPT.match(t) and not re.match(r"^\s*[(（]\s*[A-DＡ-Ｄ]\s*[)）]", t)
+                     and sum(1 for x in rest if x > l[0] + 3 * tol) >= 1]
+            if len(cands) == nb - na - 1:           # 漏幾題就要剛好幾行，依上下順序補號
+                for k, (i, t) in enumerate(sorted(cands, key=lambda c: raw_lines[c[0]][0][1]), 1):
+                    fixed[i] = f"{na + k}." + RE_LEAD_JUNK.sub("", t)
+    if not fixed:
+        return raw_lines
+    return [(l, fixed.get(i, t)) for i, (l, t) in enumerate(raw_lines)]
+
+
 def guess_qno(box, raw_lines, W):
     """題號：同一欄、圖上方最近的題號；題組引言「第 N～M 題」歸 N。欄位看題號實際排列，不假設左右兩半。"""
+    raw_lines = repair_qnums(raw_lines, W)
     starts = _columns(raw_lines, W)
     col = _col_of((box[0] + box[2]) / 2 - .05 * W, starts)
     best = None; fallback = None
