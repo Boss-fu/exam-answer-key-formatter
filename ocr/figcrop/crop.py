@@ -501,7 +501,7 @@ def main():
         k_pt = 72 / a.dpi; items = []
         for k, it in enumerate(boxes, 1):
             x0, y0, x1, y1 = it["box"]
-            path = os.path.join(a.o, f"p{pn}_fig{k}.png"); cv2.imwrite(path, it["crop"])
+            path = os.path.join(a.o, f"p{pn}_fig{k}.png"); pyexam._imwrite(path, it["crop"])   # Windows 中文路徑
             items.append({"x": x0 * k_pt, "y": y0 * k_pt, "w": (x1 - x0) * k_pt, "h": (y1 - y0) * k_pt,
                           "qno": it["qno"], "file": path})
         pages.append({"page": pn, "width": page.rect.width, "height": page.rect.height, "items": items})
