@@ -61,9 +61,10 @@ def run_pdf(args):
     for pn, page in enumerate(doc, 1):
         dpi = crop.page_dpi(page, DPI); img = render(page, dpi)       # 和正式切圖同解析度（超大清稿頁 72dpi）
         # 同 crop.crop_items：先轉正再切；另外留 raw 算正文行數，順便給拼貼用的轉向 k
-        k = crop.page_rotation(img)
+        first = []; crop.text_lines(img, first)
+        k = 0 if crop.looks_upright(first) else crop.page_rotation(img)
         up = np.rot90(img, k).copy() if k else img
-        raw = []; boxes, _ = crop.crop_page(up, raw=raw)
+        raw = []; boxes, _ = crop.crop_page(up, raw=raw, ocr=first if k == 0 else None)
         lines = [(l, bool(crop.RE_TEXT_OPTION.search(str(t)))) for l, t in raw]
         items = []
         for b in boxes:
