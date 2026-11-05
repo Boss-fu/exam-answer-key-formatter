@@ -4,18 +4,15 @@
 
 ## 資料夾結構
 
-```
-docs/
-  理化數學詳解與簡答產出規範.md   完整規則（人看的 SOP，一切以這份為準）
-  理化數學詳解與簡答_使用說明.docx  操作說明（含 MathType Toggle TeX 截圖標註）
-  gemini-content-prompt.md        給 Gemini 等其他 AI 產內容用的 CSV 輸出 prompt
-skill/
-  SKILL.md                        給 Claude 用的技能定義（觸發條件、步驟、驗證清單）
-code/
-  lib3.js                         docx-js 排版邏輯（4欄表格、gridSpan合併、字體、分頁）
-  build_from_json.js              CLI：讀 JSON → 輸出 .docx，並自動核對答案一致性
-  sample_input.json               範例輸入（7題光的折射，已驗證過排版與內容）
-```
+| 位置 | 內容 |
+|---|---|
+| `ocr/figcrop/` | 切圖工具：自動裁切考卷的圖和表 |
+| `ocr/`（`pyexam`、`to_zizi_word`、`to_qbank_xlsx`） | OCR：考卷轉題庫 Excel、輸出 Word |
+| `ocr/dehand/`、`ocr/clean_pdf.py` | 清稿：去除手寫筆跡 |
+| `local-app/` | 主機服務與詳解系統網頁 |
+| `exam-to-word/` | 詳解 Word 輸出工具 |
+| `tools/` | 維護與自動化腳本 |
+| `docs/` | 所有說明文件（切圖請看 `docs/切圖交接.md`） |
 
 ## 快速使用
 
