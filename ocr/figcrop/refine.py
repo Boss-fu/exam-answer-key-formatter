@@ -52,7 +52,7 @@ def text_like(text):
     if RE_CAPTION.match(t) and len(t) <= 16:
         return False
     cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
-    return cjk >= 8 or (cjk >= 3 and bool(re.search(r"[。？?；：]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
+    return cjk >= 8 or (cjk >= 2 and bool(re.search(r"[。？?；：:]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
 
 
 def option_caption(text):
@@ -124,7 +124,8 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
             continue
         # 「附圖為…」和 (A)文字選項在窄欄也可能低於 42% 欄寬；非圖號
         # 只接受真正短的軸名／代號，才不會在 grow 前先把題幹併進來。
-        if short and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
+        aligned = min(lx1, x1) > max(lx0, x0) or min(ly1, y1) > max(ly0, y0)   # 斜對角靠近的是別的東西（上面表格的格子）
+        if short and aligned and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
             x0, y0, x1, y1 = _merge((x0,y0,x1,y1), (lx0,ly0,lx1,ly1))
     # 不跨正文行：把可用欄位限制在候選附近的最近完整正文行之間。
     left, top, right, bottom = column

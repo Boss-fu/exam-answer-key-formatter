@@ -301,6 +301,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
+    # 題組前的裝飾圖示（星星等）：長邊不到頁寬 5%，手動截圖最小的圖也比這大得多
+    boxes = [b for b in boxes if max(b[2] - b[0], b[3] - b[1]) >= .05 * img.shape[1]]
     # 卷末的「試題結束，請再次檢查」方框不是題目的圖
     boxes = [b for b in boxes if not any(RE_NOTICE.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] for l0, l2, l1, l3, t in ocr_lines)]
     return boxes, dets
