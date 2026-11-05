@@ -54,7 +54,7 @@ def text_like(text):
     cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
     if re.search(r"\d+\s*[~～\-－—至到]\s*\d+\s*題|下列|回答|何者|請問|試問", t):   # 題組範圍、題幹碎行
         return True
-    return cjk >= 8 or (cjk >= 2 and bool(re.search(r"[。？?；：:]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
+    return cjk >= 8 or (cjk >= 2 and bool(re.search(r"[；：:]$", t))) or (cjk >= 1 and bool(re.search(r"[。？?]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
 
 
 def option_caption(text):
@@ -118,6 +118,9 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
     # 圖號、圖說、軸標、(A) 等短且緊鄰的 OCR 框可併入；長正文一律不併。
     for line in ocr_lines:
         lx0, ly0, lx1, ly1, text = line[:5]
+        # 表格的框線就是邊界，模型框又準：旁邊的短字（題幹尾巴、選項）不併，只留圖說「表一」。
+        if kind == "table" and not RE_CAPTION.match(str(text).strip()):
+            continue
         lw = lx1 - lx0
         short = lw <= .60 * colw and len(str(text).strip()) <= 24
         marker = str(text).strip().startswith(("圖", "Fig", "(")) or bool(RE_CAPTION.match(str(text).strip()))
@@ -127,6 +130,10 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         # 「附圖為…」和 (A)文字選項在窄欄也可能低於 42% 欄寬；非圖號
         # 只接受真正短的軸名／代號，才不會在 grow 前先把題幹併進來。
         aligned = min(lx1, x1) > max(lx0, x0) or min(ly1, y1) > max(ly0, y0)   # 斜對角靠近的是別的東西（上面表格的格子）
+        # 框外的短字超過 5 個中文字多半是題幹尾巴或頁尾（能在胃中作用、背面還有題目），不是圖的標籤。
+        outside = not (lx0 >= x0 and lx1 <= x1 and ly0 >= y0 and ly1 <= y1)
+        if outside and not marker and len(re.findall(r"[\u4e00-\u9fff]", str(text))) > 5:
+            continue
         if short and aligned and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
             x0, y0, x1, y1 = _merge((x0,y0,x1,y1), (lx0,ly0,lx1,ly1))
     # 不跨正文行：把可用欄位限制在候選附近的最近完整正文行之間。
@@ -136,7 +143,7 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         # 寬度判斷；長辨識字串同樣是不可跨越的正文停損線。圖內標籤通常短。
         inside = max(0, min(lx1, x1) - max(lx0, x0)) * max(0, min(ly1, y1) - max(ly0, y0)) > .5 * max(1, (lx1 - lx0) * (ly1 - ly0))
         body = lx1-lx0 > .60 * colw or ((lx1-lx0 > .35 * colw) and len(str(text).strip()) >= 18) \
-            or (kind != "table" and not inside and text_like(text))
+            or (not inside and text_like(text))
         if body and not (lx1 < x0 or lx0 > x1):
             if ly1 <= y0: top = max(top, ly1)
             elif ly0 >= y1: bottom = min(bottom, ly0)

@@ -94,16 +94,16 @@ def guess_qno(box, raw_lines, W):
         same = sorted(((l, str(t)) for l, t in raw_lines if _col_of(l[0], starts) == col), key=lambda x: x[0][1])
         y_best = box[1] - best[0]
         below = [(l[1], int(m.group(1))) for l, t in same for m in [RE_QNUM.match(t)] if m and l[1] > y_best + 10 and l[1] > box[1]]
-        if below:
-            y_next, q_next = min(below)
-            ends = [l[3] for l, t in same if y_best <= l[1] < y_next and re.search(r"[(（]\s*[DＤ]\s*[)）]", t)]
-            if ends and min(ends) < box[1]:
-                after = [t for l, t in same if min(ends) <= l[1] < y_next and text_like(t)]
-                if len(after) >= 2 or any(re.search(r"下圖|附圖|右圖|根據|回答", t) for t in after):
-                    return q_next
-                # 上一題已結束、圖印在下一題右邊且頂端略高於題號：圖屬於下一題。
-                if any(l[1] == y_next and l[2] <= box[0] + 10 for l, t in same) and y_next < (box[1] + box[3]) / 2:
-                    return q_next
+        # 下一題在下一欄或題號被 OCR 認壞時，同欄找不到：題組文章仍歸下一號。
+        y_next, q_next = min(below) if below else (float("inf"), best[1] + 1)
+        ends = [l[3] for l, t in same if y_best <= l[1] < y_next and re.search(r"[(（]\s*[DＤ]\s*[)）]", t)]
+        if ends and min(ends) < box[1]:
+            after = [t for l, t in same if min(ends) <= l[1] < y_next and text_like(t)]
+            if len(after) >= 2 or any(re.search(r"下圖|附圖|右圖|根據|回答", t) for t in after):
+                return q_next
+            # 上一題已結束、圖印在下一題右邊且頂端略高於題號：圖屬於下一題。
+            if any(l[1] == y_next and l[2] <= box[0] + 10 for l, t in same) and y_next < (box[1] + box[3]) / 2:
+                return q_next
     return (best or fallback)[1] if (best or fallback) else None
 
 
