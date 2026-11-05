@@ -56,6 +56,12 @@ def prepare(source: Path, output: Path) -> list[Path]:
     return made
 
 
+def imread_gray(path):
+    """cv2.imread 在 Windows 碰到中文路徑會回 None（手動圖檔名都是中文），改成先讀檔再解碼。"""
+    data = np.fromfile(str(path), np.uint8)
+    return cv2.imdecode(data, cv2.IMREAD_GRAYSCALE) if data.size else None
+
+
 def render(page):
     pix = page.get_pixmap(dpi=300, alpha=False)
     rgb = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3]
@@ -105,7 +111,7 @@ def write_review(path, manual, auto, label):
     cv2.putText(b, label, (4, 19), cv2.FONT_HERSHEY_SIMPLEX, .55, (180,0,0), 1)
     joined = cv2.hconcat([a, np.full((h+28, 12, 3), 220, np.uint8), b])
     if scale < 1: joined = cv2.resize(joined, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    cv2.imwrite(str(path), joined)
+    crop.pyexam._imwrite(str(path), joined)     # Windows 中文路徑
 
 
 def exams(gt_dir: Path):
@@ -127,7 +133,7 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
         items = crop.crop_items(image); boxes = [it["box"] for it in items]
         used = set()
         for asset in wanted:
-            filename = asset["file"]; templ = cv2.imread(str(work / "manual" / filename), cv2.IMREAD_GRAYSCALE)
+            filename = asset["file"]; templ = imread_gray(work / "manual" / filename)
             found = locate(templ, gray, features) if templ is not None else None
             if not found:
                 rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "error": "樣板定位失敗"}); continue

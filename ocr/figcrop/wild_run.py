@@ -82,7 +82,7 @@ def cmd_crop(a):
                 rows.append({"page": pn, "n": n, "box": it["box"], "qno": it["qno"]})
             vis = mask_identity(vis, pn == 1, [it["box"] for it in items])
             s = 2200 / max(vis.shape[:2])
-            cv2.imwrite(str(pages / f"p{pn}.jpg"), cv2.resize(vis, None, fx=s, fy=s, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
+            crop.pyexam._imwrite(str(pages / f"p{pn}.jpg"),cv2.resize(vis, None, fx=s, fy=s, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
         (work / "items.json").write_text(json.dumps({"pdf": str(pdf), "pages": len(doc), "items": rows}, ensure_ascii=False, indent=1, default=int), encoding="utf-8")
         print(f"{pdf.stem}: {len(doc)} 頁 {len(rows)} 框", flush=True)
 
