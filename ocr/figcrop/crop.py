@@ -58,6 +58,7 @@ RE_END = re.compile(r"試題結束|再.{0,4}檢查")
 RE_NOTICE = re.compile(r"請翻|翻頁|翻到|背面|下一頁")
 RE_ANSWER_PAGE = re.compile(r"(?:答案卷|答案欄|答案紙|答題卷)\s*$")
 RE_SECTION = re.compile(r"每題\s*\d*\.?\d*\s*分|選擇題")
+RE_HEADER = re.compile(r"姓\s*名|座\s*號|班\s*級|學\s*號|科目代號|科目名稱|定期考")
 RE_PURE_OPT = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]$")
 
 
@@ -318,6 +319,20 @@ def trim_stem_edges(box, ocr_lines):
     return (x0, y0, x1, y1) if y1 - y0 > .5 * h else box
 
 
+RE_QNUM_TOKEN = re.compile(r"^[\s()（）A-DＡ-Ｄa-d]*\d{1,2}\s*[.．、]")
+
+
+def is_answer_mark(box, ocr_lines, W):
+    """作答括號裡的手寫答案（A～D）：框很小，而且題號就在框裡或緊貼框的右邊。真的小圖不會剛好長在題號的作答位置。"""
+    x0, y0, x1, y1 = box
+    if max(x1 - x0, y1 - y0) >= .08 * W:
+        return False
+    for l0, l2, l1, l3, t in ocr_lines:
+        if RE_QNUM_TOKEN.match(str(t)) and y0 <= (l2 + l3) / 2 <= y1 and x0 - .02 * W <= l0 <= x1 + .03 * W:
+            return True
+    return False
+
+
 def pad_box(box, p, ocr_lines, shape):
     """四周留白 p，但上下的留白只能長進空白：框外緊貼的文字行（表格正上方的題幹）不可被留白切進半行。
     框本身已經切到的行不在這裡處理。"""
@@ -487,8 +502,14 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [drop_partial_lines(img, b, ocr_lines) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
+    # 卷頭的班級座號姓名列、科目代號表格（常做成表格，比頁首小圖高）也不是題目的圖。
+    # 只刪扁長條（寬 ≥ 2 倍高）：卷頭文字和第一題的圖併成一框時，那框接近方形，不能整框刪掉。
+    boxes = [b for b in boxes if not (b[1] < .2 * H and b[3] - b[1] < .15 * H and b[2] - b[0] >= 2 * (b[3] - b[1]) and any(
+        RE_HEADER.search(str(t)) and l0 >= b[0] - 5 and l1 <= b[2] + 5 and l2 >= b[1] - 5 and l3 <= b[3] + 5
+        for l0, l2, l1, l3, t in ocr_lines))]
     # 題組前的裝飾圖示（星星等）：長邊不到頁寬 5%，手動截圖最小的圖也比這大得多
     boxes = [b for b in boxes if max(b[2] - b[0], b[3] - b[1]) >= .05 * img.shape[1]]
+    boxes = [b for b in boxes if not is_answer_mark(b, ocr_lines, img.shape[1])]
     # 卷末的「試題結束，請再次檢查」方框不是題目的圖
     # 提示行要佔框寬一半以上才算：圖的框邊碰巧帶到頁尾「背面還有題目」時圖還是要留
     boxes = [b for b in boxes if not any(RE_END.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] for l0, l2, l1, l3, t in ocr_lines)]
