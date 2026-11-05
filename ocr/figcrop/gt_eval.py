@@ -58,7 +58,10 @@ def prepare(source: Path, output: Path) -> list[Path]:
 
 def imread_gray(path):
     """cv2.imread 在 Windows 碰到中文路徑會回 None（手動圖檔名都是中文），改成先讀檔再解碼。"""
-    data = np.fromfile(str(path), np.uint8)
+    try:
+        data = np.fromfile(str(path), np.uint8)
+    except OSError:                 # 和 cv2.imread 一樣回 None：缺檔只記「樣板定位失敗」，不中斷整輪
+        return None
     return cv2.imdecode(data, cv2.IMREAD_GRAYSCALE) if data.size else None
 
 
