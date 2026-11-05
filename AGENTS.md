@@ -5,6 +5,7 @@
 - 修改本機應用（`local-app/`）、設定主機或處理自動更新前，先完整閱讀 `Codex維護與主機設定說明.md`、`local-app/README.md`、`local-app/HOST-SETUP.md`。
 - 修改詳解系統（`local-app/public/answer.html`、`answer-key.js`、`ensemble.js`、`auth.js`、`quota.js`、Word 格式）前，先完整閱讀 `docs/詳解系統說明.md`；每次修改都要在同一個 commit 內：在 `local-app/public/answer-changelog.json` 最前面加一則白話更新公告，並更新 `docs/詳解系統說明.md` 對應段落。
 - 優化本地 OCR（`ocr/` 的 pyexam／to_zizi_word／評測）前，先完整閱讀 `docs/OCR交接_Codex.md`（目標、限制、上線標準、做過什麼、待辦），並用 `bash ocr/setup_env.sh` 準備環境。
+- 訓練或修改自動切圖（`ocr/figcrop/`）前，先完整閱讀 `docs/切圖交接.md`（目標、進度、評測流程、規則、待辦）。
 - 一律在 `main` 分支工作；開始前先 `git pull --ff-only`，禁止 force push、改寫已推送的歷史。
 - 推送到 `main` 後，主機會在 5 分鐘內自動更新並重開服務；推送前務必先在本機測過。
 - 程式請 clone 在 Dropbox／OneDrive 以外的資料夾，不要讓雲端硬碟同步 `.git`。
