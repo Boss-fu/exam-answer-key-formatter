@@ -108,21 +108,23 @@ def _qnum_protect_mask(bgr, detected_boxes=None, erased_mask=None):
 
 
 def _printed_ink_protect_mask(bgr, erased_mask, detected_boxes=None):
-    """保留同列印刷文字的原始筆畫，讓低門檻不會吃掉細灰字。
+    """保留完整落在同列 OCR 字框內的印刷筆畫。
 
     r8 的 ``hand`` 通道在 0.12 會偶爾把淡印刷字判成筆跡。不能直接把每個
     OCR 框都保護，否則題號前的手寫 ``(A)`` 和選項上的圈也會留下來；因此只
-    接受有同列鄰居的框。正文、選項（字母右邊有選項文字）都有鄰居，孤立的
-    手寫答案與大圈通常沒有。只還原原稿的深色像素，不會把白底或模型沒擦的
-    部分變更。
+    接受有同列鄰居的框。更重要的是，不能再把「框內所有命中像素」都還原：
+    壓在字上或跨出字框的手寫筆跡會跟印刷字同時落在框內。改以命中遮罩的連通
+    元件判斷，僅保護完整落在合格 OCR 框內的元件；跨框元件照常擦除。
     """
-    try:
-        from ppocr_engine import det_boxes
-    except ImportError:
-        from ocr.ppocr_engine import det_boxes
-
     H, W = bgr.shape[:2]
-    raw = detected_boxes if detected_boxes is not None else det_boxes(bgr)
+    if detected_boxes is None:
+        try:
+            from ppocr_engine import det_boxes
+        except ImportError:
+            from ocr.ppocr_engine import det_boxes
+        raw = det_boxes(bgr)
+    else:
+        raw = detected_boxes
     boxes = []
     for box in raw:
         x0, y0, x1, y1 = _box_rect(box)
@@ -131,7 +133,7 @@ def _printed_ink_protect_mask(bgr, erased_mask, detected_boxes=None):
     if not boxes:
         return np.zeros((H, W), np.uint8)
     median_h = float(np.median([y1 - y0 for _, y0, _, y1 in boxes]))
-    protected = np.zeros((H, W), np.uint8)
+    eligible = []
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     for x0, y0, x1, y1 in boxes:
         h = y1 - y0
@@ -148,10 +150,21 @@ def _printed_ink_protect_mask(bgr, erased_mask, detected_boxes=None):
         # 印刷證據；手寫作答的單個字母／括號不會有這種長寬比。
         if not neighbour and (x1 - x0) / max(1, h) < 2.5:
             continue
-        roi_hit = erased_mask[y0:y1, x0:x1] > 0
-        # 只保護明顯原始墨跡；掃描灰底、紅藍筆清除後的殘色都不會被帶回。
-        roi_ink = gray[y0:y1, x0:x1] < 210
-        protected[y0:y1, x0:x1][roi_hit & roi_ink] = 1
+        eligible.append((x0, y0, x1, y1))
+
+    protected = np.zeros((H, W), np.uint8)
+    hit = (erased_mask > 0).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(hit, connectivity=8)
+    for label in range(1, count):
+        x, y, w, h, _ = stats[label]
+        # OCR 框已涵蓋字的抗鋸齒邊緣；仍留 1px 容差給前一步膨脹，避免正常
+        # 印刷筆畫因單一邊界像素而失去保護。跨出字框的作答筆跡不符合此條件。
+        if not any(x >= x0 - 1 and y >= y0 - 1 and x + w <= x1 + 1 and y + h <= y1 + 1
+                   for x0, y0, x1, y1 in eligible):
+            continue
+        component = labels == label
+        # 只保護原稿的深色墨跡；紙底、色筆處理後的殘色不會被帶回。
+        protected[component & (gray < 210)] = 1
     return protected
 
 
