@@ -265,6 +265,22 @@ def is_red_mark(img, box):
     return ink.any() and (cv2.cvtColor(sub, cv2.COLOR_BGR2HSV)[:, :, 1] > 80)[ink].mean() > .8
 
 
+def trim_stem_edges(box, ocr_lines):
+    """面板併好之後，框的上下緣還帶到題幹末行就切掉（合併前每塊都沒碰到，併起來才碰到）。"""
+    x0, y0, x1, y1 = box; h = y1 - y0
+    for l0, l2, l1, l3, t in ocr_lines:
+        area = max(1, (l1 - l0) * (l3 - l2))
+        over = max(0, min(l1, x1) - max(l0, x0)) * max(0, min(l3, y1) - max(l2, y0))
+        if not text_like(t) or option_caption(t) or over < .5 * area or len(re.findall(r"[\u4e00-\u9fff]", str(t))) < 4:
+            continue
+        cy = (l2 + l3) / 2
+        if cy < box[1] + .15 * h:
+            y0 = max(y0, l3 + 2)
+        elif cy > box[3] - .15 * h:
+            y1 = min(y1, l2 - 2)
+    return (x0, y0, x1, y1) if y1 - y0 > .5 * h else box
+
+
 def has_border(img, box):
     """四邊都有實際的框線才算外框；只是把兩張圖連起來的範圍沒有框線。"""
     x0, y0, x1, y1 = [int(v) for v in box]; r = 12
@@ -339,6 +355,9 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
         else:
             boxes.append(e)
     boxes = merge(boxes)
+    # 表格的列也像句子，修剪會切掉表頭和底列，所以含表格的框不修。
+    has_table = lambda b: any(overlap(b, t) > .5 * max(1, (t[2]-t[0])*(t[3]-t[1])) for t in tables)
+    boxes = [b if has_table(b) else trim_stem_edges(b, ocr_lines) for b in boxes]
     p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
     boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖

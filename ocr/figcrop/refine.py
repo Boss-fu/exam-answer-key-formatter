@@ -135,7 +135,7 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         outside = not (lx0 >= x0 and lx1 <= x1 and ly0 >= y0 and ly1 <= y1)
         if outside and not marker and len(re.findall(r"[\u4e00-\u9fff]", str(text))) > 5:
             continue
-        if short and aligned and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), 34):
+        if short and aligned and (marker or (lw < .25 * colw and len(str(text).strip()) <= 12)) and _touch_or_near((x0,y0,x1,y1), (lx0,ly0,lx1,ly1), max(34, int(.015 * w))):
             x0, y0, x1, y1 = _merge((x0,y0,x1,y1), (lx0,ly0,lx1,ly1))
     # 不跨正文行：把可用欄位限制在候選附近的最近完整正文行之間。
     left, top, right, bottom = column

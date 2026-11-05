@@ -48,9 +48,10 @@ def render(page, dpi=300):
     return cv2.cvtColor(np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3], cv2.COLOR_RGB2BGR)
 
 
-def mask_identity(img, first_page):
+def mask_identity(img, first_page, boxes=()):
     """送 AGY 前遮掉姓名、班級座號那一列。整塊塗白會蓋到圖、害 AGY 誤判成切到；第一頁找不到欄位才遮最上面一小塊。"""
     k = crop.page_rotation(img)
+    keep = img.copy()      # 紅框內不遮：遮到圖會害 AGY 誤判成切到
     up = np.rot90(img, k).copy(); raw = []
     small = cv2.resize(up, None, fx=.4, fy=.4, interpolation=cv2.INTER_AREA)
     crop.text_lines(small, raw)
@@ -60,7 +61,10 @@ def mask_identity(img, first_page):
         up[max(0, int((l[1] - h) / .4)):int((l[3] + h) / .4)] = 255
     if first_page and not rows:
         up[:int(.12 * up.shape[0])] = 255
-    return np.rot90(up, -k).copy()
+    out = np.rot90(up, -k).copy()
+    for x0, y0, x1, y1 in boxes:
+        out[max(0, y0 - 8):y1 + 8, max(0, x0 - 8):x1 + 8] = keep[max(0, y0 - 8):y1 + 8, max(0, x0 - 8):x1 + 8]
+    return out
 
 
 def cmd_crop(a):
@@ -76,7 +80,7 @@ def cmd_crop(a):
                 cv2.rectangle(vis, (x0, y0), (x1, y1), (0, 0, 230), 6)
                 cv2.putText(vis, str(n), (x0 + 8, y0 + 70), cv2.FONT_HERSHEY_SIMPLEX, 2.6, (0, 0, 230), 7)
                 rows.append({"page": pn, "n": n, "box": it["box"], "qno": it["qno"]})
-            vis = mask_identity(vis, pn == 1)
+            vis = mask_identity(vis, pn == 1, [it["box"] for it in items])
             s = 2200 / max(vis.shape[:2])
             cv2.imwrite(str(pages / f"p{pn}.jpg"), cv2.resize(vis, None, fx=s, fy=s, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
         (work / "items.json").write_text(json.dumps({"pdf": str(pdf), "pages": len(doc), "items": rows}, ensure_ascii=False, indent=1, default=int), encoding="utf-8")
