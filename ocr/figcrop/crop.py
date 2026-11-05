@@ -82,10 +82,24 @@ def _col_of(x, starts):
 RE_LEAD_JUNK = re.compile(r"^[)）\s\d.．、]*")
 
 
+def _fix_misread_qnums(raw_lines, starts):
+    """OCR 認錯題號（「19.」讀成「49.」）：依閱讀順序（欄、由上而下），前後兩個題號差 2、自己卻不是中間那號，就改成中間那號。"""
+    numbered = sorted(((_col_of(l[0], starts), l[1], i, int(m.group(1))) for i, (l, t) in enumerate(raw_lines)
+                       for m in [RE_QNUM.match(str(t))] if m and text_like(t)))
+    fixed = {}
+    for (_c0, _y0, _i0, a), (_c1, _y1, i, x), (_c2, _y2, _i2, c) in zip(numbered, numbered[1:], numbered[2:]):
+        if c - a == 2 and x != a + 1:
+            t = str(raw_lines[i][1]); m = RE_QNUM.match(t)
+            fixed[i] = f"{a + 1}." + t[m.end():]
+    return [(l, fixed.get(i, t)) for i, (l, t) in enumerate(raw_lines)] if fixed else raw_lines
+
+
 def repair_qnums(raw_lines, W):
     """OCR 漏讀題號（「10.」讀成「1」、作答括號旁的題號被手寫蓋掉）：同一欄相鄰兩個題號差 g（2～4），
-    中間剛好 g−1 行從題號的 x 起頭（比續行、選項凸出）、不是題號也不是選項，就依序補上漏掉的題號。"""
+    中間剛好 g−1 行從題號的 x 起頭（比續行、選項凸出）、不是題號也不是選項，就依序補上漏掉的題號。
+    先修認錯的題號（_fix_misread_qnums），再補漏掉的。"""
     starts = _columns(raw_lines, W); tol = .006 * W
+    raw_lines = _fix_misread_qnums(raw_lines, starts)
     numbered = [(l, int(m.group(1))) for l, t in raw_lines for m in [RE_QNUM.match(str(t))] if m]
     fixed = {}
     for col in range(len(starts)):
