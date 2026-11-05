@@ -47,6 +47,7 @@ RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 
 RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\d{1,2})\s*[.．、]")
 RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
+RE_GROUP_CUT = re.compile(r"(?:回答|第)\s*(\d{1,2})\s*[~～至到\-－—]\s*(\d{1,2})\s*$")   # 「題」字被換行切到下一行
 RE_NOTICE = re.compile(r"試題結束|再.{0,4}檢查")
 RE_PURE_OPT = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]$")
 
@@ -77,7 +78,10 @@ def guess_qno(box, raw_lines, W):
         if l[1] > box[1] + max(12, .012 * W):   # 框有留白，頂端比圖高一點
             continue
         clean = str(text).replace("［", "(").replace("］", ")")
-        m = RE_GROUP.search(clean) or RE_QNUM.match(clean)
+        m = RE_GROUP.search(clean) or RE_GROUP_CUT.search(clean)
+        if m and (int(m.group(2)) - int(m.group(1)) >= 15 or "每題" in clean):     # 「題組題（1-50題，每題1分）」是大標
+            m = None
+        m = m or RE_QNUM.match(clean)
         if not m:
             continue
         row = (box[1] - l[1], int(m.group(1)))
@@ -93,8 +97,12 @@ def guess_qno(box, raw_lines, W):
         if below:
             y_next, q_next = min(below)
             ends = [l[3] for l, t in same if y_best <= l[1] < y_next and re.search(r"[(（]\s*[DＤ]\s*[)）]", t)]
-            if ends and min(ends) < box[1] and sum(1 for l, t in same if min(ends) <= l[1] < y_next and text_like(t)) >= 2:
-                return q_next
+            if ends and min(ends) < box[1]:
+                if sum(1 for l, t in same if min(ends) <= l[1] < y_next and text_like(t)) >= 2:
+                    return q_next
+                # 上一題已結束、圖印在下一題右邊且頂端略高於題號：圖屬於下一題。
+                if any(l[1] == y_next and l[2] <= box[0] + 10 for l, t in same) and y_next < (box[1] + box[3]) / 2:
+                    return q_next
     return (best or fallback)[1] if (best or fallback) else None
 
 
@@ -261,19 +269,34 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
         # 分母取小框：整頁寬的備援框只蓋到模型框一點比例，也是重複，留著會把模型框吃掉。
         if not any(overlap(b, x) / max(1, min((b[2]-b[0])*(b[3]-b[1]), (x[2]-x[0])*(x[3]-x[1]))) > .15 for x in layout_boxes):
             candidates.append(("figure", list(b), True))
-    boxes = []
+    boxes = []; extra = []
     for c, b, _fallback in candidates:
         kind = "table" if c == "table" else "figure"
         if (_fallback and sentence_cover(b, ocr_lines) >= .5) or (kind == "figure" and is_red_mark(img, b)):
+            continue
+        # 細長的備援框多半只是一條線，併進來會把兩邊的圖連成一張
+        if _fallback and max(b[2]-b[0], b[3]-b[1]) > 4 * min(b[2]-b[0], b[3]-b[1]):
             continue
         # 版面模型的框本身就準（掃描卷也是）；只在頁寬 2.5% 內小幅外擴補回被切到的筆畫，
         # 不用連通塊整塊併入——掃描卷的外框或文字一連通，框就會爆到整頁。
         m = int(.025 * img.shape[1])
         column = (b[0] - m, b[1] - m, b[2] + m, b[3] + m)
         candidate = refine_box(img, b, kind=kind, ocr_lines=ocr_lines, column=column)
-        boxes.append(candidate)
+        (extra if _fallback else boxes).append(candidate)
     boxes = merge_figure_panels(merge(boxes), gap=int(.045 * img.shape[1]), ocr_lines=ocr_lines)
     boxes = merge_option_panels(boxes, ocr_lines, img.shape[1], img.shape[0])
+    # 備援框併入條件：很近就併；稍遠要高度相近（遠又矮多半是別的東西）。真的重疊最後由 merge 處理。
+    for e in extra:
+        for i, b in enumerate(boxes):
+            vov = min(e[3], b[3]) - max(e[1], b[1]); hgap = max(e[0], b[0]) - min(e[2], b[2])
+            lo, hi = sorted((e[3] - e[1], b[3] - b[1]))
+            near = hgap <= .025 * img.shape[1] or (hgap <= .045 * img.shape[1] and lo > .4 * hi)
+            if vov > .45 * lo and hgap >= 0 and near and not has_qnum_inside(e, b, ocr_lines):
+                boxes[i] = (min(e[0], b[0]), min(e[1], b[1]), max(e[2], b[2]), max(e[3], b[3]))
+                break
+        else:
+            boxes.append(e)
+    boxes = merge(boxes)
     p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
     boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
