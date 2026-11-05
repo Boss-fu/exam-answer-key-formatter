@@ -2,7 +2,7 @@
 """沒有手動標準答案的新卷：自動切圖後畫出編號紅框，交給 AGY（Gemini）逐頁檢查，統計判定。
 
 python ocr/figcrop/wild_run.py crop <pdf...>   # 切圖、畫總覽，寫 <out>/<卷>/items.json 與 pages/
-python ocr/figcrop/wild_run.py review          # 每頁請 agy 判定，寫 pages/pN.json（已判過的跳過）
+python ocr/figcrop/wild_run.py review          # 每頁請 agy 判定（姓名列先遮掉），寫 pages/pN.json（已判過的跳過）
 python ocr/figcrop/wild_run.py report          # 統計並列出有問題的框
 
 AGY 的判定只是第二意見，不是標準答案；這裡的分數不能拿來和 gt_eval 的手動分數比，也不進 gate。
@@ -48,10 +48,18 @@ def render(page, dpi=300):
     return cv2.cvtColor(np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3], cv2.COLOR_RGB2BGR)
 
 
-def mask_header(img):
+def mask_identity(img, first_page):
+    """送 AGY 前遮掉姓名、班級座號那一列。整塊塗白會蓋到圖、害 AGY 誤判成切到；第一頁找不到欄位才遮最上面一小塊。"""
     k = crop.page_rotation(img)
-    up = np.rot90(img, k).copy()
-    up[:int(.22 * up.shape[0])] = 255
+    up = np.rot90(img, k).copy(); raw = []
+    small = cv2.resize(up, None, fx=.4, fy=.4, interpolation=cv2.INTER_AREA)
+    crop.text_lines(small, raw)
+    rows = [l for l, t in raw if re.search(r"姓名|座號|班級|學號|[年班]\s*[_（(]?\s*班|號\s*姓", str(t))]
+    for l in rows:
+        h = l[3] - l[1]
+        up[max(0, int((l[1] - h) / .4)):int((l[3] + h) / .4)] = 255
+    if first_page and not rows:
+        up[:int(.12 * up.shape[0])] = 255
     return np.rot90(up, -k).copy()
 
 
@@ -68,8 +76,7 @@ def cmd_crop(a):
                 cv2.rectangle(vis, (x0, y0), (x1, y1), (0, 0, 230), 6)
                 cv2.putText(vis, str(n), (x0 + 8, y0 + 70), cv2.FONT_HERSHEY_SIMPLEX, 2.6, (0, 0, 230), 7)
                 rows.append({"page": pn, "n": n, "box": it["box"], "qno": it["qno"]})
-            if pn == 1:      # 第一頁表頭有學生姓名、班級座號，送給 AGY 前先遮掉（有筆跡的舊卷才需要，空白卷也一樣遮）
-                vis = mask_header(vis)
+            vis = mask_identity(vis, pn == 1)
             s = 2200 / max(vis.shape[:2])
             cv2.imwrite(str(pages / f"p{pn}.jpg"), cv2.resize(vis, None, fx=s, fy=s, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
         (work / "items.json").write_text(json.dumps({"pdf": str(pdf), "pages": len(doc), "items": rows}, ensure_ascii=False, indent=1, default=int), encoding="utf-8")

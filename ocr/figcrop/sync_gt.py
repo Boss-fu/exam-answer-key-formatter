@@ -5,7 +5,9 @@ PDF「111_南市復興_國七上二段_…pdf」與 ZIP「南市復興國中-七
     python ocr/figcrop/sync_gt.py [來源資料夾]"""
 import os, re, shutil, sys, zipfile
 
-SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/自動切圖訓練資料")   # 使用者持續丟入；NAS 版：/Volumes/教務部門/…/自動切圖訓練資料
+# 使用者持續丟入；資料夾曾從桌面搬進待匯入，兩處都找。NAS 版：/Volumes/教務部門/…/自動切圖訓練資料
+_DEFAULTS = [os.path.expanduser(p) for p in ("~/Desktop/待匯入/自動切圖訓練資料", "~/Desktop/自動切圖訓練資料")]
+SRC = sys.argv[1] if len(sys.argv) > 1 else next((p for p in _DEFAULTS if os.path.isdir(p)), _DEFAULTS[0])
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results", "figcrop_gt")
 
 

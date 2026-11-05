@@ -48,8 +48,10 @@ RE_TEXT_OPTION = re.compile(r"[(（]\s*[A-DＡ-Ｄa-d]\s*[)）]\s*\S+|[？?]")
 RE_QNUM = re.compile(r"^\s*(?:[（(]?\s*(?:[A-DＡ-Ｄa-d]?|\s)\s*[）)]?)?\s*(\d{1,2})\s*[.．、]")
 RE_GROUP = re.compile(r"(?:回答|第)?\s*(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*題")
 RE_GROUP_CUT = re.compile(r"(?:回答|第)\s*(\d{1,2})\s*[~～至到\-－—]\s*(\d{1,2})\s*$")   # 「題」字被換行切到下一行
-RE_NOTICE = re.compile(r"試題結束|再.{0,4}檢查|請翻|翻頁|翻到|背面|下一頁")
-RE_ANSWER_PAGE = re.compile(r"答案卷|答案欄|答案紙|答題卷")
+RE_END = re.compile(r"試題結束|再.{0,4}檢查")
+RE_NOTICE = re.compile(r"請翻|翻頁|翻到|背面|下一頁")
+RE_ANSWER_PAGE = re.compile(r"(?:答案卷|答案欄|答案紙|答題卷)\s*$")
+RE_SECTION = re.compile(r"每題\s*\d*\.?\d*\s*分|選擇題")
 RE_PURE_OPT = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]$")
 
 
@@ -263,6 +265,17 @@ def is_red_mark(img, box):
     return ink.any() and (cv2.cvtColor(sub, cv2.COLOR_BGR2HSV)[:, :, 1] > 80)[ink].mean() > .8
 
 
+def has_border(img, box):
+    """四邊都有實際的框線才算外框；只是把兩張圖連起來的範圍沒有框線。"""
+    x0, y0, x1, y1 = [int(v) for v in box]; r = 12
+    ink = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) < 180
+    H, W = ink.shape
+    def line(a, axis):
+        return a.size > 0 and a.mean(axis=axis).max() > .7
+    return (line(ink[max(0, y0-r):min(H, y0+r), x0:x1], 1) and line(ink[max(0, y1-r):min(H, y1+r), x0:x1], 1)
+            and line(ink[y0:y1, max(0, x0-r):min(W, x0+r)], 0) and line(ink[y0:y1, max(0, x1-r):min(W, x1+r)], 0))
+
+
 def is_pencil_mark(img, box):
     """又窄又沒有純黑線條＝邊欄的鉛筆塗鴉；印刷的圖就算淺也比較寬，所以兩個條件都要成立，免得刪到真圖。"""
     x0, y0, x1, y1 = [int(v) for v in box]
@@ -283,13 +296,21 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     # DocLayout 會漏掉線條非常密的生物剖面圖；既有的本地連通元件候選器
     # 正好補這類圖。只收完全未被 layout 命中的候選，避免表格與已偵測圖重複。
     layout_boxes = [tuple(b) for _, b, _ in candidates]
-    for b in pyexam.figure_candidates(img, dpi=300):
+    raw_candidates = list(pyexam.figure_candidates(img, dpi=300))
+    # 有外框的圖：模型常只抓到框裡的小圖，備援卻抓到外框。框裡有 >=2 個模型框、沒有句子也沒有題號，就是同一張圖。
+    def inside(x, f):
+        return overlap(x, f) > .8 * max(1, (x[2]-x[0])*(x[3]-x[1]))
+    frames = [tuple(int(v) for v in f) for f in raw_candidates if sum(1 for x in layout_boxes if inside(x, f)) >= 2
+              and sentence_cover(f, ocr_lines) < .05 and not has_qnum_inside(f, f, ocr_lines) and has_border(img, f)]
+    for b in raw_candidates:
         # 分母取小框：整頁寬的備援框只蓋到模型框一點比例，也是重複，留著會把模型框吃掉。
         if not any(overlap(b, x) / max(1, min((b[2]-b[0])*(b[3]-b[1]), (x[2]-x[0])*(x[3]-x[1]))) > .15 for x in layout_boxes):
             candidates.append(("figure", list(b), True))
     boxes = []; extra = []; tables = []
     for c, b, _fallback in candidates:
         kind = "table" if c == "table" else "figure"
+        if _fallback and any(RE_SECTION.search(str(t)) and min(l1, b[2]) > max(l0, b[0]) and min(l3, b[3]) > max(l2, b[1]) for l0, l2, l1, l3, t in ocr_lines):
+            continue        # 第一頁的作答說明框、大題標題
         if (_fallback and sentence_cover(b, ocr_lines) >= .5) or (kind == "figure" and (is_red_mark(img, b) or is_pencil_mark(img, b))):
             continue
         # 細長的備援框多半只是一條線，併進來會把兩邊的圖連成一張
@@ -301,6 +322,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
         column = (b[0] - m, b[1] - m, b[2] + m, b[3] + m)
         candidate = refine_box(img, b, kind=kind, ocr_lines=ocr_lines, column=column)
         (extra if _fallback else tables if kind == "table" else boxes).append(candidate)
+    for f in frames:
+        boxes = [b for b in boxes if not inside(b, f)] + [f]
     boxes = merge_figure_panels(merge(boxes), gap=int(.045 * img.shape[1]), ocr_lines=ocr_lines)
     boxes = merge(boxes + tables)     # 表格旁邊的圖是另一張，只有真的重疊才併
     boxes = merge_option_panels(boxes, ocr_lines, img.shape[1], img.shape[0])   # 選項做成表格也要併
@@ -324,9 +347,10 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [b for b in boxes if max(b[2] - b[0], b[3] - b[1]) >= .05 * img.shape[1]]
     # 卷末的「試題結束，請再次檢查」方框不是題目的圖
     # 提示行要佔框寬一半以上才算：圖的框邊碰巧帶到頁尾「背面還有題目」時圖還是要留
+    boxes = [b for b in boxes if not any(RE_END.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] for l0, l2, l1, l3, t in ocr_lines)]
     boxes = [b for b in boxes if not any(RE_NOTICE.search(str(t)) and l0 >= b[0] and l1 <= b[2] and l2 >= b[1] and l3 <= b[3] and l1 - l0 > .5 * (b[2] - b[0]) for l0, l2, l1, l3, t in ocr_lines)]
-    # 答案卷整頁都是作答格，不是題目的圖。只認短標題，說明句「請將答案填入答案卡」不算。
-    if any(RE_ANSWER_PAGE.search(str(t)) and len(str(t).strip()) <= 14 and l3 < .25 * H for l0, l2, l1, l3, t in ocr_lines):
+    # 答案卷整頁都是作答格，不是題目的圖。只認標題結尾，說明句「請將答案填入答案卡」不算。
+    if any(RE_ANSWER_PAGE.search(str(t)) and l3 < .25 * H for l0, l2, l1, l3, t in ocr_lines):
         boxes = []
     return boxes, dets
 

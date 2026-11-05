@@ -2,10 +2,10 @@ import unittest
 import cv2, numpy as np
 try:
  from .refine import refine_box, edge_cut_ink, has_body_line
- from .crop import guess_qno, unrotate_box
+ from .crop import guess_qno, has_border, unrotate_box
 except ImportError:
  from refine import refine_box, edge_cut_ink, has_body_line
- from crop import guess_qno, unrotate_box
+ from crop import guess_qno, has_border, unrotate_box
 
 class RefineTest(unittest.TestCase):
  def test_expands_to_include_axes_and_keeps_body_out(self):
@@ -56,6 +56,11 @@ class RefineTest(unittest.TestCase):
   im=np.full((400,800,3),255,np.uint8); cv2.putText(im,'XXXX',(150,45),0,1,(0,0,0),3); cv2.rectangle(im,(100,50),(600,300),(0,0,0),2)
   lines=[(150,20,260,54,'列問題：')]
   self.assertGreaterEqual(refine_box(im,(100,50,600,300),kind='table',ocr_lines=lines,column=(60,10,640,340))[1],40)
+ def test_has_border(self):
+  im=np.full((300,500,3),255,np.uint8); cv2.rectangle(im,(50,40),(450,260),(0,0,0),3)
+  self.assertTrue(has_border(im,(50,40,450,260)))
+  im=np.full((300,500,3),255,np.uint8); cv2.circle(im,(150,150),80,(0,0,0),3); cv2.circle(im,(350,150),80,(0,0,0),3)
+  self.assertFalse(has_border(im,(50,40,450,260)))
  def test_unrotate_box(self):
   mark=np.zeros((60,100),bool)
   for k in (0,1,2,3):
