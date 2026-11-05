@@ -281,6 +281,54 @@ def trim_stem_edges(box, ocr_lines):
     return (x0, y0, x1, y1) if y1 - y0 > .5 * h else box
 
 
+def extend_row(img, box, others, ocr_lines):
+    """模型常只抓到半張圖（兩支量筒只抓到甲）：同一列緊鄰處還有一塊不是字的墨跡、高度也夠，就是圖的另一半。"""
+    H, W = img.shape[:2]; x0, y0, x1, y1 = box; h = y1 - y0
+    ink = cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2GRAY) < 180
+    ink &= cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2HSV)[:, :, 1] <= 80      # 彩色的批改筆跡不算
+    # 題組外框線不算：橫線比頁寬 10% 長、直線比框高一半長
+    m = ink.astype(np.uint8)
+    frames = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((1, int(.1 * W)), np.uint8)) | cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((max(3, h // 2), 1), np.uint8))
+    ink &= ~(cv2.dilate(frames, np.ones((5, 5), np.uint8)) > 0)
+    for l0, l2, l1, l3, t in ocr_lines:
+        if text_like(t) and min(l3, y1) > max(l2, y0):
+            ink[max(0, l2 - y0 - 3):max(0, l3 - y0 + 3), max(0, l0 - 3):l1 + 3] = False
+    has_ink = ink.sum(0) > 2
+    def block(start, step):
+        """從框邊往外找第一塊墨跡，回傳 (近端, 遠端)；太遠或沒有就回 None。"""
+        limit = int(.06 * W); blank = int(.015 * W); x = start
+        while 0 <= x < W and abs(x - start) <= limit and not has_ink[x]:
+            x += step
+        if not (0 <= x < W) or abs(x - start) > limit:
+            return None
+        near = x; far = x; gap = 0
+        while 0 <= x < W and gap < blank:
+            gap = 0 if has_ink[x] else gap + 1
+            if has_ink[x]:
+                far = x
+            x += step
+        return near, far
+    for step, start in ((1, x1 + 1), (-1, x0 - 1)):
+        found = block(start, step) if 0 <= start < W else None
+        if not found:
+            continue
+        a, b = sorted(found)
+        rows = np.where(ink[:, a:b + 1].sum(1) > 2)[0]
+        if b - a < .02 * W or not len(rows) or rows[-1] - rows[0] < .35 * h:
+            continue
+        # 另一半的圖墨量不會太少；斷掉的外框線、鉛筆痕只有一點點
+        if ink[:, a:b + 1].sum() < .1 * max(1, ink[:, x0:x1].sum()):
+            continue
+        cand = (min(x0, a), y0, max(x1, b + 1), y1)
+        if any(overlap((a, y0, b + 1, y1), o) > 0 for o in others) or has_qnum_inside(box, cand, ocr_lines):
+            continue
+        # 這塊裡有句子（題幹被挖掉後的殘影）就不是圖
+        if any(text_like(t) and min(l1, b + 1) > max(l0, a) and min(l3, y1) > max(l2, y0) for l0, l2, l1, l3, t in ocr_lines):
+            continue
+        x0, x1 = cand[0], cand[2]
+    return x0, y0, x1, y1
+
+
 def has_border(img, box):
     """四邊都有實際的框線才算外框；只是把兩張圖連起來的範圍沒有框線。"""
     x0, y0, x1, y1 = [int(v) for v in box]; r = 12
@@ -358,6 +406,7 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     # 表格的列也像句子，修剪會切掉表頭和底列，所以含表格的框不修。
     has_table = lambda b: any(overlap(b, t) > .5 * max(1, (t[2]-t[0])*(t[3]-t[1])) for t in tables)
     boxes = [b if has_table(b) else trim_stem_edges(b, ocr_lines) for b in boxes]
+    boxes = [b if has_table(b) else extend_row(img, b, [o for o in boxes if o != b], ocr_lines) for b in boxes]
     p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
     boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
