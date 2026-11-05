@@ -287,6 +287,21 @@ def trim_stem_edges(box, ocr_lines):
     return (x0, y0, x1, y1) if y1 - y0 > .5 * h else box
 
 
+def pad_box(box, p, ocr_lines, shape):
+    """四周留白 p，但上下的留白只能長進空白：框外緊貼的文字行（表格正上方的題幹）不可被留白切進半行。
+    框本身已經切到的行不在這裡處理。"""
+    H, W = shape[:2]; x0, y0, x1, y1 = box
+    top, bottom = max(0, y0 - p), min(H, y1 + p)
+    for l0, l2, l1, l3, _t in ocr_lines:
+        if min(l1, x1) - max(l0, x0) < 20:
+            continue
+        if l2 < y0 and top < l3 <= y0 + 2:        # 行在框上方、留白會碰到它
+            top = min(y0, max(top, l3))
+        if l3 > y1 and y1 - 2 <= l2 < bottom:     # 行在框下方
+            bottom = max(y1, min(bottom, l2))
+    return (max(0, x0 - p), top, min(W, x1 + p), bottom)
+
+
 def extend_row(img, box, others, ocr_lines):
     """模型常只抓到半張圖（兩支量筒只抓到甲）：同一列緊鄰處還有一塊不是字的墨跡、高度也夠，就是圖的另一半。"""
     H, W = img.shape[:2]; x0, y0, x1, y1 = box; h = y1 - y0
@@ -414,7 +429,7 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
     boxes = [b if has_table(b) else trim_stem_edges(b, ocr_lines) for b in boxes]
     boxes = [b if has_table(b) else extend_row(img, b, [o for o in boxes if o != b], ocr_lines) for b in boxes]
     p = int(.006 * img.shape[1])      # 手動截圖四周都會留一點白
-    boxes = [(max(0, b[0] - p), max(0, b[1] - p), min(img.shape[1], b[2] + p), min(img.shape[0], b[3] + p)) for b in boxes]
+    boxes = [pad_box(b, p, ocr_lines, img.shape) for b in boxes]
     H = img.shape[0]   # 頁首小圖（校徽、QR、圖示）不是題目的圖
     boxes = [b for b in boxes if not (b[3] < .14 * H and b[3] - b[1] < .06 * H)]
     # 題組前的裝飾圖示（星星等）：長邊不到頁寬 5%，手動截圖最小的圖也比這大得多
