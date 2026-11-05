@@ -179,7 +179,8 @@ def tile(pdf_doc, page, boxes, dpi=100, size=360):
     """舊框紅、新框綠，裁兩者聯集外擴一點，縮到 size 寬高內。"""
     s = dpi / DPI
     # 框是用 page["dpi"]（超大清稿頁 72）算的；縮圖照同比例縮
-    img = render(pdf_doc[page["page"] - 1], dpi * page.get("dpi", DPI) / DPI)
+    tdpi = max(1, round(dpi * page.get("dpi", DPI) / DPI)); s = tdpi / page.get("dpi", DPI)   # pymupdf 的 dpi 要整數
+    img = render(pdf_doc[page["page"] - 1], tdpi)
     if page["k"]:
         img = np.rot90(img, page["k"]).copy()
     xs = [v for b, _ in boxes if b for v in (b[0], b[2])]; ys = [v for b, _ in boxes if b for v in (b[1], b[3])]

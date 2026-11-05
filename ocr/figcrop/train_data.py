@@ -27,6 +27,7 @@ ROOT = HERE.parents[1]
 import sys
 sys.path.insert(0, str(HERE)); sys.path.insert(0, str(HERE.parent))
 import crop  # noqa: E402
+import evalcache  # noqa: E402
 import gt_eval  # noqa: E402
 
 OUT = ROOT / "ocr/results/figcrop_train"
@@ -43,6 +44,7 @@ def main():
     ap.add_argument("--gt-dir", default=str(ROOT / "ocr/results/figcrop_gt"))
     ap.add_argument("--imgsz", type=int, default=1280); ap.add_argument("--folds", type=int, default=5)
     a = ap.parse_args()
+    evalcache.enable(crop)                          # 類別判斷要跑版面模型，評測快取裡多半已有
     rows = json.loads(Path(a.eval).read_text(encoding="utf-8"))["rows"]
     pages = defaultdict(lambda: {"gt": [], "ignore": [], "bad": False})
     for r in rows:
@@ -68,14 +70,35 @@ def main():
         small = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else img
         name = f"{exam}_p{pn}"
         crop.pyexam._imwrite(str(OUT / "images" / f"{name}.jpg"), small, [cv2.IMWRITE_JPEG_QUALITY, 92])
-        lines = [f"0 {(x0 + x1) / 2 / W:.6f} {(y0 + y1) / 2 / H:.6f} {(x1 - x0) / W:.6f} {(y1 - y0) / H:.6f}" for x0, y0, x1, y1 in p["gt"]]
+        # 類別：手動沒分圖和表，取重疊最多的版面模型偵測框類別（table→1，其他→0）
+        dets = crop.detect(gt_eval.render(doc[pn - 1]), "pp_doc_layoutv3")
+        cls = [1 if max(((gt_eval.iou(g, b), c) for c, b, _s in dets), default=(0, ""))[1] == "table"
+               and max((gt_eval.iou(g, b) for c, b, _s in dets if c == "table"), default=0) > .3 else 0 for g in p["gt"]]
+        lines = [f"{c} {(x0 + x1) / 2 / W:.6f} {(y0 + y1) / 2 / H:.6f} {(x1 - x0) / W:.6f} {(y1 - y0) / H:.6f}" for c, (x0, y0, x1, y1) in zip(cls, p["gt"])]
         (OUT / "labels" / f"{name}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        index.append({"name": name, "exam": exam, "paper": paper_of(exam), "page": pn, "boxes": len(p["gt"]), "ignored": len(p["ignore"])})
+        index.append({"name": name, "exam": exam, "paper": paper_of(exam), "page": pn, "boxes": len(p["gt"]), "ignored": len(p["ignore"]),
+                      "w": small.shape[1], "h": small.shape[0], "scale": s if s < 1 else 1.0,
+                      "anns": [[c, [round(v * (s if s < 1 else 1), 1) for v in g]] for c, g in zip(cls, p["gt"])]})
     papers = sorted({i["paper"] for i in index}); random.Random(20261106).shuffle(papers)
     fold_of = {pp: k % a.folds for k, pp in enumerate(papers)}
     for i in index:
         i["fold"] = fold_of[i["paper"]]
     (OUT / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+    # YOLOX 吃 COCO 格式：每組一份 train／val（val＝該組的卷，train＝其他組），另給 all（全部，最後上線用）
+    def coco(items):
+        imgs, anns = [], []
+        for k, i in enumerate(items, 1):
+            imgs.append({"id": k, "file_name": f"{i['name']}.jpg", "width": i["w"], "height": i["h"]})
+            for c, (x0, y0, x1, y1) in i["anns"]:
+                anns.append({"id": len(anns) + 1, "image_id": k, "category_id": c + 1, "bbox": [x0, y0, x1 - x0, y1 - y0],
+                             "area": (x1 - x0) * (y1 - y0), "iscrowd": 0})
+        return {"images": imgs, "annotations": anns, "categories": [{"id": 1, "name": "figure"}, {"id": 2, "name": "table"}]}
+    (OUT / "annotations").mkdir()
+    for k in range(a.folds):
+        for split, items in (("train", [i for i in index if i["fold"] != k]), ("val", [i for i in index if i["fold"] == k])):
+            (OUT / "annotations" / f"fold{k}_{split}.json").write_text(json.dumps(coco(items), ensure_ascii=False), encoding="utf-8")
+    (OUT / "annotations" / "all_train.json").write_text(json.dumps(coco(index), ensure_ascii=False), encoding="utf-8")
+    print(f"類別：圖 {sum(1 for i in index for c, _ in i['anns'] if c == 0)}、表 {sum(1 for i in index for c, _ in i['anns'] if c == 1)}")
     per = defaultdict(lambda: [0, 0])
     for i in index:
         per[i["fold"]][0] += 1; per[i["fold"]][1] += i["boxes"]
