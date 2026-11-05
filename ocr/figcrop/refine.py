@@ -43,10 +43,13 @@ def _grow_to_blank(ink, box, limit, blank=0.003, step=2):
     return x0, y0, x1, y1
 
 
+RE_CAPTION = re.compile(r"^[(（]?\s*[圖表]\s*[(（]?\s*[一二三四五六七八九十\d]")
+
+
 def text_like(text):
     """像題目文字（不是圖內標籤或圖說）：句尾標點、選項代號、或 ≥8 個中文字；「圖(十三)」「表一」這類圖說不算。"""
     t = str(text).strip()
-    if re.match(r"^[圖表]\s*[(（]?\s*[一二三四五六七八九十\d]", t) and len(t) <= 10:
+    if RE_CAPTION.match(t) and len(t) <= 16:
         return False
     cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
     return cjk >= 8 or (cjk >= 3 and bool(re.search(r"[。？?；：]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
@@ -86,7 +89,7 @@ def shrink_to_figure(ink, box, ocr_lines):
         return box
     out = (x0 + int(cols[0]), y0 + int(rows[0]), x0 + int(cols[-1]) + 1, y0 + int(rows[-1]) + 1)
     for lx0, ly0, lx1, ly1, text in ocr_lines:      # 圖說屬於圖，墨跡淡也要留
-        if re.match(r"^[圖表]\s*[(（]?\s*[一二三四五六七八九十\d]", str(text).strip()) and lx0 >= x0 and lx1 <= x1 and ly0 >= y0 and ly1 <= y1:
+        if RE_CAPTION.match(str(text).strip()) and lx0 >= x0 and lx1 <= x1 and ly0 >= y0 and ly1 <= y1:
             out = _merge(out, (lx0, ly0, lx1, ly1))
     return out
 
@@ -115,7 +118,7 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
         lx0, ly0, lx1, ly1, text = line[:5]
         lw = lx1 - lx0
         short = lw <= .60 * colw and len(str(text).strip()) <= 24
-        marker = str(text).strip().startswith(("圖", "Fig", "("))
+        marker = str(text).strip().startswith(("圖", "Fig", "(")) or bool(RE_CAPTION.match(str(text).strip()))
         # 旁邊的文字選項「(D)272卡。」也以括號開頭；沒碰到框的句子行不是圖的標籤。
         if text_like(text) and (min(lx1, x1) <= max(lx0, x0) or min(ly1, y1) <= max(ly0, y0)):
             continue
@@ -146,7 +149,8 @@ def refine_box(image, box, *, kind="figure", ocr_lines=(), column=None):
     if kind != "table":                 # 框的上下緣還有題目文字行（版面模型自己框進來的）就切掉
         ax0, ay0, ax1, ay1 = out; hh = ay1 - ay0
         for lx0, ly0, lx1, ly1, text in ocr_lines:
-            if not text_like(text) or min(lx1, ax1) - max(lx0, ax0) <= 0:
+            # 只擦到框邊的句子（別欄的題目、圖內標籤和選項被 OCR 讀成一行）不能拿來切圖
+            if not text_like(text) or min(lx1, ax1) - max(lx0, ax0) < .5 * min(lx1 - lx0, ax1 - ax0):
                 continue
             if ay0 - 5 <= ly0 and (ly0 + ly1) / 2 < ay0 + .25 * hh:
                 ay0 = max(ay0, ly1 + 4)
