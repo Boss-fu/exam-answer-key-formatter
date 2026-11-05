@@ -9,9 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import ppocr_engine
 import pyexam
 try:
-    from .refine import edge_cut_ink, option_caption, refine_box, text_like
+    from .refine import RE_CAPTION, edge_cut_ink, option_caption, refine_box, text_like
 except ImportError:
-    from refine import edge_cut_ink, option_caption, refine_box, text_like
+    from refine import RE_CAPTION, edge_cut_ink, option_caption, refine_box, text_like
 
 KINDS = {"figure", "image", "chart", "table", "figure_caption", "table_caption"}
 _ENG = {}
@@ -335,12 +335,27 @@ def unrotate_box(box, k, shape):
     return {0: (x0, y0, x1, y1), 1: (W - y1, x0, W - y0, x1), 2: (W - x1, H - y1, W - x0, H - y0), 3: (y0, H - x1, y1, H - x0)}[k % 4]
 
 
+def strip_caption(box, raw):
+    """把框上下緣的圖說行（圖(五)、表一）去掉後的框；手動截圖有時框圖說、有時不框，兩種都算合格。"""
+    x0, y0, x1, y1 = box; h = y1 - y0
+    for l, t in raw:
+        t = str(t).strip()
+        if not (RE_CAPTION.match(t) and len(t) <= 16 and l[0] >= x0 - 10 and l[2] <= x1 + 10 and l[1] >= box[1] - 10 and l[3] <= box[3] + 10):
+            continue
+        if (l[1] + l[3]) / 2 > box[1] + .7 * h:
+            y1 = min(y1, l[1] - 4)
+        elif (l[1] + l[3]) / 2 < box[1] + .3 * h:
+            y0 = max(y0, l[3] + 4)
+    return (x0, y0, x1, y1) if y1 - y0 > 40 else box
+
+
 def crop_items(img, model="pp_doc_layoutv3"):
-    """整頁流程：先轉正再切。回傳每張圖的 box（原頁座標）、qno、crop（轉正後的圖）。"""
+    """整頁流程：先轉正再切。回傳每張圖的 box（原頁座標）、box_nocap（評測用：不含圖說的框）、qno、crop（轉正後的圖）。"""
     k = page_rotation(img)
     up = np.rot90(img, k).copy() if k else img
     raw = []; boxes, _ = crop_page(up, model, raw)
     return [{"box": tuple(int(v) for v in unrotate_box(b, k, img.shape)), "qno": guess_qno(b, raw, up.shape[1]),
+             "box_nocap": tuple(int(v) for v in unrotate_box(strip_caption(b, raw), k, img.shape)),
              "crop": up[b[1]:b[3], b[0]:b[2]]} for b in boxes]
 
 

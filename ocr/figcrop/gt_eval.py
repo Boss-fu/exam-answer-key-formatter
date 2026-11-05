@@ -132,14 +132,16 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
             if not found:
                 rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "error": "樣板定位失敗"}); continue
             gt, inliers, matches = found
-            scores = [(iou(gt, b), j, b) for j, b in enumerate(boxes)]
+            # 使用者決定：手動框不框圖說都合格，所以含／不含圖說取高分；嚴格分另外記在 iou_strict。
+            scores = [(max(iou(gt, b), iou(gt, items[j]["box_nocap"])), j, b) for j, b in enumerate(boxes)]
             score, j, auto_box = max(scores, default=(0, None, None))
+            strict = max((iou(gt, b) for b in boxes), default=0)
             hit = score >= .8
             if hit: used.add(j)
             qno = items[j]["qno"] if auto_box else None
             auto_img = image[auto_box[1]:auto_box[3], auto_box[0]:auto_box[2]] if auto_box else None
             write_review(review_dir / f"{work.name}_{filename}", templ, auto_img, f"auto IoU={score:.3f} q={qno}")
-            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
+            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "iou_strict": strict, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
         for j, b in enumerate(boxes):
             if j not in used and not any(iou(b, r["gt"]) >= .1 for r in rows if r.get("page") == pn and r.get("gt")):
                 rows.append({"exam": work.name, "page": pn, "extra": True, "auto": b})
@@ -157,7 +159,7 @@ def main():
     for work in exams(gt): all_rows.extend(run_exam(work, review_dir, wanted))
     hits = [r for r in all_rows if "hit" in r]; matched = [r for r in hits if r["hit"]]; extras = sum(1 for r in all_rows if r.get("extra")); located = len(hits)
     offsets = np.array([r["offset"] for r in matched if r.get("offset")], float)
-    summary = {"manual": located, "recall_iou80": round(len(matched)/located, 4) if located else None, "mean_iou": round(float(np.mean([r["iou"] for r in hits])), 4) if hits else None, "extras": extras, "qno_accuracy": round(sum(r["qno_ok"] for r in matched)/len(matched), 4) if matched else None, "mean_offset_ltrb_px": [round(x,1) for x in offsets.mean(axis=0)] if len(offsets) else None}
+    summary = {"manual": located, "recall_iou80": round(len(matched)/located, 4) if located else None, "recall_strict": round(sum(r["iou_strict"] >= .8 for r in hits)/located, 4) if located else None, "mean_iou": round(float(np.mean([r["iou"] for r in hits])), 4) if hits else None, "extras": extras, "qno_accuracy": round(sum(r["qno_ok"] for r in matched)/len(matched), 4) if matched else None, "mean_offset_ltrb_px": [round(x,1) for x in offsets.mean(axis=0)] if len(offsets) else None}
     (out / "gt_eval.json").write_text(json.dumps({"summary": summary, "rows": all_rows}, ensure_ascii=False, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o)), encoding="utf-8")   # numpy 整數
     print("手動圖  召回@.8  平均IoU  多框  題號一致  平均偏移(L/T/R/B px)")
     print(f"{located:>5}  {summary['recall_iou80']!s:>8}  {summary['mean_iou']!s:>7}  {extras:>4}  {summary['qno_accuracy']!s:>8}  {summary['mean_offset_ltrb_px']}")
