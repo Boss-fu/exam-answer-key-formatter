@@ -621,10 +621,13 @@ def main():
     for pn, page in enumerate(doc, 1):
         if pn not in wanted:
             continue
-        pix = page.get_pixmap(dpi=a.dpi)
+        # 清稿 PDF 曾把像素數當頁面點數（A4 變 2271×3299 點），300dpi 會變一頁 1.3 億像素；
+        # 這種頁面不放大，用接近原圖的解析度。正常紙張（含 A3）不受影響。
+        dpi = 72 if max(page.rect.width, page.rect.height) > 2000 else a.dpi
+        pix = page.get_pixmap(dpi=dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
         boxes = crop_items(img, a.model)
-        k_pt = 72 / a.dpi; items = []
+        k_pt = 72 / dpi; items = []
         for k, it in enumerate(boxes, 1):
             x0, y0, x1, y1 = it["box"]
             path = os.path.join(a.o, f"p{pn}_fig{k}.png"); pyexam._imwrite(path, it["crop"])   # Windows 中文路徑

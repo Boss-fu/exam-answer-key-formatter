@@ -103,7 +103,7 @@ def xlsx_eval(a):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--bench", default="ocr/results/qbank_bench")
-    ap.add_argument("--gold", default=os.path.expanduser("~/Desktop/待匯入")); ap.add_argument("-v", action="store_true")
+    ap.add_argument("--gold", default=os.environ.get("QBANK_GOLD") or next((p for p in ("ocr/results/qbank_gold", os.path.expanduser("~/Desktop/待匯入")) if os.path.isdir(p)), "ocr/results/qbank_gold")); ap.add_argument("-v", action="store_true")
     ap.add_argument("--only", default="", help="只評這幾份（逗號分隔、比對檔名片段，例如 113_陽明,114_大安）；Codex 沙箱 30 秒限制用")
     ap.add_argument("--xlsx", action="store_true", help="用 to_qbank_xlsx 產生的題庫 Excel 草稿逐題號比對（同題號的題目欄字元正確率、題組ID 一致率）")
     a = ap.parse_args()
