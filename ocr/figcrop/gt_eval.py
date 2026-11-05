@@ -82,7 +82,9 @@ def locate(template: np.ndarray, page_gray: np.ndarray, page_features):
     corners = cv2.perspectiveTransform(np.float32([[[0, 0], [tw, 0], [tw, th], [0, th]]]), h)[0]
     x0, y0 = corners.min(axis=0); x1, y1 = corners.max(axis=0)
     # 對掃描圖而言，透視極端變形幾乎一定是錯配。
-    if not (.45 < (x1-x0) / max(1, tw) < 3.5 and .45 < (y1-y0) / max(1, th) < 3.5):
+    # 手動截圖可能相對頁面轉了 90°（直放的圖），長寬要對調再檢查。
+    fits = lambda w, h: .45 < (x1-x0) / max(1, w) < 3.5 and .45 < (y1-y0) / max(1, h) < 3.5
+    if not (fits(tw, th) or fits(th, tw)):
         return None
     return tuple(map(int, (x0, y0, x1, y1))), int(mask.sum()), len(good)
 
