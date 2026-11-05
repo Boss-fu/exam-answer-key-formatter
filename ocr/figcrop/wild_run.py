@@ -44,7 +44,7 @@ PROMPT = """讀取目前資料夾裡的 {img}。這是一頁國中考卷，紅�
 
 
 def render(page, dpi=300):
-    pix = page.get_pixmap(dpi=dpi, alpha=False)
+    pix = page.get_pixmap(dpi=crop.page_dpi(page, dpi), alpha=False)    # 和正式切圖同解析度（超大清稿頁 72dpi）
     return cv2.cvtColor(np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3], cv2.COLOR_RGB2BGR)
 
 

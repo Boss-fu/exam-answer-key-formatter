@@ -596,6 +596,12 @@ def crop_items(img, model="pp_doc_layoutv3"):
              "crop": up[b[1]:b[3], b[0]:b[2]]} for b in boxes]
 
 
+def page_dpi(page, dpi=300):
+    """清稿 PDF 曾把像素數當頁面點數（A4 變 2271×3299 點），300dpi 會變一頁 1.3 億像素；這種頁面不放大（72dpi＝原圖解析度）。
+    正常紙張（含 A3）照用 dpi。正式切圖（main）和評測（gt_eval／wild_run／new_regress）都要用這個，兩邊解析度才一致。"""
+    return 72 if max(page.rect.width, page.rect.height) > 2000 else dpi
+
+
 def page_numbers(spec, total):
     """解析 1,3-5；無指定時回傳全部（CLI 可在 30 秒限制下逐頁呼叫）。"""
     if not spec:
@@ -623,7 +629,7 @@ def main():
             continue
         # 清稿 PDF 曾把像素數當頁面點數（A4 變 2271×3299 點），300dpi 會變一頁 1.3 億像素；
         # 這種頁面不放大，用接近原圖的解析度。正常紙張（含 A3）不受影響。
-        dpi = 72 if max(page.rect.width, page.rect.height) > 2000 else a.dpi
+        dpi = page_dpi(page, a.dpi)
         pix = page.get_pixmap(dpi=dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
         boxes = crop_items(img, a.model)

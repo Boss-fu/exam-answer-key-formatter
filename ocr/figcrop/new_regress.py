@@ -59,7 +59,7 @@ def run_pdf(args):
         evalcache.enable(crop)
     doc = pymupdf.open(pdf); pages = []
     for pn, page in enumerate(doc, 1):
-        img = render(page)
+        dpi = crop.page_dpi(page, DPI); img = render(page, dpi)       # 和正式切圖同解析度（超大清稿頁 72dpi）
         # 同 crop.crop_items：先轉正再切；另外留 raw 算正文行數，順便給拼貼用的轉向 k
         k = crop.page_rotation(img)
         up = np.rot90(img, k).copy() if k else img
@@ -71,7 +71,7 @@ def run_pdf(args):
             body = sum(1 for l, is_body in lines if is_body and l[0] >= b[0] and l[2] <= b[2] and l[1] >= b[1] and l[3] <= b[3])
             items.append({"box": b, "qno": crop.guess_qno(b, raw, up.shape[1]), "edge": int(edge_cut_ink(up, b)), "body": body})
         # raw（OCR 行框＋文字）一起存：之後要加新的自評指標不用重跑整批
-        pages.append({"page": pn, "k": int(k), "w": up.shape[1], "h": up.shape[0],
+        pages.append({"page": pn, "k": int(k), "w": up.shape[1], "h": up.shape[0], "dpi": dpi,
                       "text_layer": len(page.get_text().strip()) > 40, "items": items,
                       "raw": [[[int(v) for v in l], str(t)] for l, t in raw]})
     out.write_text(json.dumps({"pdf": str(pdf), "pages": pages}, ensure_ascii=False), encoding="utf-8")
@@ -177,7 +177,8 @@ def page_changes(old, new):
 def tile(pdf_doc, page, boxes, dpi=100, size=360):
     """舊框紅、新框綠，裁兩者聯集外擴一點，縮到 size 寬高內。"""
     s = dpi / DPI
-    img = render(pdf_doc[page["page"] - 1], dpi)
+    # 框是用 page["dpi"]（超大清稿頁 72）算的；縮圖照同比例縮
+    img = render(pdf_doc[page["page"] - 1], dpi * page.get("dpi", DPI) / DPI)
     if page["k"]:
         img = np.rot90(img, page["k"]).copy()
     xs = [v for b, _ in boxes if b for v in (b[0], b[2])]; ys = [v for b, _ in boxes if b for v in (b[1], b[3])]

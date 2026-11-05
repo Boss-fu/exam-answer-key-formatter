@@ -66,7 +66,7 @@ def imread_gray(path):
 
 
 def render(page):
-    pix = page.get_pixmap(dpi=300, alpha=False)
+    pix = page.get_pixmap(dpi=crop.page_dpi(page, 300), alpha=False)     # 和正式切圖同解析度（超大清稿頁 72dpi）
     rgb = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3]
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
