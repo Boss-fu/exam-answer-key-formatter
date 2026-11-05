@@ -45,6 +45,9 @@ class RefineTest(unittest.TestCase):
  def test_qno_figure_beside_own_stem_stays(self):
   raw=[((100,100,500,130),'3.如右圖，下列何者正確？'),((100,300,500,330),'4.七年級同學製作桌椅'),((100,340,500,370),'(A)甲(B)乙(C)丙(D)丁'),((100,600,500,630),'5.附圖是木塊'),((1000,20,1100,40),'20.甲'),((1000,900,1100,920),'21.乙')]
   self.assertEqual(guess_qno((520,90,800,400),raw,1200),3)
+ def test_qno_figure_at_page_top_takes_next_below(self):
+  raw=[((100,500,500,530),'40.下列何者正確？'),((100,700,500,730),'41.甲'),((800,500,1100,530),'45.乙'),((800,700,1100,730),'46.丙')]
+  self.assertEqual(guess_qno((100,50,500,450),raw,1200),40)
  def test_unrotate_box(self):
   mark=np.zeros((60,100),bool)
   for k in (0,1,2,3):

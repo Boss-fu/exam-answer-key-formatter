@@ -104,7 +104,10 @@ def guess_qno(box, raw_lines, W):
             # 上一題已結束、圖印在下一題右邊且頂端略高於題號：圖屬於下一題。
             if any(l[1] == y_next and l[2] <= box[0] + 10 for l, t in same) and y_next < (box[1] + box[3]) / 2:
                 return q_next
-    return (best or fallback)[1] if (best or fallback) else None
+    if not (best or fallback):      # 圖在頁面最上方、上面沒有任何題號：歸同欄下面最近的一題
+        below = [(l[1], int(m.group(1))) for l, t in raw_lines for m in [RE_QNUM.match(str(t))] if m and _col_of(l[0], starts) == col and l[1] > box[1]]
+        return min(below)[1] if below else None
+    return (best or fallback)[1]
 
 
 def text_lines(img, raw=None):
