@@ -52,6 +52,8 @@ def text_like(text):
     if RE_CAPTION.match(t) and len(t) <= 16:
         return False
     cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
+    if re.search(r"\d+\s*[~～\-－—至到]\s*\d+\s*題|下列|回答|何者|請問|試問", t):   # 題組範圍、題幹碎行
+        return True
     return cjk >= 8 or (cjk >= 2 and bool(re.search(r"[。？?；：:]$", t))) or bool(re.search(r"[(（]\s*[A-DＡ-Ｄ]\s*[)）]\s*\S", t))
 
 

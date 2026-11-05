@@ -98,7 +98,8 @@ def guess_qno(box, raw_lines, W):
             y_next, q_next = min(below)
             ends = [l[3] for l, t in same if y_best <= l[1] < y_next and re.search(r"[(（]\s*[DＤ]\s*[)）]", t)]
             if ends and min(ends) < box[1]:
-                if sum(1 for l, t in same if min(ends) <= l[1] < y_next and text_like(t)) >= 2:
+                after = [t for l, t in same if min(ends) <= l[1] < y_next and text_like(t)]
+                if len(after) >= 2 or any(re.search(r"下圖|附圖|右圖|根據|回答", t) for t in after):
                     return q_next
                 # 上一題已結束、圖印在下一題右邊且頂端略高於題號：圖屬於下一題。
                 if any(l[1] == y_next and l[2] <= box[0] + 10 for l, t in same) and y_next < (box[1] + box[3]) / 2:
@@ -184,7 +185,10 @@ def merge_figure_panels(boxes, gap=110, ocr_lines=()):
                 b = boxes[j]
                 vertical = min(a[3], b[3]) - max(a[1], b[1])
                 horiz_gap = max(a[0], b[0]) - min(a[2], b[2])
-                if vertical > .45 * min(a[3]-a[1], b[3]-b[1]) and 0 <= horiz_gap <= gap and not has_qnum_inside(a, b, ocr_lines):
+                # 幾乎等高的並排面板是同一張圖，間距可以再寬一點
+                ha, hb = a[3]-a[1], b[3]-b[1]
+                limit = gap * 4 / 3 if min(ha, hb) > .9 * max(ha, hb) and vertical > .9 * max(ha, hb) else gap
+                if vertical > .45 * min(ha, hb) and 0 <= horiz_gap <= limit and not has_qnum_inside(a, b, ocr_lines):
                     boxes[i] = (min(a[0],b[0]), min(a[1],b[1]), max(a[2],b[2]), max(a[3],b[3]))
                     boxes.pop(j); changed = True; break
             if changed: break
