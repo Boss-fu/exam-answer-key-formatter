@@ -212,6 +212,30 @@ def merge(boxes):
     return out
 
 
+def stop_at_other_layout(orig, grown, layout_boxes, ocr_lines):
+    """精修往外長時不可長進上／下方另一個「別題」的版面模型框：兩題的圖上下緊貼時，長在一起會被 merge 併成一張。
+    別題＝兩框頂端之間有題號行（題號常在左邊文字欄）。同一題的上下面板（(A)(B)／(C)(D)、表格被拆兩塊）中間沒有題號，照舊可以長在一起。"""
+    x0, y0, x1, y1 = grown
+    # 只看同一欄的題號：兩欄卷另一欄的題號剛好落在兩框之間不代表是別題（同 guess_qno 的欄位判斷）
+    W = max([l1 for l0, l2, l1, l3, t in ocr_lines] + [x1, 1])
+    raw = [((l0, l2, l1, l3), t) for l0, l2, l1, l3, t in ocr_lines]
+    starts = _columns(raw, W); col = _col_of((orig[0] + orig[2]) / 2 - .05 * W, starts)
+    # 題號行要像句子（「14.右圖為…」）：圖內刻度「0.1M」「2.」也會被 RE_QNUM 當成題號
+    qtops = [l2 for l0, l2, l1, l3, t in ocr_lines if RE_QNUM.match(str(t)) and text_like(t) and _col_of(l0, starts) == col]
+    for o in layout_boxes:
+        if tuple(o) == tuple(orig) or overlap(orig, o) > 0 or overlap((x0, y0, x1, y1), o) == 0:
+            continue
+        lo, hi = sorted((orig[1], o[1]))
+        if not any(lo < q < hi for q in qtops):
+            continue
+        # 停在兩個模型框間隙的中線：對方精修時也可能往這邊長幾 px，停在對方邊上仍會重疊被併
+        if o[1] >= orig[3]:
+            y1 = min(y1, (orig[3] + o[1]) // 2)
+        elif o[3] <= orig[1]:
+            y0 = max(y0, (o[3] + orig[1]) // 2 + 1)
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else grown
+
+
 def has_qnum_inside(a, b, ocr_lines):
     """併起來的範圍內出現題號行＝跨題，不合併。"""
     x0, y0, x1, y1 = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
@@ -478,6 +502,8 @@ def crop_page(img, model="pp_doc_layoutv3", raw=None):
         m = int(.015 * img.shape[1])
         column = (b[0] - m, b[1] - m, b[2] + m, b[3] + m)
         candidate = refine_box(img, b, kind=kind, ocr_lines=ocr_lines, column=column)
+        if not _fallback:
+            candidate = stop_at_other_layout(b, candidate, layout_boxes, ocr_lines)
         (extra if _fallback else tables if kind == "table" else boxes).append(candidate)
     for f in frames:
         boxes = [b for b in boxes if not inside(b, f)] + [f]
