@@ -188,8 +188,7 @@ def question_text(q, with_option_count=False):
     m = RE_LEAD.match(stem)
     if m and re.search(r"[()（）\[\]［］]", m.group()):
         stem = stem[m.end():]             # 題號殘骸「40,()」「17.0)」「( )」：含括號才剝，避免吃掉「100公克…」這種題幹開頭
-    if "圖片" in q["kinds"] or "表格" in q["kinds"]:
-        stem += "〔含圖〕"
+    has_figure = "圖片" in q["kinds"] or "表格" in q["kinds"]
     opts = [clean(o) for o in q["opts"] if clean(o)]
     if q.get("tf") and not opts:
         opts = ["(A)正確", "(B)錯誤"]       # 是非題：題庫格式把正確／錯誤當成 (A)(B) 選項
@@ -201,8 +200,17 @@ def question_text(q, with_option_count=False):
         opts = complete_single_choice_options(opts, picture_choice)
     else:
         opts = relabel(opts)
+    # 必須在選項重建後才補標記；否則缺 (A) 的圖片選項會把標記併進
+    # 新補的 (A)，落到題幹尾端的契約就失效。
+    stem = add_figure_marker(stem, has_figure)
     text = fix_ocr("\n".join([stem] + opts))
     return (text, len(opts)) if with_option_count else text
+
+
+def add_figure_marker(text, has_figure):
+    """題庫契約只接受一個標準〔含圖〕，且必須在題幹／文章尾端。"""
+    text = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", text or "").strip()
+    return text + "〔含圖〕" if has_figure else text
 
 
 # 題組引言有時被圖的 OCR 框從中間切開：前一行停在「附／回／下」，
@@ -333,6 +341,8 @@ def rows(pyexam_dir, name):
             why.append("有辨識信心低的字")
         text, option_count = question_text(q, with_option_count=True)
         group_text = fix_ocr(clean(q["group"]))
+        # 純圖片不能自行形成題組；只有真的有題組引言才可把圖標記放到文章尾端。
+        group_text = add_figure_marker(group_text, bool(group_text) and bool(q.get("group_kinds")))
         group_text, text = restore_truncated_group(group_text, text)
         mid = re.search(rf"(?:[(（]\s*[)）]\s*)?(?:[(（]\s*{num}\s*[)）]|(?<!\d){num}\s*[.．、]\s*(?:[0Oo○(（]?\s*[)）])?)(?=\s*[一-鿿「])", text.split("\n")[0])
         if mid and mid.start() >= 12:
@@ -353,7 +363,7 @@ def rows(pyexam_dir, name):
         why.extend(formula_doubts(text))
         out.append({
             "年度": info["年度"], "來源學校": info["來源學校"], "考試名稱": info["考試名稱"], "題號": str(num),
-            "圖表類型": "表格" if kinds == ["表格"] else ("" if kinds else "無"),
+            "圖表類型": "表格" if "表格" in kinds else ("" if kinds else "無"),
             "判斷依據": "；".join(why), "待確認": "Y" if why else "",
             "題目": to_latex(text), "題組文章": to_latex(group_text),
             "題組ID": "",

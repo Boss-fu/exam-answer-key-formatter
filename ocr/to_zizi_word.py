@@ -495,12 +495,19 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     C = []
     cur = None                                # {"stem","opts","figs_mid","figs_after"}
     used_figs = used_tabs = n_q = 0
+    figure_kinds_path = os.path.join(pyexam_dir, base + "_figure_kinds.json")
+    figure_kinds = json.load(open(figure_kinds_path, encoding="utf-8")) if os.path.exists(figure_kinds_path) else {}
 
     def new_group(text, left):
         """新題組引言。上一段引言還沒有任何小題用到（同一段引言被拆成兩行、兩個分支）就接起來，不要蓋掉。"""
         if group and "first" not in group:
             text = join(group["text"], text)
-        return {"text": text, "left": left}
+        return {"text": text, "left": left, "kinds": set()}
+
+    def has_group_text(text):
+        """圖／表佔位不是題組引言；題組必須有可讀的引言文字。"""
+        bare = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", text or "")
+        return bool(re.search(r"[\u4e00-\u9fffA-Za-z0-9]", bare))
 
     def flush():
         nonlocal cur, n_q, group
@@ -525,9 +532,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             if len(parts) == 2 and len(parts[1]) >= 12:
                 cur["opts"][-1], spill = parts[0], parts[1]   # (D) 後面黏到的是下一個題組的引言
         raw = cur["stem"] + "".join(cur["opts"])
-        rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
+        group_active = bool(group and has_group_text(group["text"]))
+        group_kinds = set(group.get("kinds", ())) if group_active else set()
+        rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]),
+               "kinds": sorted(set(cur.get("kinds", ())) | group_kinds), "group_kinds": sorted(group_kinds),
                "review": "⚠" in raw, "group": "", "gid": None}
-        if group and (group["left"] is None or group["left"] > 0):
+        if group_active and (group["left"] is None or group["left"] > 0):
             rec["group"] = group["text"]; rec["gid"] = group.setdefault("first", n_q)
             if group["left"] is not None:
                 group["left"] -= 1
@@ -564,23 +574,6 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         w = Image.open(path).width / float(dpi)
         used_figs += 1
         return B.p_image(name, round(min(4.5, max(1.5, w * 0.85)), 2))   # 茲茲慣例：圖 2～5 吋寬
-
-    tj = os.path.join(pyexam_dir, base + "_tables.json")
-    tables = json.load(open(tj, encoding="utf-8")) if os.path.exists(tj) else {}
-
-    def tab_para(pg, k):
-        t = tables.get(f"p{pg}_t{k}")
-        if not t:
-            return None
-        dxa = [w / float(dpi) * 1440 for w in t["widths"]]
-        s = min(1.0, 10000.0 / sum(dxa))               # 版心約 10772 dxa，留一點邊
-        widths = [max(400, int(w * s)) for w in dxa]
-        rows = [[(markup_safe(c[0]), c[1]) if c[1] > 1 else markup_safe(c[0]) for c in r] for r in t["rows"]]
-        nonlocal used_tabs
-        used_tabs += 1
-        if any(not c[0] for r in t["rows"] for c in r):
-            review.append(f"第 {pg} 頁表格 {k}：有空白儲存格，請對照原卷補字")
-        return B.tbl(rows, widths)
 
     tmp = tempfile.mkdtemp(prefix="zzword_")
     figdir = os.path.join(tmp, "figs")
@@ -643,12 +636,15 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     for i, (pg, t) in enumerate(lines):
         mf = RE_FIG.match(t) or RE_TAB.match(t)
         if mf:
-            para = (fig_para if RE_FIG.match(t) else tab_para)(pg, int(mf.group(1)))
+            para = fig_para(pg, int(mf.group(1))) if RE_FIG.match(t) else None
             if para is None:
                 continue
+            kind = figure_kinds.get(f"p{pg}_fig{int(mf.group(1))}", "表格" if RE_TAB.match(t) else "圖片")
             if cur is not None:
-                cur.setdefault("kinds", set()).add("表格" if RE_TAB.match(t) else "圖片")
+                cur.setdefault("kinds", set()).add(kind)
             if cur is None:
+                if group is not None and has_group_text(group["text"]):
+                    group.setdefault("kinds", set()).add(kind)
                 C.append(para)
             elif cur["opts"]:
                 cur["figs_after"].append(para)
@@ -849,7 +845,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         if not v:
             review.insert(0, f"卷頭：{k}沒辨識到，橫幅／檔名可能不對")
     review.insert(0, f"橫幅推定：{label}／{book or '冊別?'}／{exam}／【{meta['year']}.{school}】；範圍（Ch）請手動填")
-    review.append(f"共 {n_q} 題、插入 {used_figs} 張圖、{used_tabs} 個表格。附圖是自動裁切，請對照原卷檢查有沒有切到字或漏掉標籤。")
+    review.append(f"共 {n_q} 題、插入 {used_figs} 張圖（表格已以圖片保留）。附圖是自動裁切，請對照原卷檢查有沒有切到字或漏掉標籤。")
     rv = out[:-5] + "_確認清單.txt"
     with open(rv, "w", encoding="utf-8") as f:
         f.write("\n".join("・" + r for r in review) + "\n")

@@ -4,7 +4,7 @@ import re
 import unittest
 from pathlib import Path
 
-from ocr.pyexam import table_has_question_or_paragraph
+from ocr.pyexam import is_text_table, table_has_question_or_paragraph
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +36,12 @@ class TableQuestionFrameCacheTest(unittest.TestCase):
         items = [_item(f"{n}.欄內說明文字", 500, i * 50) for i, n in enumerate(qnos)]
         table = {"box": (0, 0, 1000, 500), "xs": [0, 400, 1000], "ys": [0, 250, 500]}
         self.assertFalse(table_has_question_or_paragraph(table, items))
+
+    def test_sparse_single_visual_column_is_still_a_table(self):
+        """淡直線／合併 OCR 框不能讓多列真表格漏回題幹。"""
+        table = {"box": (0, 0, 500, 600), "xs": [0, 500], "ys": [0, 150, 300, 450, 600]}
+        items = [_item("動脈", 100, 30), _item("靜脈", 100, 180), _item("血流方向", 100, 330)]
+        self.assertTrue(is_text_table(table, items))
 
 
 if __name__ == "__main__":
