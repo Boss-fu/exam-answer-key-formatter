@@ -121,6 +121,17 @@ function pyOcrResponse(job, result) {
     docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null,
     qbankUrl: result.txtFile ? `/api/py-ocr/qbank-xlsx?job=${job}` : null };
 }
+// OCR 與切圖都吃滿記憶體：同一時間只跑一個，其餘排隊；.host_busy 讓背景驗收先讓路
+const HOST_BUSY = path.join(__dirname, "output", ".host_busy");
+let hostTail = Promise.resolve(), hostWaiting = 0;
+function hostSerial(work) {
+  hostWaiting += 1;
+  try { fs.writeFileSync(HOST_BUSY, String(Date.now())); } catch {}
+  const run = hostTail.then(work);
+  const done = () => { hostWaiting -= 1; if (!hostWaiting) fs.rm(HOST_BUSY, { force: true }, () => {}); };
+  hostTail = run.then(done, done);
+  return run;
+}
 function pyOcrJobPaths(job) {
   const jobDir = path.join(PYOCR_OUTPUT, job);
   return { jobDir, resultDir: path.join(jobDir, "result") };
@@ -265,16 +276,17 @@ const server = http.createServer(async (req, res) => {
       const pdf = path.join(dir, "source.pdf");
       fs.writeFileSync(pdf, Buffer.from(dataBase64, "base64"));
       const script = path.join(__dirname, "..", "ocr", "figcrop", "crop.py");
-      execFile(pyBin(), [script, pdf, "-o", path.join(dir, "out"), "--json"],
+      hostSerial(() => new Promise((finish) => execFile(pyBin(), [script, pdf, "-o", path.join(dir, "out"), "--json"],
         { cwd: path.join(__dirname, ".."), maxBuffer: 256 * 1024 * 1024, timeout: 10 * 60 * 1000 },
         (err, stdout, stderr) => {
           fs.rm(dir, { recursive: true, force: true }, () => {});
           // 模型引擎偶爾在程式結束時才當掉（recursive_mutex），結果已完整輸出：能解析出 ok 的 JSON 就採用
           let data = null;
           try { data = JSON.parse(stdout.slice(stdout.indexOf("{"))); } catch (e) {}
-          if (data && data.ok) return sendJson(res, 200, data);
-          sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || (err && err.message) || "結果無法解析").slice(-400) });
-        });
+          if (data && data.ok) sendJson(res, 200, data);
+          else sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || (err && err.message) || "結果無法解析").slice(-400) });
+          finish();
+        })));
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/label/queue") return sendJson(res, 200, await runLabel(["queue"]));
@@ -472,7 +484,7 @@ const server = http.createServer(async (req, res) => {
       const source = path.join(jobDir, safeSourceName(path.basename(filename || "考卷", ext)) + ext);
       fs.writeFileSync(source, Buffer.from(dataBase64, "base64"));
       fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "running" }));
-      runPyOcr({ sourcePath: source, outDir: resultDir, progress: true, skipClean: skipClean === true, skipWord: skipWord === true }).then((result) => {
+      hostSerial(() => runPyOcr({ sourcePath: source, outDir: resultDir, progress: true, skipClean: skipClean === true, skipWord: skipWord === true })).then((result) => {
         const report = { txt: result.txtFile, docx: result.docxFile, review: result.reviewFile, figures: result.figures, stats: result.stats };
         fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
         fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify({ status: "done" }));
