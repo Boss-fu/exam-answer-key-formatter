@@ -581,6 +581,20 @@ def _short_figure_label(text):
             not re.search(r"[，。？?：:；;！!]", text))
 
 
+_RE_COMPACT_AXIS_LABEL = re.compile(r"^[A-Za-z](?:\s*[0-9A-Za-z/²³^_().（）-]{0,14})$")
+
+
+def _touches_figure_edge(it, fig, pad):
+    """短標籤的框常有一半落在圖框外，不能只看中心點。"""
+    _, _, x0, y0, x1, y1 = _center(it)
+    xgap = max(fig[0] - x1, x0 - fig[2], 0)
+    ygap = max(fig[1] - y1, y0 - fig[3], 0)
+    xoverlap = min(x1, fig[2]) - max(x0, fig[0])
+    yoverlap = min(y1, fig[3]) - max(y0, fig[1])
+    return ((xgap <= pad // 3 and yoverlap > 0) or
+            (ygap <= pad // 3 and xoverlap > 0))
+
+
 def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
     """依 OCR 框決定哪些候選才是真的圖（框內「成句」的中文字 ≤ max_cjk_in_figure；表格／標題框內是句子，不是圖），
     並把圖內文字框分出來。回傳 (figs, body_items, partial_items)：
@@ -621,6 +635,7 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             body.append(it)
             continue
         short_label = _short_figure_label(text)
+        compact_axis_label = bool(_RE_COMPACT_AXIS_LABEL.fullmatch(text.strip()))
         # 軸名、刻度串（「降雨量（毫米）」「120150E180150W」「586266707478」）：不像句子、而且水平位置落在圖的範圍內
         axis_like = n_cjk <= 6 and not re.search(r"[，。？?：:、；]", text) and (
             n_cjk == 0 or len(text) <= 10)
@@ -633,6 +648,11 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             if sentence and (r >= 0.12 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3])):
                 continue                              # 整行保留，也不走「塗白圖區再重認」（圖框蓋掉大半行時會重認成空白）
             if r >= 0.6 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]):
+                drop = True
+                labels[i].append(it)
+            elif (short_label or compact_axis_label) and _touches_figure_edge(it, f, pad):
+                # 單一的「甲」或 x(m) 不一定能湊成原本要求的兩個 nearby
+                # 標籤，但只要真的貼著圖框邊，仍是圖的一部分。
                 drop = True
                 labels[i].append(it)
             elif short_label and (f[0] - pad <= cx <= f[2] + pad and f[1] - pad <= cy <= f[3] + pad) and (
@@ -662,6 +682,31 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
         else:
             body.append(it)
     return figs, body, partial, labels
+
+
+_RE_ISOLATED_EDGE_NOISE = re.compile(r"^[A-Za-z][.．]?$")
+
+
+def drop_isolated_edge_noise(items, page_width):
+    """只移除欄位最外側、低信心且孤立的一字殘留筆跡。"""
+    if not items or page_width <= 0:
+        return items
+    heights = sorted(max(1, _center(it)[5] - _center(it)[3]) for it in items)
+    typical_h = heights[len(heights) // 2]
+    kept = []
+    for it in items:
+        text = it.get("text", "").strip()
+        _, _, x0, y0, x1, y1 = _center(it)
+        edge = x0 <= page_width * .035 or x1 >= page_width * .965
+        if (not _RE_ISOLATED_EDGE_NOISE.fullmatch(text) or it.get("conf", 1.0) > .65 or not edge):
+            kept.append(it)
+            continue
+        distances = [max(y0 - _center(other)[5], _center(other)[3] - y1, 0)
+                     for other in items if other is not it]
+        if not distances or min(distances) > 2.5 * typical_h:
+            continue
+        kept.append(it)
+    return kept
 
 
 def _reocr_masked(bgr, it, fig):
@@ -861,6 +906,7 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
     cands = [c for c in figure_candidates(bgr, dpi=dpi)
              if not any(overlaps_table(c, b) for b in tab_boxes)]
     figs, body, partial, labels = split_figure_text(items, cands, pad=int(0.23 * dpi))
+    body = drop_isolated_edge_noise(body, W)
     for i, f in enumerate(figs):                     # 裁切範圍＝圖本體＋它吸收的標籤
         bs = [_center(it)[2:] for it in labels[i]]
         figs[i] = (min([f[0]] + [b[0] for b in bs]), min([f[1]] + [b[1] for b in bs]),

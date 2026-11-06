@@ -83,6 +83,8 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("(D)已的後段"), "(D)己的後段")
         self.assertEqual(fix_ocr("(D)已經完成"), "(D)已經完成")
         self.assertEqual(fix_ocr("(C)內(D)T。"), "(C)丙(D)丁。")
+        self.assertEqual(fix_ocr("下列何者正礁？"), "下列何者正確？")
+        self.assertEqual(fix_ocr("礁石何者正礁化"), "礁石何者正礁化")
 
     def test_trailing_intro_moves_to_next_group(self):
         from to_qbank_xlsx import split_trailing_intro
