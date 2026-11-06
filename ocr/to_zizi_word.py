@@ -433,13 +433,22 @@ RE_MISC_HEAD = re.compile(r"^\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[,
 # 「說明」欄的編號條目（「1.請用2B鉛筆作答」「2.本試卷共有50題」「3.範圍：3-1~4-2」）：前面有題號也是卷頭
 RE_INSTR = re.compile(r"^\s*(?:[（(]\s*[)）]\s*)?(?:[（(]?\s*\d{1,2}\s*[.．、)）]\s*)?(?:請\s*用\s*2\s*B|請\s*將\s*答\s*案|答\s*案\s*[卷卡].{0,6}請\s*用|本\s*試\s*卷\s*共|試\s*卷\s*共\s*有|"
                       r"範\s*圍\s*[:：]|作\s*答\s*時\s*間|答\s*案\s*請\s*(?:劃|畫|填|寫))")
+# 有些試卷把電腦卡注意事項排成「2.」「3.」「4.」。這些行雖符合
+# 題號格式，仍屬卷頭；只接受讀卡／劃記的多個明確詞，避免濾掉一般題幹。
+RE_CARD_INSTR_WORDS = ("電腦卡", "答案卡", "讀卡機", "劃記", "塗記", "2B鉛筆", "扣該科", "不予計分")
+
+
+def is_card_instruction(text):
+    compact = re.sub(r"\s", "", text or "")
+    return sum(word in compact for word in RE_CARD_INSTR_WORDS) >= 2
 
 
 def is_boilerplate_line(text, in_header=False):
     """卷頭、頁碼與跨頁提示不應進題目；保留題號開頭的正常題文。"""
     return ((in_header and RE_HEADER.search(text) and not RE_Q.match(text)) or
             bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)) or
-            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)) or bool(RE_INSTR.match(text)))
+            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)) or bool(RE_INSTR.match(text)) or
+            (in_header and is_card_instruction(text)))
 
 
 AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
