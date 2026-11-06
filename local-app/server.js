@@ -591,6 +591,22 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(file).pipe(res);
     }
 
+    // 練習用 Word：沿用同一個 job 的辨識結果（不重新上傳、不重跑 OCR），不用 AI
+    if (req.method === "POST" && url.pathname === "/api/py-ocr/word") {
+      const job = safeJobId(JSON.parse(await readBody(req) || "{}").job);
+      if (!job || !pyOcrResultFile(job, "txt")) return sendJson(res, 404, { ok: false, error: "找不到這份辨識結果" });
+      const { jobDir, resultDir } = pyOcrJobPaths(job);
+      const script = "import json,os,sys;sys.path.insert(0,sys.argv[1]);import to_zizi_word as Z;d,r,_=Z.build(sys.argv[2],os.path.join(sys.argv[2],'word'),dpi=350,src_name=sys.argv[3]);print('\\n'+json.dumps({'docx':os.path.relpath(d,sys.argv[2]),'review':os.path.relpath(r,sys.argv[2])}))";
+      const report = JSON.parse(fs.readFileSync(path.join(jobDir, "report.json"), "utf8"));
+      try {
+        const stdout = await new Promise((ok, bad) => execFile(pyBin(), ["-c", script, path.join(__dirname, "..", "ocr"), resultDir, report.txt.replace(/\.txt$/i, ".pdf")],
+          { cwd: path.join(__dirname, ".."), timeout: 180000, maxBuffer: 8 * 1024 * 1024 }, (err, out, stderr) => err ? bad(new Error(String(stderr || err.message).slice(-400))) : ok(out)));
+        Object.assign(report, JSON.parse(stdout.trim().split("\n").pop()));
+        fs.writeFileSync(path.join(jobDir, "report.json"), JSON.stringify(report, null, 2));
+      } catch (error) { return sendJson(res, 500, { ok: false, error: "Word 產生失敗：" + error.message }); }
+      return sendJson(res, 200, { ok: true, docxUrl: pyOcrDownloadUrl(job, "docx"), reviewUrl: pyOcrDownloadUrl(job, "review") });
+    }
+
     // 題庫匯入 Excel（不用 AI）：同一個 job 的 pyexam 結果直接切題，欄位同題庫「<卷>_題目.xlsx」
     if (req.method === "GET" && url.pathname === "/api/py-ocr/qbank-xlsx") {
       const job = safeJobId(url.searchParams.get("job"));
