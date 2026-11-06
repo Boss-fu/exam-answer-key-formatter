@@ -619,6 +619,25 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             return n, m
         return None, None
 
+    def has_earlier_number_soon(i, n):
+        """雙欄偶爾把右欄的較後題排在左欄尾巴前。
+
+        不要因為先看到 18 題就把流水號從 15 跳到 18；若接下來同一
+        小段文字確實還有 16 或 17 的印刷題號，讓它先開題。只看嚴格
+        題號，避免選項與內文的數字成為重排依據。
+        """
+        for _, later in lines[i + 1:i + 70]:
+            m = RE_Q.match(later)
+            if not m:
+                continue
+            other = int(m.group(1))
+            if qn < other < n:
+                return True
+            # 題號已往前走很遠，不能再把下一欄的舊題誤當作證據。
+            if other >= n + 2:
+                break
+        return False
+
     def opens_question(i):
         """第 i 行之後幾行內，先出現以 (A) 開頭的選項行，中間沒有別的題號 → 第 i 行是新題的題幹開頭"""
         for _, t2 in lines[i + 1:i + 16]:
@@ -743,6 +762,15 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             start_q(qn + 1, t[mc.end():])
             continue
         n, mq = qnum(t)
+        # OCR 漏掉數個題號時，原本的 +3 閘門會使後面每題都沒有 pn，
+        # 題庫匯出遂整段錯位。行首的嚴格題號（有標點）是可驗證證據；
+        # 只要不是雙欄尚未讀到的較小題號，就以它重同步。
+        if n is None:
+            strict_m = RE_Q.match(t)
+            if strict_m:
+                candidate = int(strict_m.group(1))
+                if candidate > qn + 3 and not has_earlier_number_soon(i, candidate):
+                    n, mq = candidate, strict_m
         if n is not None and sec_qn is not None:
             if n != int(mq.group(1)):
                 num_off = sec_qn             # 換段後第一題用了換算 → 這一段後面的題號都加同樣的位移
