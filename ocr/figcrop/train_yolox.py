@@ -4,8 +4,8 @@
 先跑 ocr/figcrop/train_data.py 產生 ocr/results/figcrop_train，再：
     <訓練 venv>/python ocr/figcrop/train_yolox.py cv   [--epochs 60] [--size 768] [--model yolox_s]   # 5 組交叉驗證
     <訓練 venv>/python ocr/figcrop/train_yolox.py full [--epochs 60] ...                                 # 全部資料訓練（上線候選）
-預訓練權重（COCO）放 ocr/results/figcrop_train/weights/<model>.pth，沒有會從 YOLOX 官方 release 下載。
-結果在 ocr/results/figcrop_train/runs/<tag>/：每組的 best.pth、val 預測、report.json（逐卷：模型 recall@IoU.8 vs 現行模型＋規則）。
+預訓練權重（COCO）放 ocr/results/figcrop_weights/<model>.pth，沒有會從 YOLOX 官方 release 下載。
+結果在 ocr/results/figcrop_train_runs/<tag>/：每組的 best.pth、val 預測、report.json（逐卷：模型 recall@IoU.8 vs 現行模型＋規則）。
 YOLOX 0.3.0 的 Trainer 寫死 CUDA，這裡自己寫簡單的 CPU 訓練迴圈（沿用 Exp 的模型、資料增強、optimizer、lr 排程）。
 """
 from __future__ import annotations
@@ -21,6 +21,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+
+_imread = cv2.imread
+def _imread_any(path, flags=cv2.IMREAD_COLOR):
+    """YOLOX 用 cv2.imread 讀圖；Windows 碰到中文路徑會回 None（檔名都是中文卷名），改成先讀檔再解碼。"""
+    try:
+        data = np.fromfile(str(path), np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(data, flags) if data.size else None
+cv2.imread = _imread_any
 from yolox.exp import Exp as BaseExp
 from yolox.utils import postprocess
 
@@ -58,12 +68,12 @@ class Exp(BaseExp):
 
     def get_dataset(self, cache=False, cache_type="ram"):
         from yolox.data import COCODataset, TrainTransform
-        return COCODataset(data_dir=self.data_dir, json_file=self.train_ann, name="images", img_size=self.input_size,
+        return COCODataset(data_dir=self.data_dir, json_file=self.train_ann, name="train2017", img_size=self.input_size,
                            preproc=TrainTransform(max_labels=50, flip_prob=self.flip_prob, hsv_prob=self.hsv_prob))
 
 
 def pretrained(model):
-    p = DATA / "weights" / f"{model}.pth"
+    p = ROOT / "ocr/results/figcrop_weights" / f"{model}.pth"   # 不放 DATA：train_data.py 重建資料集會清掉 DATA
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
         urllib.request.urlretrieve(WEIGHTS[model][2], p)
@@ -116,7 +126,7 @@ def predict(net, exp, items, conf=.3, nms=.45):
     from yolox.data import ValTransform
     net.eval(); pre = ValTransform(legacy=False); out = {}
     for i in items:
-        img = cv2.imdecode(np.fromfile(str(DATA / "images" / f"{i['name']}.jpg"), np.uint8), cv2.IMREAD_COLOR)
+        img = cv2.imdecode(np.fromfile(str(DATA / "train2017" / f"{i['name']}.jpg"), np.uint8), cv2.IMREAD_COLOR)
         x, _ = pre(img, None, exp.test_size); r = min(exp.test_size[0] / img.shape[0], exp.test_size[1] / img.shape[1])
         o = postprocess(net(torch.from_numpy(x).unsqueeze(0).float()), exp.num_classes, conf, nms, class_agnostic=True)[0]
         boxes = [] if o is None else [[float(v) / r for v in row[:4]] + [float(row[4] * row[5]), int(row[6])] for row in o.numpy()]
@@ -150,7 +160,7 @@ def main():
     a = ap.parse_args(); model_name = a.model; torch.set_num_threads(a.threads)
     index = json.loads((DATA / "index.json").read_text(encoding="utf-8"))
     baseline = json.loads((ROOT / "ocr/results/figcrop_gt/baseline.json").read_text(encoding="utf-8"))["rows"]
-    tag = a.tag or f"{a.model}_{a.size}_e{a.epochs}"; run = DATA / "runs" / tag; run.mkdir(parents=True, exist_ok=True)
+    tag = a.tag or f"{a.model}_{a.size}_e{a.epochs}"; run = ROOT / "ocr/results/figcrop_train_runs" / tag; run.mkdir(parents=True, exist_ok=True)
     report = {"args": vars(a), "folds": {}}
     folds = [int(f) for f in a.folds.split(",")] if a.mode == "cv" else ["all"]
     for k in folds:

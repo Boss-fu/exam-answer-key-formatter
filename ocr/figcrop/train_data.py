@@ -57,7 +57,7 @@ def main():
             pages[key]["ignore"].append(r["auto"])
     if OUT.exists():
         shutil.rmtree(OUT)
-    (OUT / "images").mkdir(parents=True); (OUT / "labels").mkdir()
+    (OUT / "train2017").mkdir(parents=True); (OUT / "labels").mkdir()   # YOLOX 的 data loader 寫死讀 train2017/
     index = []; docs = {}
     for (exam, pn), p in sorted(pages.items()):
         if p["bad"] or not p["gt"]:
@@ -69,7 +69,7 @@ def main():
         H, W = img.shape[:2]; s = a.imgsz / max(H, W)
         small = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else img
         name = f"{exam}_p{pn}"
-        crop.pyexam._imwrite(str(OUT / "images" / f"{name}.jpg"), small, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        crop.pyexam._imwrite(str(OUT / "train2017" / f"{name}.jpg"), small, [cv2.IMWRITE_JPEG_QUALITY, 92])
         # 類別：手動沒分圖和表，取重疊最多的版面模型偵測框類別（table→1，其他→0）
         dets = crop.detect(gt_eval.render(doc[pn - 1]), "pp_doc_layoutv3")
         cls = [1 if max(((gt_eval.iou(g, b), c) for c, b, _s in dets), default=(0, ""))[1] == "table"
