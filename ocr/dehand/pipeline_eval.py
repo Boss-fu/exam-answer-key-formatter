@@ -52,6 +52,27 @@ def page_metrics(q: dict, cleaned: np.ndarray, figure_boxes: list[tuple[int, int
     }
 
 
+def mask_metrics(q: dict, hit: np.ndarray) -> dict:
+    """量候選遮罩本身，定義與 ``finetune_jw_mask.score()`` 的前兩項相同。
+
+    ``score()`` 問的是「模型是否命中 hand 標註」，不是底下仍有印刷筆畫時
+    最終畫面是否已變白。因此這組數字不能用來宣稱實際清除效果，但可直接
+    定位模型、閾值、膨脹與保護規則造成的差異。
+    """
+    expected = q['x'].shape
+    if hit.shape != expected or q['hand'].shape != expected or q['c'].shape != expected:
+        raise ValueError('x、hand、c 標註與候選遮罩的尺寸必須完全一致')
+    hand = q['hand'].astype(bool)
+    printed = ink(q['c']).astype(bool)
+    hit = hit.astype(bool)
+    return {
+        'hand_hit': int((hit & hand).sum()),
+        'hand_total': int(hand.sum()),
+        'print_hit': int((hit & printed).sum()),
+        'print_total': int(printed.sum()),
+    }
+
+
 def merge_metrics(total: dict, one: dict) -> None:
     for key, value in one.items():
         total[key] = total.get(key, 0) + value
@@ -135,6 +156,7 @@ def main() -> None:
     parser.add_argument('--std', default='ocr/dehand/data/std')
     parser.add_argument('--r8-json', default='ocr/models/jw/jwmask-r8.json')
     parser.add_argument('--limit', type=int, help='只跑前 N 張驗證頁，供 smoke test 使用')
+    parser.add_argument('--start', type=int, default=0, help='跳過前 N 張驗證頁；搭配 --limit 分批量測')
     parser.add_argument('--dpi', type=int, default=150)
     parser.add_argument('--img2img', help='指定 DEHAND_IMG2IMG 候選 ONNX')
     parser.add_argument('--mode', choices=('img2img', 'model', 'rule', 'both'))
@@ -146,6 +168,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error('--limit 必須大於 0')
+    if args.start < 0:
+        parser.error('--start 不可小於 0')
     configure(args)
     # 設定環境後才載入，確保 apply 的首次模型 session 使用指定候選模型。
     import apply
@@ -156,6 +180,7 @@ def main() -> None:
     with open(args.r8_json, encoding='utf8') as handle:
         validation_exams = set(json.load(handle)['validation_exams'])
     validation = [(p, q) for p, q in ((p, read(p)) for p in pages if p['exam'] in validation_exams) if q is not None][:40]
+    validation = validation[args.start:]
     if args.limit:
         validation = validation[:args.limit]
     if not validation:
@@ -163,6 +188,7 @@ def main() -> None:
 
     total: dict[str, int] = {}
     stage_totals: dict[str, dict[str, int]] = {}
+    stage_mask_totals: dict[str, dict[str, int]] = {}
     input_shapes: set[tuple[int, int]] = set()
     model_shapes: set[tuple[int, int]] = set()
     for index, (page, q) in enumerate(validation, start=1):
@@ -181,6 +207,10 @@ def main() -> None:
             for name, image in staged_images.items():
                 target = stage_totals.setdefault(name, {})
                 merge_metrics(target, page_metrics(q, image, boxes))
+            # 色筆處理沒有模型候選遮罩；其餘階段同時列 score() 同義的命中率。
+            for name, hit in stages.items():
+                target = stage_mask_totals.setdefault(name, {})
+                merge_metrics(target, mask_metrics(q, hit))
             cleaned = staged_images['打印版色階']
         else:
             cleaned, _ = apply.erase(color_cleaned, dpi=args.dpi, detected_boxes=boxes_for_protection)
@@ -211,12 +241,22 @@ def main() -> None:
     if args.stages:
         result['stages'] = {
             name: {
+                # 實際輸出定義：標註位置在最後影像已不再被 ink() 視為墨跡。
                 'handwriting_removal_rate': ratio(values['hand_removed'], values['hand_total']),
                 'print_accidental_erasure_rate': ratio(values['print_erased'], values['print_total']),
                 'figure_accidental_erasure_rate': ratio(values['figure_erased'], values['figure_total']),
                 'pixels': values,
             }
             for name, values in stage_totals.items()
+        }
+        result['mask_stages'] = {
+            name: {
+                # 與 score() 的 got/fp 同義；不把白化結果或色階處理混進來。
+                'handwriting_hit_rate': ratio(values['hand_hit'], values['hand_total']),
+                'print_false_positive_rate': ratio(values['print_hit'], values['print_total']),
+                'pixels': values,
+            }
+            for name, values in stage_mask_totals.items()
         }
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.out:
