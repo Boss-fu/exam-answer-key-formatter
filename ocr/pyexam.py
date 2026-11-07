@@ -801,7 +801,7 @@ def table_has_question_or_paragraph(t, items):
     return len(t["xs"]) <= 2 and len(t["ys"]) <= 3 and long_lines >= 2
 
 
-def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=()):
+def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=(), raw_out=None):
     """PP-OCRv5 一頁：整欄辨識 → 圖內文字過濾 → 重組成行 → 後處理。
     回傳 (records, figs)。record = {text, conf, kind('text'|'fig'|'sep'), x0,y0,x1,y1}，
     已依閱讀順序排好（多欄：由左到右逐欄，欄與欄之間一筆 sep）；fig 是「〔含圖 k〕」佔位行。
@@ -824,6 +824,10 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
             it["box"] = [[x + x0, y + y0] for x, y in it["box"]]
             it["zone"] = zone
             items.append(it)
+    if raw_out is not None:                          # 切圖沿用（*_ocr_boxes.json）：整頁原始 OCR 行，表格／圖內的字也要
+        raw_out.extend({"box": [int(min(p[0] for p in it["box"])), int(min(p[1] for p in it["box"])),
+                                int(max(p[0] for p in it["box"])), int(max(p[1] for p in it["box"]))],
+                        "text": it["text"], "conf": round(float(it.get("conf", 1.0)), 3)} for it in items)
     # 有框線的表格：裡面的字改放進儲存格，不進正文；多數格子有字才算表格（座標圖的方格紙不算）
     tables = []
     for t in detect_tables(bgr, dpi):
@@ -916,10 +920,17 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
     return recs, figs, [tuple(int(v) for v in _center(it)[2:]) for it in body], tables
 
 
-def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=()):
+def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=(), raw_out=None, recs_out=None):
     """同上，但回傳 (行文字清單, 圖框清單, 正文字框清單, 表格清單)；欄分隔線前後各留一個空行。
     表格在文字裡以「〔表格 k〕」佔位，內容（rows／widths）在表格清單第 k 個。"""
-    recs, figs, body_boxes, tables = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno, header, hard)
+    recs, figs, body_boxes, tables = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno, header, hard, raw_out)
+    if recs_out is not None:                         # 閱讀順序的文字行＋座標（_lines.json 的同一批行，多了 x）
+        col = 0
+        for r in recs:
+            if r["kind"] == "sep":
+                col += 1
+            elif r["kind"] == "text":
+                recs_out.append({"col": col, "text": r["text"], "x0": int(r["x0"]), "y0": int(r["y0"]), "x1": int(r["x1"]), "y1": int(r["y1"])})
     lines = []
     for r in recs:
         if r["kind"] == "sep":
@@ -1118,8 +1129,10 @@ def _ocr_one_page(job):
             lay = {"cuts": [int(round(s / upscale)) for s in find_column_splits(binimg)], "hard": [], "header": 0}
         t_layout = time.perf_counter() - ts
         ts = time.perf_counter()
+        raw_boxes, rec_boxes = [], []
         lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
-                                                                   header=lay["header"], hard=lay["hard"])
+                                                                   header=lay["header"], hard=lay["hard"],
+                                                                   raw_out=raw_boxes, recs_out=rec_boxes)
         t_ocr = time.perf_counter() - ts
         txt = tidy_text("\n".join(lines))
         pad = int(0.05 * dpi)                    # 圖框已含標籤，只留一點白邊
@@ -1129,6 +1142,7 @@ def _ocr_one_page(job):
         binimg = preprocess(bgr, upscale=upscale)
         figs = detect_figures(binimg, page.rect.height)
         body_px, tables, geo = [], [], []
+        raw_boxes = rec_boxes = None
         txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
     dt = time.perf_counter() - t0
     ts = time.perf_counter()
@@ -1144,8 +1158,16 @@ def _ocr_one_page(job):
     fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
     for g in geo:
         g["page"] = n
+    boxes = None
+    if raw_boxes is not None:                        # 給切圖沿用：轉正後（OCR 用的）影像座標＋縮圖（切圖對齊清稿用）
+        s = min(1.0, 1600.0 / max(H, W))
+        thumb = cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        import base64
+        boxes = {"page": n, "dpi": dpi, "turned": turned, "W": W, "H": H, "thumb_scale": s,
+                 "thumb": base64.b64encode(buf.tobytes()).decode() if ok else "", "lines": raw_boxes, "recs": rec_boxes}
     _progress(out_dir, started, "ocr", n, pages, "已辨識本頁文字", clean_img)
-    return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines,
+    return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines, "boxes": boxes,
             "tables": {f"p{n}_t{k}": {"rows": t["rows"], "widths": t["widths"]} for k, t in enumerate(tables, 1)},
             "geo": geo,
             "report": f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
@@ -1202,6 +1224,11 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
         import json
         with open(os.path.join(out_dir, f"{base}_lines.json"), "w", encoding="utf-8") as f:
             json.dump(all_geo, f, ensure_ascii=False)
+    all_boxes = [r["boxes"] for r in results if r.get("boxes")]
+    if all_boxes:                                    # 每頁 OCR 框與文字（切圖 crop.py --ocr-dir 沿用，不再對清稿重跑 OCR）
+        import json
+        with open(os.path.join(out_dir, f"{base}_ocr_boxes.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "pages": all_boxes}, f, ensure_ascii=False)
     if all_tables:                                   # 〔表格 k〕的內容：{"p頁_tk": {"rows", "widths"(像素)}}
         import json
         with open(os.path.join(out_dir, f"{base}_tables.json"), "w", encoding="utf-8") as f:
