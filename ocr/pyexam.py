@@ -1077,6 +1077,41 @@ def native_text_without_tables(page, bgr, dpi=300):
 
 
 # ---------- 主流程 ----------
+def _try_native_boxes(page, bgr, dpi, n):
+    try:
+        return _native_boxes(page, bgr, dpi, n) if cv2 is not None else None
+    except Exception:
+        return None
+
+
+def _ocr_boxes_record(n, dpi, turned, bgr, raw_boxes, rec_boxes):
+    """*_ocr_boxes.json 的一頁：轉正後影像座標的 OCR 行框＋閱讀順序行，加 1600px 灰階縮圖（切圖對齊清稿用）。"""
+    import base64
+    H, W = bgr.shape[:2]
+    s = min(1.0, 1600.0 / max(H, W))
+    thumb = cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return {"page": n, "dpi": dpi, "turned": turned, "W": W, "H": H, "thumb_scale": s,
+            "thumb": base64.b64encode(buf.tobytes()).decode() if ok else "", "lines": raw_boxes, "recs": rec_boxes}
+
+
+def _native_boxes(page, bgr, dpi, n):
+    """文字層頁的 *_ocr_boxes.json：PDF 文字行（座標換成 dpi 像素），閱讀順序＝左右欄（右半起頭的行夠多才分欄）再由上而下。"""
+    k = dpi / 72.0
+    lines = []
+    for b in page.get_text("dict").get("blocks", []):
+        for l in b.get("lines", []):
+            t = "".join(sp.get("text", "") for sp in l.get("spans", [])).strip()
+            if t:
+                x0, y0, x1, y1 = l["bbox"]
+                lines.append({"box": [int(x0 * k), int(y0 * k), int(x1 * k), int(y1 * k)], "text": t, "conf": 1.0})
+    W = bgr.shape[1]
+    two = bool(lines) and sum(1 for l in lines if l["box"][0] >= W / 2) >= .2 * len(lines)
+    recs = sorted(({"col": int(two and l["box"][0] >= W / 2), "text": l["text"], "x0": l["box"][0], "y0": l["box"][1],
+                    "x1": l["box"][2], "y1": l["box"][3]} for l in lines), key=lambda r: (r["col"], r["y0"], r["x0"]))
+    return _ocr_boxes_record(n, dpi, 0, bgr, lines, recs)
+
+
 def _ocr_one_page(job):
     """單頁 OCR（可在子程序裡跑）：回傳這一頁的文字區塊、報告、表格、版面位置；附圖直接寫檔。"""
     pdf_path, i, out_dir, base, dpi, upscale, lang, eng_name, prev_q, pages, started = job
@@ -1097,7 +1132,7 @@ def _ocr_one_page(job):
             _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
         _progress(out_dir, started, "ocr", n, pages, "已讀取本頁文字", clean_img)
         return {"n": n, "text": f"\n【第 {n} 頁（數位文字層）】\n{native}", "report": f"p{n}: 文字層 {len(native)} 字（免 OCR）",
-                "tables": {}, "geo": [], "lines": []}
+                "tables": {}, "geo": [], "lines": [], "boxes": _try_native_boxes(page, rendered, dpi, n)}
     # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
     bgr = rendered
     t0 = time.perf_counter()
@@ -1158,14 +1193,7 @@ def _ocr_one_page(job):
     fig_note = f"（本頁偵測到 {len(figs)} 個圖塊，已裁為 *_p{n}_fig*.png；文中以〔含圖〕標示）" if figs else ""
     for g in geo:
         g["page"] = n
-    boxes = None
-    if raw_boxes is not None:                        # 給切圖沿用：轉正後（OCR 用的）影像座標＋縮圖（切圖對齊清稿用）
-        s = min(1.0, 1600.0 / max(H, W))
-        thumb = cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
-        ok, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        import base64
-        boxes = {"page": n, "dpi": dpi, "turned": turned, "W": W, "H": H, "thumb_scale": s,
-                 "thumb": base64.b64encode(buf.tobytes()).decode() if ok else "", "lines": raw_boxes, "recs": rec_boxes}
+    boxes = _ocr_boxes_record(n, dpi, turned, bgr, raw_boxes, rec_boxes) if raw_boxes is not None else None
     _progress(out_dir, started, "ocr", n, pages, "已辨識本頁文字", clean_img)
     return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines, "boxes": boxes,
             "tables": {f"p{n}_t{k}": {"rows": t["rows"], "widths": t["widths"]} for k, t in enumerate(tables, 1)},

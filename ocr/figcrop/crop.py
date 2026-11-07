@@ -628,7 +628,7 @@ def crop_items(img, model="pp_doc_layoutv3", ocr_page=None, reuse_lines=None):
         raw = []; boxes, _ = crop_page(up, model, raw, ocr=ocr_page.raw if reuse_lines else None)
         items = []
         for b in boxes:
-            r = ocr_page.assign(b); q, conf = r["qno"], r["conf"]
+            r = ocr_page.assign(b, extra=None if reuse_lines else raw); q, conf = r["qno"], r["conf"]
             items.append({"box": tuple(int(v) for v in unrotate_box(b, k, img.shape)), "qno": q, "qno_conf": conf,
                           "qno_group": list(r["group"]) if r["group"] else None, "qno_rule": r["rule"],
                           "box_nocap": tuple(int(v) for v in unrotate_box(strip_caption(b, raw), k, img.shape)),

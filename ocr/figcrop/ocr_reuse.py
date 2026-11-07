@@ -306,8 +306,10 @@ class PageOcr:
         r = self.assign(box)
         return r["qno"], r["conf"]
 
-    def assign(self, box):
-        """回傳 {qno, conf, rule, group}：group＝(題組第一題, 最後一題)（圖是題組共用圖時），否則 None。"""
+    def assign(self, box, extra=None):
+        """回傳 {qno, conf, rule, group}：group＝(題組第一題, 最後一題)（圖是題組共用圖時），否則 None。
+        extra：本頁清稿自己的 OCR 行 [(框, 文字)]（有就拿來找圖號：文字層原卷的圖號常畫在圖裡，文字層沒有）。"""
+        self._extra = extra or []
         q, conf, rule, key, akey = self._decide(box)
         anchors, _p, _q, groups = self.reuse.anchors()
         group = None
@@ -403,7 +405,7 @@ class PageOcr:
     def _label(self, box):
         """圖框裡或緊貼上下緣的短行若是圖號（圖(五)、表二）就回傳號碼字串。"""
         x0, y0, x1, y1 = box; m = 40
-        for b, t in self.raw:
+        for b, t in list(self.raw) + list(getattr(self, "_extra", [])):
             t = _norm(t)
             if len(t) > 10 or not (b[0] >= x0 - m and b[2] <= x1 + m and b[1] >= y0 - m and b[3] <= y1 + m):
                 continue
