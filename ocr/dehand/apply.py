@@ -157,9 +157,10 @@ def _printed_ink_protect_mask(bgr, erased_mask, detected_boxes=None):
     count, labels, stats, _ = cv2.connectedComponentsWithStats(hit, connectivity=8)
     for label in range(1, count):
         x, y, w, h, _ = stats[label]
-        # OCR 框已涵蓋字的抗鋸齒邊緣；仍留 1px 容差給前一步膨脹，避免正常
-        # 印刷筆畫因單一邊界像素而失去保護。跨出字框的作答筆跡不符合此條件。
-        if not any(x >= x0 - 1 and y >= y0 - 1 and x + w <= x1 + 1 and y + h <= y1 + 1
+        # 只接受完整落在單一 OCR 字框內的元件。前一步的膨脹會讓壓在
+        # 印刷字上的作答筆跡多出一圈像素；若在這裡再給 1px 容差，剛好會
+        # 把這類跨框筆跡當成印刷字還原，留下作答括號和選項旁的淡灰殘影。
+        if not any(x >= x0 and y >= y0 and x + w <= x1 and y + h <= y1
                    for x0, y0, x1, y1 in eligible):
             continue
         component = labels == label
