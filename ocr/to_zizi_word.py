@@ -433,13 +433,22 @@ RE_MISC_HEAD = re.compile(r"^\s*(?:共|其|合)\s*[0-9OoIl]{1,3}\s*[頁贝]\s*[,
 # 「說明」欄的編號條目（「1.請用2B鉛筆作答」「2.本試卷共有50題」「3.範圍：3-1~4-2」）：前面有題號也是卷頭
 RE_INSTR = re.compile(r"^\s*(?:[（(]\s*[)）]\s*)?(?:[（(]?\s*\d{1,2}\s*[.．、)）]\s*)?(?:請\s*用\s*2\s*B|請\s*將\s*答\s*案|答\s*案\s*[卷卡].{0,6}請\s*用|本\s*試\s*卷\s*共|試\s*卷\s*共\s*有|"
                       r"範\s*圍\s*[:：]|作\s*答\s*時\s*間|答\s*案\s*請\s*(?:劃|畫|填|寫))")
+# 有些試卷把電腦卡注意事項排成「2.」「3.」「4.」。這些行雖符合
+# 題號格式，仍屬卷頭；只接受讀卡／劃記的多個明確詞，避免濾掉一般題幹。
+RE_CARD_INSTR_WORDS = ("電腦卡", "答案卡", "讀卡機", "劃記", "塗記", "2B鉛筆", "扣該科", "不予計分")
+
+
+def is_card_instruction(text):
+    compact = re.sub(r"\s", "", text or "")
+    return sum(word in compact for word in RE_CARD_INSTR_WORDS) >= 2
 
 
 def is_boilerplate_line(text, in_header=False):
     """卷頭、頁碼與跨頁提示不應進題目；保留題號開頭的正常題文。"""
     return ((in_header and RE_HEADER.search(text) and not RE_Q.match(text)) or
             bool(RE_PAGE_HEAD.search(text)) or bool(RE_FOOT.match(text)) or
-            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)) or bool(RE_INSTR.match(text)))
+            (bool(RE_MISC_HEAD.search(text)) and not RE_Q.match(text)) or bool(RE_INSTR.match(text)) or
+            (in_header and is_card_instruction(text)))
 
 
 AI_Q = "\x00Q"            # AI 判定「這行是題目開頭」的內部記號
@@ -495,12 +504,19 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     C = []
     cur = None                                # {"stem","opts","figs_mid","figs_after"}
     used_figs = used_tabs = n_q = 0
+    figure_kinds_path = os.path.join(pyexam_dir, base + "_figure_kinds.json")
+    figure_kinds = json.load(open(figure_kinds_path, encoding="utf-8")) if os.path.exists(figure_kinds_path) else {}
 
     def new_group(text, left):
         """新題組引言。上一段引言還沒有任何小題用到（同一段引言被拆成兩行、兩個分支）就接起來，不要蓋掉。"""
         if group and "first" not in group:
             text = join(group["text"], text)
-        return {"text": text, "left": left}
+        return {"text": text, "left": left, "kinds": set()}
+
+    def has_group_text(text):
+        """圖／表佔位不是題組引言；題組必須有可讀的引言文字。"""
+        bare = re.sub(r"〔(?:含圖|表格)\s*\d*〕", "", text or "")
+        return bool(re.search(r"[\u4e00-\u9fffA-Za-z0-9]", bare))
 
     def flush():
         nonlocal cur, n_q, group
@@ -525,9 +541,12 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             if len(parts) == 2 and len(parts[1]) >= 12:
                 cur["opts"][-1], spill = parts[0], parts[1]   # (D) 後面黏到的是下一個題組的引言
         raw = cur["stem"] + "".join(cur["opts"])
-        rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]), "kinds": sorted(cur.get("kinds", ())),
+        group_active = bool(group and has_group_text(group["text"]))
+        group_kinds = set(group.get("kinds", ())) if group_active else set()
+        rec = {"n": n_q, "pn": cur.get("pn"), "tf": tf_sec, "stem": cur["stem"], "opts": list(cur["opts"]),
+               "kinds": sorted(set(cur.get("kinds", ())) | group_kinds), "group_kinds": sorted(group_kinds),
                "review": "⚠" in raw, "group": "", "gid": None}
-        if group and (group["left"] is None or group["left"] > 0):
+        if group_active and (group["left"] is None or group["left"] > 0):
             rec["group"] = group["text"]; rec["gid"] = group.setdefault("first", n_q)
             if group["left"] is not None:
                 group["left"] -= 1
@@ -565,23 +584,6 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         used_figs += 1
         return B.p_image(name, round(min(4.5, max(1.5, w * 0.85)), 2))   # 茲茲慣例：圖 2～5 吋寬
 
-    tj = os.path.join(pyexam_dir, base + "_tables.json")
-    tables = json.load(open(tj, encoding="utf-8")) if os.path.exists(tj) else {}
-
-    def tab_para(pg, k):
-        t = tables.get(f"p{pg}_t{k}")
-        if not t:
-            return None
-        dxa = [w / float(dpi) * 1440 for w in t["widths"]]
-        s = min(1.0, 10000.0 / sum(dxa))               # 版心約 10772 dxa，留一點邊
-        widths = [max(400, int(w * s)) for w in dxa]
-        rows = [[(markup_safe(c[0]), c[1]) if c[1] > 1 else markup_safe(c[0]) for c in r] for r in t["rows"]]
-        nonlocal used_tabs
-        used_tabs += 1
-        if any(not c[0] for r in t["rows"] for c in r):
-            review.append(f"第 {pg} 頁表格 {k}：有空白儲存格，請對照原卷補字")
-        return B.tbl(rows, widths)
-
     tmp = tempfile.mkdtemp(prefix="zzword_")
     figdir = os.path.join(tmp, "figs")
     os.makedirs(figdir)
@@ -617,6 +619,25 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             return n, m
         return None, None
 
+    def has_earlier_number_soon(i, n):
+        """雙欄偶爾把右欄的較後題排在左欄尾巴前。
+
+        不要因為先看到 18 題就把流水號從 15 跳到 18；若接下來同一
+        小段文字確實還有 16 或 17 的印刷題號，讓它先開題。只看嚴格
+        題號，避免選項與內文的數字成為重排依據。
+        """
+        for _, later in lines[i + 1:i + 70]:
+            m = RE_Q.match(later)
+            if not m:
+                continue
+            other = int(m.group(1))
+            if qn < other < n:
+                return True
+            # 題號已往前走很遠，不能再把下一欄的舊題誤當作證據。
+            if other >= n + 2:
+                break
+        return False
+
     def opens_question(i):
         """第 i 行之後幾行內，先出現以 (A) 開頭的選項行，中間沒有別的題號 → 第 i 行是新題的題幹開頭"""
         for _, t2 in lines[i + 1:i + 16]:
@@ -643,12 +664,15 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
     for i, (pg, t) in enumerate(lines):
         mf = RE_FIG.match(t) or RE_TAB.match(t)
         if mf:
-            para = (fig_para if RE_FIG.match(t) else tab_para)(pg, int(mf.group(1)))
+            para = fig_para(pg, int(mf.group(1))) if RE_FIG.match(t) else None
             if para is None:
                 continue
+            kind = figure_kinds.get(f"p{pg}_fig{int(mf.group(1))}", "表格" if RE_TAB.match(t) else "圖片")
             if cur is not None:
-                cur.setdefault("kinds", set()).add("表格" if RE_TAB.match(t) else "圖片")
+                cur.setdefault("kinds", set()).add(kind)
             if cur is None:
+                if group is not None and has_group_text(group["text"]):
+                    group.setdefault("kinds", set()).add(kind)
                 C.append(para)
             elif cur["opts"]:
                 cur["figs_after"].append(para)
@@ -738,6 +762,15 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
             start_q(qn + 1, t[mc.end():])
             continue
         n, mq = qnum(t)
+        # OCR 漏掉數個題號時，原本的 +3 閘門會使後面每題都沒有 pn，
+        # 題庫匯出遂整段錯位。行首的嚴格題號（有標點）是可驗證證據；
+        # 只要不是雙欄尚未讀到的較小題號，就以它重同步。
+        if n is None:
+            strict_m = RE_Q.match(t)
+            if strict_m:
+                candidate = int(strict_m.group(1))
+                if candidate > qn + 3 and not has_earlier_number_soon(i, candidate):
+                    n, mq = candidate, strict_m
         if n is not None and sec_qn is not None:
             if n != int(mq.group(1)):
                 num_off = sec_qn             # 換段後第一題用了換算 → 這一段後面的題號都加同樣的位移
@@ -849,7 +882,7 @@ def build(pyexam_dir, out_dir, dpi=300, src_name="", ai=None, collect=None):
         if not v:
             review.insert(0, f"卷頭：{k}沒辨識到，橫幅／檔名可能不對")
     review.insert(0, f"橫幅推定：{label}／{book or '冊別?'}／{exam}／【{meta['year']}.{school}】；範圍（Ch）請手動填")
-    review.append(f"共 {n_q} 題、插入 {used_figs} 張圖、{used_tabs} 個表格。附圖是自動裁切，請對照原卷檢查有沒有切到字或漏掉標籤。")
+    review.append(f"共 {n_q} 題、插入 {used_figs} 張圖（表格已以圖片保留）。附圖是自動裁切，請對照原卷檢查有沒有切到字或漏掉標籤。")
     rv = out[:-5] + "_確認清單.txt"
     with open(rv, "w", encoding="utf-8") as f:
         f.write("\n".join("・" + r for r in review) + "\n")

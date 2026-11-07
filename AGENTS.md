@@ -2,7 +2,7 @@
 
 - 製作或整理理化／數學考卷的簡答與詳解時，先完整閱讀 `exam-answer-key-formatter/SKILL.md`。
 - 製作國文、社會的「學生詳解本」（黃金模擬考精簡版）時，先完整閱讀 `docs/學生詳解本規則_國文社會.md`；理化、數學仍照上一條的原規則，兩套並存。
-- 修改本機應用（`local-app/`）、設定主機或處理自動更新前，先完整閱讀 `Codex維護與主機設定說明.md`、`local-app/README.md`、`local-app/HOST-SETUP.md`。
+- 修改本機應用（`local-app/`）、設定主機或處理自動更新前，先完整閱讀 `docs/Codex維護與主機設定說明.md`、`local-app/README.md`、`local-app/HOST-SETUP.md`。
 - 修改詳解系統（`local-app/public/answer.html`、`answer-key.js`、`ensemble.js`、`auth.js`、`quota.js`、Word 格式）前，先完整閱讀 `docs/詳解系統說明.md`；每次修改都要在同一個 commit 內：在 `local-app/public/answer-changelog.json` 最前面加一則白話更新公告，並更新 `docs/詳解系統說明.md` 對應段落。
 - 優化本地 OCR（`ocr/` 的 pyexam／to_zizi_word／評測）前，先完整閱讀 `docs/OCR交接_Codex.md`（目標、限制、上線標準、做過什麼、待辦），並用 `bash ocr/setup_env.sh` 準備環境。
 - 訓練或修改自動切圖（`ocr/figcrop/`）前，先完整閱讀 `docs/切圖交接.md`（目標、進度、評測流程、規則、待辦）。

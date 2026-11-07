@@ -18,6 +18,13 @@ class BoilerplateLineTest(unittest.TestCase):
         self.assertFalse(is_boilerplate_line("1. 下列何者正確？", in_header=True))
         self.assertFalse(is_boilerplate_line("班級制度的演變", in_header=False))
 
+    def test_numbered_card_instructions_are_not_questions(self):
+        self.assertTrue(is_boilerplate_line(
+            "2. 電腦卡未用黑色 2B 鉛筆劃記，讀卡機無法判讀，責任由考生負責。", in_header=True))
+        self.assertTrue(is_boilerplate_line(
+            "4. 電腦卡座號欄位 1～9 號同學十位數請劃 0，10 號以後分開劃記。", in_header=True))
+        self.assertFalse(is_boilerplate_line("2. 下列何者是電腦卡的用途？", in_header=True))
+
     def test_recover_only_unambiguous_truncated_question_numbers(self):
         self.assertEqual(recover_truncated_qnum("1).承上題，圖中何者正確？", 9), 10)
         self.assertEqual(recover_truncated_qnum("3.承上題，圖中何者正確？", 38), 39)

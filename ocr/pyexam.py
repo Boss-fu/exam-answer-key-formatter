@@ -462,47 +462,57 @@ def detect_tables(bgr, dpi=300):
     return tables
 
 
-def _ocr_cell(bgr, x0, y0, x1, y1):
-    """空白儲存格補認：只有一個字（甲、乙…）的格子偵測器常常框不到，裁出格子內部直接辨識。
-    格子裡沒有墨跡就回傳空字串。單獨一個 z／Z 幾乎都是「乙」被認錯。"""
-    m = 10
-    crop = bgr[y0 + m:y1 - m, x0 + m:x1 - m]
-    if crop.size == 0:
-        return ""
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    ink = (gray < 128).astype(np.uint8)
-    n, _, st, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
-    keep = [st[i] for i in range(1, n) if st[i][4] >= 30]          # 濾掉掃描雜點，否則裁切範圍被撐大
-    if not keep:
-        return ""
-    x0_ = min(k[0] for k in keep); y0_ = min(k[1] for k in keep)
-    x1_ = max(k[0] + k[2] for k in keep); y1_ = max(k[1] + k[3] for k in keep)
-    crop = crop[max(0, y0_ - 6):y1_ + 7, max(0, x0_ - 6):x1_ + 7]
-    crop = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=(255, 255, 255))
-    text, conf = ppocr_engine.rec_only(crop)          # 字已經裁好，跳過偵測直接辨識
-    if conf < 0.5:
-        return ""
-    return {"z": "乙", "Z": "乙", "2": "乙"}.get(text, text) if len(text) == 1 else text
+def table_text_cells(t, items):
+    """回傳有 OCR 文字的儲存格座標；只作為「這真的是表格」的佐證。
+
+    表格內容不再逐格 OCR 或重建。這裡刻意只看既有的整頁 OCR 框，避免
+    為了補一個空格而把錯字寫進題目；同時能把有線條但沒有規則格內文字的
+    植物構造圖排除。
+    """
+    occupied = set()
+    for it in items:
+        text = (it.get("text") or "").strip()
+        if not text:
+            continue
+        cx, cy, *_ = _center(it)
+        for r, (r0, r1) in enumerate(zip(t["ys"], t["ys"][1:])):
+            if not r0 <= cy < r1:
+                continue
+            for c, (c0, c1) in enumerate(zip(t["xs"], t["xs"][1:])):
+                if c0 <= cx < c1:
+                    occupied.add((r, c))
+                    break
+            break
+    return occupied
 
 
-def fill_table(t, items, bgr=None):
-    """把落在表格裡的 OCR 框分到儲存格，回傳 rows=[[[文字, 跨欄數], …], …]（buildlib.tbl 吃的格式）"""
-    ys, xs = t["ys"], t["xs"]
-    rows = []
-    for r, (r0, r1) in enumerate(zip(ys, ys[1:])):
-        row, ci = [], 0
-        for span in t["spans"][r]:
-            c0, c1 = xs[ci], xs[ci + span]
-            cell = [it for it in items if c0 <= _center(it)[0] < c1 and r0 <= _center(it)[1] < r1]
-            text = "".join(l["text"] for l in group_into_lines(cell))
-            if text.strip() in ("z", "Z"):
-                text = "乙"
-            if not text and bgr is not None:
-                text = _ocr_cell(bgr, c0, r0, c1, r1)
-            row.append([postprocess_line(text) if text else "", span])
-            ci += span
-        rows.append(row)
-    return rows
+def is_text_table(t, items):
+    """保守確認格線框是表格，不把一般題文／構造圖當表格。"""
+    rows, cols = len(t["ys"]) - 1, len(t["xs"]) - 1
+    if rows < 2 or cols < 1 or table_has_question_or_paragraph(t, items):
+        return False
+    occupied = table_text_cells(t, items)
+    # OCR 常把同一欄的表頭／內容合成大框，或漏掉淡的直欄線；若強制
+    # 「跨兩列又跨兩欄」，這些真表格會整塊漏回正文。至少三個格內文字，
+    # 且跨兩列（單欄時須跨三列），仍能排除構造圖的零星標籤。
+    used_rows, used_cols = {r for r, _ in occupied}, {c for _, c in occupied}
+    return (len(occupied) >= 3 and len(used_rows) >= 2 and
+            (cols >= 2 or len(used_rows) >= 3) and
+            (cols == 1 or len(used_cols) >= 1))
+
+
+_RE_TABLE_OPTION = re.compile(r"[（(]\s*([A-Da-d])\s*[）)]")
+
+
+def table_option_labels(items):
+    """選項做成表格時，只留下 A～D 代號，絕不讓格內文字進題幹或選項。"""
+    labels = []
+    for it in sorted(items, key=lambda x: (_center(x)[1], _center(x)[0])):
+        for label in _RE_TABLE_OPTION.findall(it.get("text", "")):
+            label = label.upper()
+            if label not in labels:
+                labels.append(label)
+    return labels if labels and labels == sorted(labels) else []
 
 
 def figure_candidates(bgr, dpi=300, merge_gap=60):
@@ -571,6 +581,20 @@ def _short_figure_label(text):
             not re.search(r"[，。？?：:；;！!]", text))
 
 
+_RE_COMPACT_AXIS_LABEL = re.compile(r"^[A-Za-z](?:\s*[0-9A-Za-z/²³^_().（）-]{0,14})$")
+
+
+def _touches_figure_edge(it, fig, pad):
+    """短標籤的框常有一半落在圖框外，不能只看中心點。"""
+    _, _, x0, y0, x1, y1 = _center(it)
+    xgap = max(fig[0] - x1, x0 - fig[2], 0)
+    ygap = max(fig[1] - y1, y0 - fig[3], 0)
+    xoverlap = min(x1, fig[2]) - max(x0, fig[0])
+    yoverlap = min(y1, fig[3]) - max(y0, fig[1])
+    return ((xgap <= pad // 3 and yoverlap > 0) or
+            (ygap <= pad // 3 and xoverlap > 0))
+
+
 def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
     """依 OCR 框決定哪些候選才是真的圖（框內「成句」的中文字 ≤ max_cjk_in_figure；表格／標題框內是句子，不是圖），
     並把圖內文字框分出來。回傳 (figs, body_items, partial_items)：
@@ -611,6 +635,7 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             body.append(it)
             continue
         short_label = _short_figure_label(text)
+        compact_axis_label = bool(_RE_COMPACT_AXIS_LABEL.fullmatch(text.strip()))
         # 軸名、刻度串（「降雨量（毫米）」「120150E180150W」「586266707478」）：不像句子、而且水平位置落在圖的範圍內
         axis_like = n_cjk <= 6 and not re.search(r"[，。？?：:、；]", text) and (
             n_cjk == 0 or len(text) <= 10)
@@ -625,6 +650,11 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
             if r >= 0.6 or (f[0] <= cx <= f[2] and f[1] <= cy <= f[3]):
                 drop = True
                 labels[i].append(it)
+            elif (short_label or compact_axis_label) and _touches_figure_edge(it, f, pad):
+                # 單一的「甲」或 x(m) 不一定能湊成原本要求的兩個 nearby
+                # 標籤，但只要真的貼著圖框邊，仍是圖的一部分。
+                drop = True
+                labels[i].append(it)
             elif short_label and (f[0] - pad <= cx <= f[2] + pad and f[1] - pad <= cy <= f[3] + pad) and (
                     # 圖內的短標籤直接收；圖外標籤至少須與另一短標籤成群，且
                     # 水平落在圖的延伸範圍，避免正文旁邊的一個短詞被誤收。
@@ -636,6 +666,13 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
                                 and f[1] - pad <= cy <= f[3] + pad):
                 drop = True
                 labels[i].append(it)
+            elif (short_label and n_cjk <= 6 and
+                  f[0] - pad <= cx <= f[2] + pad and f[1] <= cy <= f[3]):
+                # 縱軸標題常在圖框左側，文字中心不在圖的水平投影內；
+                # 它仍是圖的一部分，不能漏回題幹。只收短、無標點的標籤，
+                # 不會吃掉完整題句。
+                drop = True
+                labels[i].append(it)
             elif r >= 0.12:
                 part = f
         if drop:
@@ -645,6 +682,31 @@ def split_figure_text(items, cands, pad=70, max_cjk_in_figure=6):
         else:
             body.append(it)
     return figs, body, partial, labels
+
+
+_RE_ISOLATED_EDGE_NOISE = re.compile(r"^[A-Za-z][.．]?$")
+
+
+def drop_isolated_edge_noise(items, page_width):
+    """只移除欄位最外側、低信心且孤立的一字殘留筆跡。"""
+    if not items or page_width <= 0:
+        return items
+    heights = sorted(max(1, _center(it)[5] - _center(it)[3]) for it in items)
+    typical_h = heights[len(heights) // 2]
+    kept = []
+    for it in items:
+        text = it.get("text", "").strip()
+        _, _, x0, y0, x1, y1 = _center(it)
+        edge = x0 <= page_width * .035 or x1 >= page_width * .965
+        if (not _RE_ISOLATED_EDGE_NOISE.fullmatch(text) or it.get("conf", 1.0) > .65 or not edge):
+            kept.append(it)
+            continue
+        distances = [max(y0 - _center(other)[5], _center(other)[3] - y1, 0)
+                     for other in items if other is not it]
+        if not distances or min(distances) > 2.5 * typical_h:
+            continue
+        kept.append(it)
+    return kept
 
 
 def _reocr_masked(bgr, it, fig):
@@ -824,31 +886,31 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
             it["box"] = [[x + x0, y + y0] for x, y in it["box"]]
             it["zone"] = zone
             items.append(it)
+    # 有框線的表格一律以圖片處理。只有規則格線加上跨列／跨欄的既有 OCR
+    # 文字才接受，避免把一般題文、選項或植物構造圖誤裁成表格。
     if raw_out is not None:                          # 切圖沿用（*_ocr_boxes.json）：整頁原始 OCR 行，表格／圖內的字也要
         raw_out.extend({"box": [int(min(p[0] for p in it["box"])), int(min(p[1] for p in it["box"])),
                                 int(max(p[0] for p in it["box"])), int(max(p[1] for p in it["box"]))],
                         "text": it["text"], "conf": round(float(it.get("conf", 1.0)), 3)} for it in items)
-    # 有框線的表格：裡面的字改放進儲存格，不進正文；多數格子有字才算表格（座標圖的方格紙不算）
     tables = []
     for t in detect_tables(bgr, dpi):
         bx0, by0, bx1, by1 = t["box"]
         inside = [it for it in items if bx0 <= _center(it)[0] <= bx1 and by0 <= _center(it)[1] <= by1]
-        if table_has_question_or_paragraph(t, inside):
+        if not is_text_table(t, inside):
             continue
-        rows = fill_table(t, inside, bgr)
-        cells = [c for r in rows for c in r]
-        if not cells or sum(1 for c in cells if c[0]) < 0.5 * len(cells):
-            continue
-        t["rows"] = rows
-        t["widths"] = [b - a for a, b in zip(t["xs"], t["xs"][1:])]
+        t["option_labels"] = table_option_labels(inside)
         tables.append(t)
         ids = {id(it) for it in inside}
         items = [it for it in items if id(it) not in ids]
     tab_boxes = [t["box"] for t in tables]
+    def overlaps_table(c, b):
+        area = max(1, (c[2] - c[0]) * (c[3] - c[1]))
+        overlap = max(0, min(c[2], b[2]) - max(c[0], b[0])) * max(0, min(c[3], b[3]) - max(c[1], b[1]))
+        return overlap / area >= 0.2
     cands = [c for c in figure_candidates(bgr, dpi=dpi)
-             if not any(c[0] >= b[0] - 10 and c[1] >= b[1] - 10 and c[2] <= b[2] + 10 and c[3] <= b[3] + 10
-                        for b in tab_boxes)]
+             if not any(overlaps_table(c, b) for b in tab_boxes)]
     figs, body, partial, labels = split_figure_text(items, cands, pad=int(0.23 * dpi))
+    body = drop_isolated_edge_noise(body, W)
     for i, f in enumerate(figs):                     # 裁切範圍＝圖本體＋它吸收的標籤
         bs = [_center(it)[2:] for it in labels[i]]
         figs[i] = (min([f[0]] + [b[0] for b in bs]), min([f[1]] + [b[1] for b in bs]),
@@ -866,18 +928,33 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
             cy = (f[1] + f[3]) // 2
             lines.append({"text": f"〔含圖 {k}〕", "conf": 1.0, "kind": "fig",
                           "y0": cy, "y1": cy, "x0": f[0], "x1": f[2]})
+        # 表格與一般圖共用〔含圖 k〕與同一個 PNG 序列。表格選項只保留
+        # 代號，讓後段切題仍能辨識四個選項，格內文字則完全不會流出。
         for k, t in col_tabs(col_figs, col_items):
             b = t["box"]
-            lines.append({"text": f"〔表格 {k}〕", "conf": 1.0, "kind": "table",
-                          "y0": b[1], "y1": b[1], "x0": b[0], "x1": b[2]})
+            lines.append({"text": f"〔含圖 {k}〕", "conf": 1.0, "kind": "table",
+                          "y0": b[1], "y1": b[1], "x0": b[0], "x1": b[2],
+                          "option_labels": t["option_labels"]})
         lines.sort(key=lambda l: (l["y0"] + l["y1"]) / 2)
+        out = []
         for l in lines:
             if l["kind"] == "text":
                 l["text"] = postprocess_line(l["text"], l["conf"], low_conf)
-        return lines
+            out.append(l)
+            if l["kind"] == "table":
+                for label in l.get("option_labels", []):
+                    out.append({"text": f"({label})", "conf": 1.0, "kind": "text",
+                                "y0": l["y1"], "y1": l["y1"], "x0": l["x0"], "x1": l["x1"]})
+        return out
 
+    # 先依卷面位置合併再編號，避免表格和 figcrop／一般圖各自編號造成
+    # 同一頁重複圖片。table 的 bbox 也會進既有 *_fig{k}.png 輸出。
+    all_figs = [(f, "圖片", None) for f in figs] + [(t["box"], "表格", t) for t in tables]
+    all_figs.sort(key=lambda x: ((x[0][1] + x[0][3]) / 2, (x[0][0] + x[0][2]) / 2))
+    figs = [tuple(int(v) for v in f) for f, _, _ in all_figs]
+    figure_kinds = [kind for _, kind, _ in all_figs]
     numbered = list(enumerate(figs, 1))
-    tab_numbered = list(enumerate(tables, 1))
+    tab_numbered = [(k, t) for k, (_, kind, t) in enumerate(all_figs, 1) if kind == "表格"]
     _zone = {}                                       # 目前 render 的範圍（x0,x1,是否頁首），給 col_tabs 用
 
     def col_tabs(col_figs, col_items):
@@ -917,13 +994,13 @@ def ocr_page_ppocr_records(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_q
     new_t, _ = restore_bare_qnos([recs[i]["text"] for i in idx], prev_qno)
     for i, t in zip(idx, new_t):
         recs[i]["text"] = t
-    return recs, figs, [tuple(int(v) for v in _center(it)[2:]) for it in body], tables
+    return recs, figs, [tuple(int(v) for v in _center(it)[2:]) for it in body], figure_kinds
 
 
 def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno=None, header=0, hard=(), raw_out=None, recs_out=None):
     """同上，但回傳 (行文字清單, 圖框清單, 正文字框清單, 表格清單)；欄分隔線前後各留一個空行。
-    表格在文字裡以「〔表格 k〕」佔位，內容（rows／widths）在表格清單第 k 個。"""
-    recs, figs, body_boxes, tables = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno, header, hard, raw_out)
+    表格和圖片一律以「〔含圖 k〕」佔位；figure_kinds 同序記錄其類型。"""
+    recs, figs, body_boxes, figure_kinds = ocr_page_ppocr_records(bgr, split_x, dpi, low_conf, prev_qno, header, hard, raw_out)
     if recs_out is not None:                         # 閱讀順序的文字行＋座標（_lines.json 的同一批行，多了 x）
         col = 0
         for r in recs:
@@ -937,7 +1014,7 @@ def ocr_page_ppocr_lines(bgr, split_x=None, dpi=300, low_conf=LOW_CONF, prev_qno
             lines += ["", r["text"], ""]
         else:
             lines.append(r["text"])
-    return lines, figs, body_boxes, tables, line_geometry(recs, bgr)
+    return lines, figs, body_boxes, figure_kinds, line_geometry(recs, bgr)
 
 
 def line_geometry(recs, bgr=None):
@@ -1132,7 +1209,7 @@ def _ocr_one_page(job):
             _progress(out_dir, started, "clean", n, pages, "本頁沒有需要清除的筆跡", clean_img)
         _progress(out_dir, started, "ocr", n, pages, "已讀取本頁文字", clean_img)
         return {"n": n, "text": f"\n【第 {n} 頁（數位文字層）】\n{native}", "report": f"p{n}: 文字層 {len(native)} 字（免 OCR）",
-                "tables": {}, "geo": [], "lines": [], "boxes": _try_native_boxes(page, rendered, dpi, n)}
+                "figure_kinds": {}, "geo": [], "lines": [], "boxes": _try_native_boxes(page, rendered, dpi, n)}
     # 掃描頁：render → (PP-OCR：圖區偵測＋圖內文字過濾｜Tesseract：舊版輪廓裁圖) → OCR
     bgr = rendered
     t0 = time.perf_counter()
@@ -1165,7 +1242,7 @@ def _ocr_one_page(job):
         t_layout = time.perf_counter() - ts
         ts = time.perf_counter()
         raw_boxes, rec_boxes = [], []
-        lines, fig_px, body_px, tables, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
+        lines, fig_px, body_px, figure_kinds, geo = ocr_page_ppocr_lines(bgr, lay["cuts"], dpi, prev_qno=prev_q,
                                                                    header=lay["header"], hard=lay["hard"],
                                                                    raw_out=raw_boxes, recs_out=rec_boxes)
         t_ocr = time.perf_counter() - ts
@@ -1176,7 +1253,7 @@ def _ocr_one_page(job):
     else:
         binimg = preprocess(bgr, upscale=upscale)
         figs = detect_figures(binimg, page.rect.height)
-        body_px, tables, geo = [], [], []
+        body_px, figure_kinds, geo = [], ["圖片"] * len(figs), []
         raw_boxes = rec_boxes = None
         txt = tidy_text(ocr_page(binimg, lang=lang, bgr=bgr, upscale=upscale, engine="tesseract"))
     dt = time.perf_counter() - t0
@@ -1196,7 +1273,7 @@ def _ocr_one_page(job):
     boxes = _ocr_boxes_record(n, dpi, turned, bgr, raw_boxes, rec_boxes) if raw_boxes is not None else None
     _progress(out_dir, started, "ocr", n, pages, "已辨識本頁文字", clean_img)
     return {"n": n, "text": f"\n【第 {n} 頁（掃描→OCR）{fig_note}】\n{txt}", "lines": lines, "boxes": boxes,
-            "tables": {f"p{n}_t{k}": {"rows": t["rows"], "widths": t["widths"]} for k, t in enumerate(tables, 1)},
+            "figure_kinds": {f"p{n}_fig{k}": kind for k, kind in enumerate(figure_kinds, 1)},
             "geo": geo,
             "report": f"p{n}: 掃描OCR[{eng_name}]，{len(txt)} 字，{len(figs)} 圖，OCR {dt:.1f}s"
                       + (f"，已自動轉正 {turned}°" if turned else "")
@@ -1245,7 +1322,7 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
     results.sort(key=lambda r: r["n"])
     all_text = [r["text"] for r in results]
     report = [r["report"] for r in results]
-    all_tables = {k: v for r in results for k, v in r["tables"].items()}
+    all_figure_kinds = {k: v for r in results for k, v in r["figure_kinds"].items()}
     all_geo = [g for r in results for g in r["geo"]]
     full = "\n".join(all_text).strip()
     if all_geo:                                      # 每行的版面位置（給切題用）
@@ -1257,10 +1334,10 @@ def process(pdf_path, out_dir, dpi=300, only_page=None, upscale=1.5, lang="chi_t
         import json
         with open(os.path.join(out_dir, f"{base}_ocr_boxes.json"), "w", encoding="utf-8") as f:
             json.dump({"version": 1, "pages": all_boxes}, f, ensure_ascii=False)
-    if all_tables:                                   # 〔表格 k〕的內容：{"p頁_tk": {"rows", "widths"(像素)}}
+    if all_figure_kinds:                             # 圖／表共用 PNG；供 Word／Excel 取得表格類型
         import json
-        with open(os.path.join(out_dir, f"{base}_tables.json"), "w", encoding="utf-8") as f:
-            json.dump(all_tables, f, ensure_ascii=False)
+        with open(os.path.join(out_dir, f"{base}_figure_kinds.json"), "w", encoding="utf-8") as f:
+            json.dump(all_figure_kinds, f, ensure_ascii=False)
     txt_path = os.path.join(out_dir, f"{base}.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(full)

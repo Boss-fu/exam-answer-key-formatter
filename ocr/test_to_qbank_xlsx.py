@@ -55,6 +55,13 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(complete_single_choice_options(["(A)甲", "(C)丙", "(B)乙"]),
                          ["(A)甲", "(C)丙", "(B)乙"])
 
+    def test_figure_marker_stays_at_stem_end_when_a_is_missing(self):
+        from to_qbank_xlsx import question_text
+        text = question_text({"stem": "哪一項正確？", "opts": ["(B)乙", "(C)丙", "(D)丁"],
+                              "kinds": ["圖片"], "pn": 1, "tf": False})
+        self.assertEqual(text.splitlines()[0], "哪一項正確？〔含圖〕")
+        self.assertEqual(text.splitlines()[1], "(A)")
+
     def test_question_numbers_follow_continuity_when_print_is_wrong(self):
         self.assertEqual(resolved_question_numbers([
             {"pn": 1}, {"pn": 2}, {"pn": 17}, {"pn": 4}, {"pn": None}, {"pn": 6},
@@ -76,6 +83,8 @@ class FixOcrTest(unittest.TestCase):
         self.assertEqual(fix_ocr("(D)已的後段"), "(D)己的後段")
         self.assertEqual(fix_ocr("(D)已經完成"), "(D)已經完成")
         self.assertEqual(fix_ocr("(C)內(D)T。"), "(C)丙(D)丁。")
+        self.assertEqual(fix_ocr("下列何者正礁？"), "下列何者正確？")
+        self.assertEqual(fix_ocr("礁石何者正礁化"), "礁石何者正礁化")
 
     def test_trailing_intro_moves_to_next_group(self):
         from to_qbank_xlsx import split_trailing_intro
