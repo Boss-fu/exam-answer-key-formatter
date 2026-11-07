@@ -82,10 +82,24 @@ def _col_of(x, starts):
 RE_LEAD_JUNK = re.compile(r"^[)）\s\d.．、]*")
 
 
+def _fix_misread_qnums(raw_lines, starts):
+    """OCR 認錯題號（「19.」讀成「49.」）：依閱讀順序（欄、由上而下），前後兩個題號差 2、自己卻不是中間那號，就改成中間那號。"""
+    numbered = sorted(((_col_of(l[0], starts), l[1], i, int(m.group(1))) for i, (l, t) in enumerate(raw_lines)
+                       for m in [RE_QNUM.match(str(t))] if m and text_like(t)))
+    fixed = {}
+    for (_c0, _y0, _i0, a), (_c1, _y1, i, x), (_c2, _y2, _i2, c) in zip(numbered, numbered[1:], numbered[2:]):
+        if c - a == 2 and x != a + 1:
+            t = str(raw_lines[i][1]); m = RE_QNUM.match(t)
+            fixed[i] = f"{a + 1}." + t[m.end():]
+    return [(l, fixed.get(i, t)) for i, (l, t) in enumerate(raw_lines)] if fixed else raw_lines
+
+
 def repair_qnums(raw_lines, W):
     """OCR 漏讀題號（「10.」讀成「1」、作答括號旁的題號被手寫蓋掉）：同一欄相鄰兩個題號差 g（2～4），
-    中間剛好 g−1 行從題號的 x 起頭（比續行、選項凸出）、不是題號也不是選項，就依序補上漏掉的題號。"""
+    中間剛好 g−1 行從題號的 x 起頭（比續行、選項凸出）、不是題號也不是選項，就依序補上漏掉的題號。
+    先修認錯的題號（_fix_misread_qnums），再補漏掉的。"""
     starts = _columns(raw_lines, W); tol = .006 * W
+    raw_lines = _fix_misread_qnums(raw_lines, starts)
     numbered = [(l, int(m.group(1))) for l, t in raw_lines for m in [RE_QNUM.match(str(t))] if m]
     fixed = {}
     for col in range(len(starts)):
@@ -599,10 +613,35 @@ def strip_caption(box, raw):
     return (x0, y0, x1, y1) if y1 - y0 > 40 else box
 
 
-def crop_items(img, model="pp_doc_layoutv3"):
+def crop_items(img, model="pp_doc_layoutv3", ocr_page=None, reuse_lines=None):
     """整頁流程：先轉正再切。回傳每張圖的 box（原頁座標）、box_nocap（評測用：不含圖說的框）、qno、crop（轉正後的圖）。
     提速：先跑一次整頁 OCR，行框看起來是直立的頁（最常見）就直接當 k=0、這批 OCR 給 crop_page 沿用，
-    不用再對 0.4 倍小圖另跑轉向 OCR（每頁省約 2 秒）。看起來不直立才走原本的 page_rotation。"""
+    不用再對 0.4 倍小圖另跑轉向 OCR（每頁省約 2 秒）。看起來不直立才走原本的 page_rotation。
+    ocr_page（ocr_reuse.PageOcr，--ocr-dir）：題號改用原稿 OCR＋切題結果約束（已對齊到本頁），多回傳 qno_conf；轉向用對齊結果。
+    reuse_lines：框的精修也用原稿 OCR 的行、不再對本頁跑 OCR（省時間，但框會因兩邊 OCR 字不同而變，見交接文件）；
+    預設看環境變數 FIGCROP_REUSE_LINES=1，否則精修照舊用本頁自己的 OCR（框和沒給 --ocr-dir 時一樣）。"""
+    if ocr_page is not None:
+        if reuse_lines is None:
+            reuse_lines = os.environ.get("FIGCROP_REUSE_LINES") == "1"
+        k = ocr_page.k
+        up = np.rot90(img, k).copy() if k else img
+        raw = []; boxes, _ = crop_page(up, model, raw, ocr=ocr_page.raw if reuse_lines else None)
+        items = []
+        for b in boxes:
+            r = ocr_page.assign(b); q, conf = r["qno"], r["conf"]
+            items.append({"box": tuple(int(v) for v in unrotate_box(b, k, img.shape)), "qno": q, "qno_conf": conf,
+                          "qno_group": list(r["group"]) if r["group"] else None, "qno_rule": r["rule"],
+                          "box_nocap": tuple(int(v) for v in unrotate_box(strip_caption(b, raw), k, img.shape)),
+                          "crop": up[b[1]:b[3], b[0]:b[2]], "_col": ocr_page._col_of(b), "_up": b})
+        last = None                              # 同頁依閱讀順序（欄、上下）題號倒退：標低信心，不改號
+        for it in sorted(items, key=lambda it: (it["_col"], it["_up"][1])):
+            if it["qno"] is not None:
+                if last is not None and it["qno"] < last:
+                    it["qno_conf"] = "low"
+                last = max(it["qno"], last or it["qno"])
+        for it in items:
+            it.pop("_col"); it.pop("_up")
+        return items
     first = []; text_lines(img, first)
     k = 0 if looks_upright(first) else page_rotation(img)
     up = np.rot90(img, k).copy() if k else img
@@ -635,7 +674,14 @@ def main():
     ap.add_argument("--dpi", type=int, default=300); ap.add_argument("--model", default="pp_doc_layoutv3")
     ap.add_argument("--pages", help="1 起算頁碼，例如 1,3-5；供逐頁執行")
     ap.add_argument("--json", action="store_true", help="輸出 JSON（座標用 PDF 點、裁圖 base64 PNG、推測題號）給茲茲 OCR／raw.html")
+    ap.add_argument("--ocr-dir", help="pyexam 對原稿跑出的資料夾（含 *_ocr_boxes.json）：沿用它的 OCR 與切題結果，不再對本 PDF 跑 OCR；"
+                                      "題號依切題結果約束，JSON 每張圖多一個 qno_conf（high／low）")
     a = ap.parse_args()
+    reuse = None
+    if a.ocr_dir:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ocr_reuse
+        reuse = ocr_reuse.OcrReuse(a.ocr_dir)
     os.makedirs(a.o, exist_ok=True)
     pages = []
     doc = pymupdf.open(a.pdf)
@@ -648,13 +694,14 @@ def main():
         dpi = page_dpi(page, a.dpi)
         pix = page.get_pixmap(dpi=dpi)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3][:, :, ::-1].copy()
-        boxes = crop_items(img, a.model)
+        boxes = crop_items(img, a.model, ocr_page=reuse.page(pn, img) if reuse else None)
         k_pt = 72 / dpi; items = []
         for k, it in enumerate(boxes, 1):
             x0, y0, x1, y1 = it["box"]
             path = os.path.join(a.o, f"p{pn}_fig{k}.png"); pyexam._imwrite(path, it["crop"])   # Windows 中文路徑
             items.append({"x": x0 * k_pt, "y": y0 * k_pt, "w": (x1 - x0) * k_pt, "h": (y1 - y0) * k_pt,
-                          "qno": it["qno"], "file": path})
+                          "qno": it["qno"], "file": path,
+                          **({"qno_conf": it["qno_conf"], "qno_group": it["qno_group"]} if "qno_conf" in it else {})})
         pages.append({"page": pn, "width": page.rect.width, "height": page.rect.height, "items": items})
         if not a.json:
             print(f"p{pn}: {len(boxes)} 張")

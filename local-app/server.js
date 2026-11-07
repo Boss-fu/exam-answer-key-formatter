@@ -270,13 +270,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/py-ocr/figcrop") {
       // 自動截圖：清稿 PDF → 圖形／表格裁圖（本機版面模型＋墨跡邊界精修），回傳 PDF 點座標、300dpi 裁圖與推測題號
-      const { dataBase64 } = JSON.parse(await readBody(req, 64 * 1024 * 1024) || "{}");
+      const { dataBase64, job } = JSON.parse(await readBody(req, 64 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少 PDF" });
       const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "figcrop-"));
       const pdf = path.join(dir, "source.pdf");
       fs.writeFileSync(pdf, Buffer.from(dataBase64, "base64"));
       const script = path.join(__dirname, "..", "ocr", "figcrop", "crop.py");
-      hostSerial(() => new Promise((finish) => execFile(pyBin(), [script, pdf, "-o", path.join(dir, "out"), "--json"],
+      const safeJob = safeJobId(job);
+      const ocrDir = safeJob && path.join(PYOCR_OUTPUT, safeJob, "result");
+      const hasOcrBoxes = ocrDir && fs.existsSync(ocrDir) && fs.readdirSync(ocrDir).some((name) => /_ocr_boxes\.json$/i.test(name));
+      const args = [script, pdf, "-o", path.join(dir, "out"), "--json"];
+      if (hasOcrBoxes) args.push("--ocr-dir", ocrDir);
+      hostSerial(() => new Promise((finish) => execFile(pyBin(), args,
         { cwd: path.join(__dirname, ".."), maxBuffer: 256 * 1024 * 1024, timeout: 10 * 60 * 1000 },
         (err, stdout, stderr) => {
           fs.rm(dir, { recursive: true, force: true }, () => {});

@@ -23,6 +23,9 @@ except ImportError:
     import crop, evalcache
 
 
+TIMES = {}
+
+
 def zip_name(name: str) -> str:
     """還原未設 UTF-8 flag 的中文 ZIP 名稱。"""
     try:
@@ -137,6 +140,9 @@ def exams(gt_dir: Path):
     return [p for p in sorted(gt_dir.iterdir()) if (p / "manual" / "manifest.json").exists()]
 
 
+OCR_ROOT = None     # --ocr-root：<資料夾>/<卷名>/ 有 *_ocr_boxes.json 就走 crop --ocr-dir 的路徑（沿用原稿 OCR）
+
+
 def run_exam(work: Path, review_dir: Path, only_pages=None):
     manifest = json.loads((work / "manual" / "manifest.json").read_text(encoding="utf-8"))
     # 同張題組圖在 manifest 會重複出現，評測時只保留一筆。
@@ -144,12 +150,19 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
     by_page = defaultdict(list)
     for asset in assets.values(): by_page[asset["page"]].append(asset)
     doc = pymupdf.open(work / "exam.pdf"); rows = []
+    reuse = None
+    if OCR_ROOT and list((OCR_ROOT / work.name).glob("*_ocr_boxes.json")):
+        import ocr_reuse
+        reuse = ocr_reuse.OcrReuse(OCR_ROOT / work.name)
+    import time
     for pn, wanted in sorted(by_page.items()):
         if only_pages and pn not in only_pages: continue
         image = render(doc[pn-1]); gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         feats = []      # 整頁 SIFT 只在樣板定位沒命中快取時才算
         page_features = lambda: feats[0] if feats else feats.append(cv2.SIFT_create().detectAndCompute(gray, None)) or feats[0]
-        items = crop.crop_items(image); boxes = [it["box"] for it in items]
+        t0 = time.perf_counter()
+        items = crop.crop_items(image, ocr_page=reuse.page(pn, image) if reuse else None); boxes = [it["box"] for it in items]
+        TIMES[work.name] = TIMES.get(work.name, 0) + time.perf_counter() - t0
         used = set()
         for asset in wanted:
             filename = asset["file"]; templ = imread_gray(work / "manual" / filename)
@@ -166,7 +179,7 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
             qno = items[j]["qno"] if auto_box else None
             auto_img = image[auto_box[1]:auto_box[3], auto_box[0]:auto_box[2]] if auto_box else None
             write_review(review_dir / f"{work.name}_{filename}", templ, auto_img, f"auto IoU={score:.3f} q={qno}")
-            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "iou_strict": strict, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
+            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "iou_strict": strict, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "qno_conf": items[j].get("qno_conf") if auto_box else None, "qno_group": items[j].get("qno_group") if auto_box else None, "qno_rule": items[j].get("qno_rule") if auto_box else None, "reuse": reuse is not None, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
         for j, b in enumerate(boxes):
             if j not in used and not any(iou(b, r["gt"]) >= .1 for r in rows if r.get("page") == pn and r.get("gt")):
                 rows.append({"exam": work.name, "page": pn, "extra": True, "auto": b})
@@ -177,7 +190,10 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--gt-dir", default=str(ROOT / "ocr/results/figcrop_gt")); ap.add_argument("--source-dir")
     ap.add_argument("--out", default=str(ROOT / "ocr/results/figcrop_gt")); ap.add_argument("--pages", help="僅跑指定頁，如 1,3-5")
     ap.add_argument("--no-cache", action="store_true", help="不用評測快取（OCR／版面模型／備援候選／樣板定位全部重算）")
+    ap.add_argument("--ocr-root", help="原稿 pyexam 結果的上層資料夾（<卷名>/*_ocr_boxes.json）：評 crop --ocr-dir")
     a = ap.parse_args(); out = Path(a.out); gt = Path(a.gt_dir)
+    global OCR_ROOT
+    OCR_ROOT = Path(a.ocr_root) if a.ocr_root else None
     global USE_CACHE
     if not a.no_cache: evalcache.enable(crop); USE_CACHE = True
     if a.source_dir: prepare(Path(a.source_dir), out); gt = out
@@ -192,6 +208,7 @@ def main():
     print("手動圖  召回@.8  平均IoU  多框  題號一致  平均偏移(L/T/R/B px)")
     print(f"{located:>5}  {summary['recall_iou80']!s:>8}  {summary['mean_iou']!s:>7}  {extras:>4}  {summary['qno_accuracy']!s:>8}  {summary['mean_offset_ltrb_px']}")
     if not a.no_cache: print(evalcache.summary())
+    print("切圖秒數（含版面模型；有快取時 OCR 幾乎不花時間，要比速度請加 --no-cache）：" + "、".join(f"{k} {v:.0f}" for k, v in TIMES.items()))
 
 
 if __name__ == "__main__": main()
