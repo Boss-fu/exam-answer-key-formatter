@@ -34,6 +34,7 @@ RE_CUE = re.compile(r"如圖|下圖|右圖|上圖|左圖|附圖|圖[（(]?[一�
 RE_LABEL = re.compile(r"[圖表]\s*[（(]?\s*([一二三四五六七八九十]{1,3}|\d{1,2})\s*[)）]?")
 RE_OPT_LINE = re.compile(r"^[(（]\s*[A-DＡ-Ｄ]\s*[)）]")
 RE_INTRO = re.compile(r"回答|作答|第\s*\d+\s*[~～至\-－—]\s*\d+\s*題|題組|^[(（][一二三四五六七八九十][)）]|^[一二三四五六七八九十]、")
+RE_RANGE = re.compile(r"(\d{1,2})\s*(?:[~～至到\-－—]|\s+to\s+)\s*(\d{1,2})\s*(?:題|問題)")
 RE_OPT_D = re.compile(r"[(（]\s*[DＤ]\s*[)）]")
 RE_QHEAD = re.compile(r"^\s*(?:[（(][^)）]{0,3}[)）])?\s*(\d{1,2})\s*[.．、]")
 
@@ -175,8 +176,9 @@ class OcrReuse:
                 rq = None
             gid = r.get("題組ID") or ""
             fst = bool(gid) and gid.split("-")[-1] == r["題號"]
-            matched.append((i, rq, fst, _body(r["題組文章"])[:12] if fst and r.get("題組文章") else ""))
-        rowq = {i: rq for i, rq, _f, _p in matched if rq is not None}
+            matched.append((i, rq, fst, _body(r["題組文章"])[:12] if fst and r.get("題組文章") else "", gid))
+        rowq = {i: rq for i, rq, _f, _p, _g in matched if rq is not None}
+        printed = dict(num)                          # 換段位移前的印刷題號（對「回答第 4～6 題」用）
         # 3) 換段：題號變小就是新的一段。新段和前面撞號時，看切題題號（它把換段重編換算成連續號）在這段的多數差值：
         #    差值 > 0 → 整段加上（第二部分又從 1 起）；差值 0 → 兩段之中對到切題較少的那段不是題目（卷首注意事項的 1. 2. 3.）。
         runs, cur = [], []
@@ -204,8 +206,8 @@ class OcrReuse:
                 kept = [r_ for r_ in kept if r_ not in clash] + [run]
         num = {i: num[i] for r_ in kept for i in r_}
         # 4) 題號被蓋掉、只有切題對到的行：依前後題號補號
-        first, passage_key = set(), {}
-        for i, rq, fst, pk in matched:
+        first, passage_key, gid_of = set(), {}, {}
+        for i, rq, fst, pk, gid in matched:
             if i not in num:
                 before = [j for j in num if j < i]; after = [j for j in num if j > i]
                 pn_ = num[max(before)] if before else None; nn_ = num[min(after)] if after else None
@@ -215,13 +217,37 @@ class OcrReuse:
                     num[i] = rq
                 else:
                     continue
+            if gid:
+                gid_of[i] = gid
             if fst:
                 first.add(i)
                 if pk:
                     passage_key[i] = pk
+        # 5) 題組範圍 {第一題: 最後一題}：切題的題組 ID ＋ 卷面印的「回答第 N～M 題」（範圍後面接著的第一題就是 N，換段重編照位移）
+        groups, intro_at = {}, {}
+        by_gid = {}
+        for i, g in gid_of.items():
+            by_gid.setdefault(g, []).append(num[i])
+        for i in first:
+            ns = sorted(by_gid.get(gid_of.get(i), [num[i]]))
+            groups[num[i]] = max(ns[-1], num[i])
+        for i, (_n, r) in enumerate(flat):
+            for m in RE_RANGE.finditer(_norm(r["text"]).replace("［", "(").replace("］", ")")):
+                a, b = int(m.group(1)), int(m.group(2))
+                if not 1 <= b - a <= 9 or RE_QHEAD.match(_norm(r["text"])):
+                    continue
+                nxt = [j for j in sorted(num) if j > i][:1]
+                if not nxt or nxt[0] - i > 40:
+                    continue
+                j = nxt[0]
+                if printed.get(j, num[j]) == a or num[j] == a:
+                    groups[num[j]] = num[j] + (b - a); first.add(j); intro_at.setdefault(num[j], i)
         out, passages = [], {}
-        for i in sorted(num):
-            out.append((len(out), num[i], i in first, flat[i][0], flat[i][1], _norm(" ".join(x[1]["text"] for x in flat[i:i + 3]))))
+        starts = sorted(num)
+        for k, i in enumerate(starts):
+            nxt_i = starts[k + 1] if k + 1 < len(starts) else len(flat)            # 題幹文字只到下一題起點
+            txt = lambda n_: _norm(" ".join(x[1]["text"] for x in flat[i:min(i + n_, nxt_i)]))
+            out.append((len(out), num[i], i in first, flat[i][0], flat[i][1], txt(3), txt(6)))
             pk = passage_key.get(i, "")
             if len(pk) >= 4:
                 lo = max([j for j in num if j < i], default=-1) + 1
@@ -229,7 +255,9 @@ class OcrReuse:
                 sc, j = max(cand, default=(0, None))
                 if sc >= 85:
                     passages[num[i]] = (flat[j][0], flat[j][1])
-        self._anchors = (out, passages, set(num.values()))   # 第三項：實際存在的題號
+            if num[i] not in passages and num[i] in intro_at:
+                j = intro_at[num[i]]; passages[num[i]] = (flat[j][0], flat[j][1])
+        self._anchors = (out, passages, set(num.values()), groups)   # 第三項：實際存在的題號；第四項：題組範圍
         return self._anchors
 
 def _angle(Hm):
@@ -275,11 +303,29 @@ class PageOcr:
 
     def qno(self, box):
         """回傳 (題號, 信心 'high'|'low')。"""
+        r = self.assign(box)
+        return r["qno"], r["conf"]
+
+    def assign(self, box):
+        """回傳 {qno, conf, rule, group}：group＝(題組第一題, 最後一題)（圖是題組共用圖時），否則 None。"""
+        q, conf, rule, key, akey = self._decide(box)
+        anchors, _p, _q, groups = self.reuse.anchors()
+        group = None
+        if q in groups and key is not None:
+            a = next((a for a in anchors if a[1] == q), None)
+            # 題組文章區的圖、或圖在題組第一題起點之前（閱讀順序）：整組共用
+            if rule in ("passage", "passage_text") or (a is not None and key < akey(a)):
+                group = (q, groups[q])
+        elif key is not None and (rule == "passage_text" or (rule not in ("cue_next", "label") and self._in_passage(box, q, anchors, akey, key))):
+            group = (q, None)                        # 範圍沒認出來，但圖在文章區：題組共用圖，最後一題未知
+        return {"qno": q, "conf": conf, "rule": rule, "group": group}
+
+    def _decide(self, box):
         import crop
         g = crop.guess_qno(box, self.raw, self.W)
-        anchors, passages, qset = self.reuse.anchors()
+        anchors, passages, qset, _groups = self.reuse.anchors()
         if not anchors:
-            return g, "low"
+            return g, "low", "no_anchor", None, None
         col = self._col_of(box); key = (self.n, col, box[1] + max(12, .012 * self.W))
         def akey(a):
             if a[3] != self.n:
@@ -293,10 +339,10 @@ class PageOcr:
             pp, prec = passages[nxt[1]]
             ps = (pp, self._col_x(self._pos(pp, prec)[0]), self._pos(pp, prec)[1]) if pp == self.n else (pp, -1, 0)
             if ps <= key and (prev is None or akey(prev) < ps):
-                return nxt[1], "high"
+                return nxt[1], "high", "passage", key, akey
         if prev is None or nxt is None:
             pick = (prev or nxt)[1]
-            return pick, "high" if pick == g else "low"
+            return pick, "high" if pick == g else "low", "edge", key, akey
         # 圖有圖號：配給題幹引用這個圖號的題（前後各看兩題）
         lab = self._label(box)
         cites = lambda a: {m.group(1) for m in RE_LABEL.finditer(a[5])}
@@ -305,7 +351,10 @@ class PageOcr:
             near = [a for a in anchors[max(0, i0 - 1):i0 + 3] if lab in cites(a)]
             if near:
                 pick = min(near, key=lambda a: abs(a[0] - i0 - .5))[1]
-                return pick, "high" if pick == g else "low"
+                # 引用它的是題組裡後面的小題、圖在題組文章區（下一題起點之前）：照使用者習慣配題組第一題
+                if pick > nxt[1] and self._in_passage(box, nxt[1], anchors, akey, key):
+                    return nxt[1], "low", "passage_text", key, akey
+                return pick, "high" if pick == g else "low", "label", key, akey
         same_col = akey(nxt)[:2] == (self.n, col)
         p_y = akey(prev)[2] if akey(prev)[:2] == (self.n, col) else -1
         # prev 的選項 (D) 在圖上方就結束了
@@ -317,17 +366,39 @@ class PageOcr:
             after = [str(t) for b, t in self.raw if d_last <= b[1] < box[1] and self._col_of(b) == col
                      and not RE_OPT_LINE.match(_norm(t)) and len(re.findall(r"[一-鿿]", str(t))) >= 6]
             if (nxt[2] and same_col) or len(after) >= 2 or any(RE_INTRO.search(t) for t in after):
-                return nxt[1], "high" if nxt[1] == g else "low"
+                return nxt[1], "high" if nxt[1] == g else "low", "passage_text", key, akey
+        # 欄頂的題組圖：上一題在別欄／別頁（找不到它的 (D)），圖到下一題之間是題組文章
+        if same_col and not ended and p_y < 0 and self._in_passage(box, nxt[1], anchors, akey, key):
+            return nxt[1], "high" if nxt[1] == g else "low", "passage_text", key, akey
         # 下一題題幹引用的是別的、有編號的圖（這張圖沒有那個圖號）：不是它的圖
         other = bool(cites(nxt)) and lab not in cites(nxt)
         if same_col and RE_CUE.search(nxt[5]) and not RE_CUE.search(prev[5]) and not other:
             beside = akey(nxt)[2] < (box[1] + box[3]) / 2               # 下一題在圖的上半起頭（圖印在題目旁）
             if ended or beside:
-                return nxt[1], "high" if nxt[1] == g else "low"
+                return nxt[1], "high" if nxt[1] == g else "low", "cue_next", key, akey
+        # 上一題題幹說「如圖」、下一題沒有：圖印在上一題的選項後面
+        if RE_CUE.search(prev[6]) and not RE_CUE.search(nxt[5]) and not lab and not cites(prev):
+            return prev[1], "high" if prev[1] == g else "low", "cue_prev", key, akey
         cands = {prev[1], nxt[1]}
         if g in cands:
-            return g, "high"
-        return prev[1], "low"
+            return g, "high", "guess", key, akey
+        return prev[1], "low", "prev", key, akey
+
+    def _in_passage(self, box, q, anchors, akey, key):
+        """圖在第 q 題起點之前，而且圖所在欄、上一題的 (D) 之後到 q 起點之間（圖本身以外）有 ≥2 行敘述或題組引言。"""
+        a = next((a for a in anchors if a[1] == q), None)
+        if a is None or not key < akey(a):
+            return False
+        col = self._col_of(box)
+        same = akey(a)[:2] == (self.n, col)
+        q_y = akey(a)[2] if same else float("inf")
+        ds = [b[3] for b, t in self.raw if RE_OPT_D.search(str(t)) and b[1] < box[1] and self._col_of(b) == col]
+        prev = [x for x in anchors if akey(x) < akey(a) and akey(x)[:2] == (self.n, col)]
+        lo = max(ds + [akey(prev[-1])[2] + 1] if prev else ds) if (ds or prev) else -1   # 上一題起點之後、它的 (D) 之後
+        txt = [str(t) for b, t in self.raw if self._col_of(b) == col and lo <= b[1] < q_y
+               and not (b[0] >= box[0] - 10 and b[2] <= box[2] + 10 and b[1] >= box[1] - 10 and b[3] <= box[3] + 10)
+               and not RE_OPT_LINE.match(_norm(t)) and not RE_QHEAD.match(_norm(t)) and len(re.findall(r"[一-鿿]", str(t))) >= 6]
+        return len(txt) >= 2 or any(RE_INTRO.search(t) for t in txt)
 
     def _label(self, box):
         """圖框裡或緊貼上下緣的短行若是圖號（圖(五)、表二）就回傳號碼字串。"""

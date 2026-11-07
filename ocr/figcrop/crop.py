@@ -628,8 +628,9 @@ def crop_items(img, model="pp_doc_layoutv3", ocr_page=None, reuse_lines=None):
         raw = []; boxes, _ = crop_page(up, model, raw, ocr=ocr_page.raw if reuse_lines else None)
         items = []
         for b in boxes:
-            q, conf = ocr_page.qno(b)
+            r = ocr_page.assign(b); q, conf = r["qno"], r["conf"]
             items.append({"box": tuple(int(v) for v in unrotate_box(b, k, img.shape)), "qno": q, "qno_conf": conf,
+                          "qno_group": list(r["group"]) if r["group"] else None, "qno_rule": r["rule"],
                           "box_nocap": tuple(int(v) for v in unrotate_box(strip_caption(b, raw), k, img.shape)),
                           "crop": up[b[1]:b[3], b[0]:b[2]], "_col": ocr_page._col_of(b), "_up": b})
         last = None                              # 同頁依閱讀順序（欄、上下）題號倒退：標低信心，不改號
@@ -699,7 +700,8 @@ def main():
             x0, y0, x1, y1 = it["box"]
             path = os.path.join(a.o, f"p{pn}_fig{k}.png"); pyexam._imwrite(path, it["crop"])   # Windows 中文路徑
             items.append({"x": x0 * k_pt, "y": y0 * k_pt, "w": (x1 - x0) * k_pt, "h": (y1 - y0) * k_pt,
-                          "qno": it["qno"], "file": path, **({"qno_conf": it["qno_conf"]} if "qno_conf" in it else {})})
+                          "qno": it["qno"], "file": path,
+                          **({"qno_conf": it["qno_conf"], "qno_group": it["qno_group"]} if "qno_conf" in it else {})})
         pages.append({"page": pn, "width": page.rect.width, "height": page.rect.height, "items": items})
         if not a.json:
             print(f"p{pn}: {len(boxes)} 張")

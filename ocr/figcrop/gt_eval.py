@@ -179,7 +179,7 @@ def run_exam(work: Path, review_dir: Path, only_pages=None):
             qno = items[j]["qno"] if auto_box else None
             auto_img = image[auto_box[1]:auto_box[3], auto_box[0]:auto_box[2]] if auto_box else None
             write_review(review_dir / f"{work.name}_{filename}", templ, auto_img, f"auto IoU={score:.3f} q={qno}")
-            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "iou_strict": strict, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "qno_conf": items[j].get("qno_conf") if auto_box else None, "reuse": reuse is not None, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
+            rows.append({"exam": work.name, "page": pn, "file": filename, "qno": asset["primary_question"], "gt": gt, "auto": auto_box, "iou": score, "iou_strict": strict, "hit": hit, "auto_qno": qno, "qno_ok": qno == asset["primary_question"] if hit else False, "qno_conf": items[j].get("qno_conf") if auto_box else None, "qno_group": items[j].get("qno_group") if auto_box else None, "qno_rule": items[j].get("qno_rule") if auto_box else None, "reuse": reuse is not None, "offset": [gt[0]-auto_box[0], gt[1]-auto_box[1], auto_box[2]-gt[2], auto_box[3]-gt[3]] if auto_box else None, "sift": [inliers, matches]})
         for j, b in enumerate(boxes):
             if j not in used and not any(iou(b, r["gt"]) >= .1 for r in rows if r.get("page") == pn and r.get("gt")):
                 rows.append({"exam": work.name, "page": pn, "extra": True, "auto": b})
