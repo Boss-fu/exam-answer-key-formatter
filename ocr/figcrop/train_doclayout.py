@@ -166,7 +166,7 @@ def _fast_cfg(template, run, epochs, size, workers, freeze):
     sub(r"^worker_num: \d+$", f"worker_num: {workers}"); sub(r"^  use_shared_memory: true$", "  use_shared_memory: false")
     sub(r"^use_vdl: true$", "use_vdl: false"); sub(r"^eval: true$", "eval: false")
     sub(r"^(  - BatchRandomResize:\n(?:      .*\n)*?)      random_size: true\n      target_size:\n(?:      - \d+\n)+",
-        lambda m: m.group(1) + f"      random_size: false\n      target_size:\n      - {size}\n")
+        lambda m: m.group(1) + f"      random_size: false\n      target_size:\n      - {size}\n      - {size}\n")   # 不隨機時 target_size 是 [h, w]
     if freeze:
         sub(r"^(PPHGNetV2:\n  arch: L\n)  freeze_at: 0\n  freeze_norm: true\n  freeze_stem_only: true$",
             lambda m: m.group(1) + "  freeze_at: 3\n  freeze_norm: true\n  freeze_stem_only: false")
@@ -194,6 +194,10 @@ def train_fast(a):
     first, code = None, None
     for raw in pr.stdout:
         line = raw.decode("utf-8", errors="replace"); log.write(line); log.flush()
+        if _re.match(r"\w*Error: ", line):          # 資料載入執行緒丟例外時主程序會卡住不結束：看到就停
+            pr.kill(); code = 4
+            print(f"訓練出錯停止：{line.strip()}", flush=True)
+            break
         m = _re.search(r"Epoch: \[(\d+)\] \[\s*(\d+)/(\d+)\].*batch_cost: ([\d.]+)", line)
         if m:
             ep, it, n, bc = int(m.group(1)), int(m.group(2)), int(m.group(3)), float(m.group(4))
