@@ -4,7 +4,8 @@
 三個 venv（互不干擾）：
     評測 venv（zizi-exam）：  python ocr/figcrop/train_doclayout.py data [--long 1600]
     訓練 venv（paddle-layout，paddlepaddle 3.1.1 CPU＋paddlex 3.7.2＋PaddleDetection 外掛＋paddle2onnx 2.1.0）：
-                              python ocr/figcrop/train_doclayout.py train --fold 0 --epochs 1 [--limit 16] [--freeze]
+                              python ocr/figcrop/train_doclayout.py train --fold 0 --epochs 1 [--limit 16]   （PaddleX 介面；也產生 config.yaml 樣板）
+                              python ocr/figcrop/train_doclayout.py train_fast --fold 0 --epochs 10 --freeze   （直呼 PaddleDetection：凍骨幹、固定 800、2 worker、停損）
                               python ocr/figcrop/train_doclayout.py onnx  --run <訓練輸出資料夾>
     評測 venv：               python ocr/figcrop/train_doclayout.py eval  --onnx <model.onnx> --fold 0
 資料集在 ocr/results/doclayout_train（不進 git，含考卷）；權重、訓練輸出在 ocr/results/paddle_layout。
@@ -142,11 +143,74 @@ def train(a):
     shutil.copy(DATA / "annotations" / val, DATA / "annotations" / "instance_val.json")
     cmd = [sys.executable, str(main), "-c", str(cfg)] + [x for k, v in ov.items() for x in ("-o", f"{k}={v}")]
     env = dict(os.environ, PYTHONUTF8="1")
-    if a.freeze:      # 凍結骨幹：PaddleDetection 讀 PDX 產生的 yml，這裡用環境變數告訴 patch（見 _freeze_patch）
-        env["FIGCROP_FREEZE_BACKBONE"] = "1"
+    if a.freeze:
+        print("PaddleX 介面改不到骨幹凍結，請用 train_fast --freeze", flush=True)
     t0 = time.time(); print(" ".join(cmd), flush=True)
     r = subprocess.run(cmd, env=env, cwd=str(WORK))
     print(f"訓練結束 code={r.returncode}，{time.time() - t0:.0f} 秒；輸出 {run}")
+
+
+def _fast_cfg(template, run, epochs, size, workers, freeze):
+    """PaddleX 產生的 PaddleDetection config.yaml（已含 CPU、路徑、學習率、batch）改成快速版：
+    凍結骨幹（stem＋四個 stage，freeze_at=3）、固定輸入 size（不做多尺度）、worker_num、關共享記憶體、訓練中不評估。"""
+    import re as _re
+    t = Path(template).read_text(encoding="utf-8")
+    def sub(pat, new, flags=_re.M):
+        nonlocal t
+        t2, n = _re.subn(pat, lambda m: new(m) if callable(new) else new, t, count=1, flags=flags)
+        if n != 1:
+            raise SystemExit(f"config 樣板對不上：{pat}")
+        t = t2
+    sub(r"^epoch: \d+$", f"epoch: {epochs}"); sub(r"^snapshot_epoch: \d+$", f"snapshot_epoch: {epochs}")
+    sub(r"^save_dir: .*$", f"save_dir: {run}"); sub(r"^vdl_log_dir: .*$", f"vdl_log_dir: {run}")
+    sub(r"^worker_num: \d+$", f"worker_num: {workers}"); sub(r"^  use_shared_memory: true$", "  use_shared_memory: false")
+    sub(r"^use_vdl: true$", "use_vdl: false"); sub(r"^eval: true$", "eval: false")
+    sub(r"^(  - BatchRandomResize:\n(?:      .*\n)*?)      random_size: true\n      target_size:\n(?:      - \d+\n)+",
+        lambda m: m.group(1) + f"      random_size: false\n      target_size:\n      - {size}\n")
+    if freeze:
+        sub(r"^(PPHGNetV2:\n  arch: L\n)  freeze_at: 0\n  freeze_norm: true\n  freeze_stem_only: true$",
+            lambda m: m.group(1) + "  freeze_at: 3\n  freeze_norm: true\n  freeze_stem_only: false")
+    out = Path(run) / "fast_config.yaml"; out.write_text(t, encoding="utf-8")
+    return out
+
+
+def train_fast(a):
+    """直接呼叫 PaddleDetection tools/train.py（PaddleX 的 -o 改不到骨幹凍結、多尺度、worker）。
+    停損（監督 #80）：前 3 個 iter 估一輪時間，超過 --max-epoch-min 分鐘就停掉、回傳 code 3。"""
+    import re as _re
+    run = WORK / (a.tag or f"fold{a.fold}_e{a.epochs}_fast{'_frz' if a.freeze else ''}")
+    run.mkdir(parents=True, exist_ok=True)
+    ann = f"fold{a.fold}_train.json" if a.fold >= 0 else "all_train.json"
+    val = f"fold{a.fold}_val.json" if a.fold >= 0 else ann
+    shutil.copy(DATA / "annotations" / ann, DATA / "annotations" / "instance_train.json")
+    shutil.copy(DATA / "annotations" / val, DATA / "annotations" / "instance_val.json")
+    cfg = _fast_cfg(a.template, run, a.epochs, a.size, a.workers, a.freeze)
+    repo = Path(sys.prefix) / "Lib/site-packages/paddlex/repo_manager/repos/PaddleDetection"
+    cmd = [sys.executable, "tools/train.py", "--config", str(cfg)]
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    t0 = time.time(); print(" ".join(cmd), flush=True)
+    log = open(run / "train.log", "w", encoding="utf-8")
+    pr = subprocess.Popen(cmd, cwd=str(repo), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    first, code = None, None
+    for raw in pr.stdout:
+        line = raw.decode("utf-8", errors="replace"); log.write(line); log.flush()
+        m = _re.search(r"Epoch: \[(\d+)\] \[\s*(\d+)/(\d+)\].*batch_cost: ([\d.]+)", line)
+        if m:
+            ep, it, n, bc = int(m.group(1)), int(m.group(2)), int(m.group(3)), float(m.group(4))
+            print(f"epoch {ep} iter {it}/{n} batch_cost {bc:.1f}s 已過 {time.time() - t0:.0f}s", flush=True)
+            if ep == 0 and it == 2 and first is None:
+                first = n * bc / 60
+                print(f"估一輪 {first:.1f} 分鐘", flush=True)
+                if first > a.max_epoch_min:
+                    pr.kill(); code = 3
+                    print(f"停損：一輪估 {first:.1f} 分 > {a.max_epoch_min} 分，停止", flush=True)
+                    break
+    pr.wait(); log.close()
+    code = code if code is not None else pr.returncode
+    (run / "fast_result.json").write_text(json.dumps({"code": code, "sec": round(time.time() - t0), "epoch_min_est": first},
+                                                     ensure_ascii=False), encoding="utf-8")
+    print(f"訓練結束 code={code}，{time.time() - t0:.0f} 秒；輸出 {run}")
+    sys.exit(code)
 
 
 def to_onnx(a):
@@ -208,12 +272,16 @@ def main():
     t = sub.add_parser("train"); t.add_argument("--fold", type=int, default=0); t.add_argument("--epochs", type=int, default=1)
     t.add_argument("--batch", type=int, default=2); t.add_argument("--lr", type=float, default=2e-5); t.add_argument("--warmup", type=int, default=10)
     t.add_argument("--limit", type=int, default=0); t.add_argument("--freeze", action="store_true"); t.add_argument("--tag")
+    f = sub.add_parser("train_fast"); f.add_argument("--fold", type=int, default=0); f.add_argument("--epochs", type=int, default=10)
+    f.add_argument("--template", default=str(WORK / "fold0_e1_n8/config.yaml"), help="PaddleX 跑過一次 train 產生的 config.yaml")
+    f.add_argument("--size", type=int, default=800); f.add_argument("--workers", type=int, default=2)
+    f.add_argument("--freeze", action="store_true"); f.add_argument("--max-epoch-min", type=float, default=15); f.add_argument("--tag")
     o = sub.add_parser("onnx"); o.add_argument("--run", required=True)
     o.add_argument("--ref", default=str(Path.home() / ".venvs/zizi-exam/Lib/site-packages/rapid_layout/models/pp_doc_layoutv3.onnx"))
     e = sub.add_parser("eval"); e.add_argument("--onnx", required=True); e.add_argument("--fold", type=int, default=0)
     e.add_argument("--eval", default=str(ROOT / "ocr/results/figcrop_gt/baseline.json")); e.add_argument("--gt-dir", default=str(ROOT / "ocr/results/figcrop_gt"))
     a = ap.parse_args()
-    {"data": build, "train": train, "onnx": to_onnx, "eval": evaluate}[a.cmd](a)
+    {"data": build, "train": train, "train_fast": train_fast, "onnx": to_onnx, "eval": evaluate}[a.cmd](a)
 
 
 if __name__ == "__main__":
