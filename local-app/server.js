@@ -29,6 +29,17 @@ const CLEAN_OUTPUT = path.join(OUTPUT, "clean-exams");
 const PKG_OUTPUT = path.join(OUTPUT, "exam-packages");
 const OCR_OUTPUT = path.join(OUTPUT, "ocr-review");
 const PYOCR_OUTPUT = path.join(OUTPUT, "py-ocr");
+const FIGCROP_OUTPUT = path.join(OUTPUT, "figcrop");
+// 非同步切圖結果含整份裁圖，留 6 小時讓手機斷線後還拿得回來，之後清掉
+function cleanFigcropJobs(keep) {
+  try {
+    for (const name of fs.readdirSync(FIGCROP_OUTPUT)) {
+      if (name === keep) continue;
+      const p = path.join(FIGCROP_OUTPUT, name);
+      if (Date.now() - fs.statSync(p).mtimeMs > 6 * 3600 * 1000) fs.rmSync(p, { recursive: true, force: true });
+    }
+  } catch {}
+}
 const LABEL_OUTPUT = path.join(OUTPUT, "label");
 let revision = "unknown";
 try { revision = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 2000 }).trim(); } catch {}
@@ -270,7 +281,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/py-ocr/figcrop") {
       // 自動截圖：清稿 PDF → 圖形／表格裁圖（本機版面模型＋墨跡邊界精修），回傳 PDF 點座標、300dpi 裁圖與推測題號
-      const { dataBase64, job } = JSON.parse(await readBody(req, 64 * 1024 * 1024) || "{}");
+      // async:true → 立刻回 cropJob，前端用 /api/py-ocr/figcrop-status 輪詢（手機 4G／鎖螢幕時長連線會斷，Safari 顯示 Load failed）
+      const { dataBase64, job, async: runAsync } = JSON.parse(await readBody(req, 64 * 1024 * 1024) || "{}");
       if (!dataBase64) return sendJson(res, 400, { ok: false, error: "缺少 PDF" });
       const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "figcrop-"));
       const pdf = path.join(dir, "source.pdf");
@@ -281,18 +293,40 @@ const server = http.createServer(async (req, res) => {
       const hasOcrBoxes = ocrDir && fs.existsSync(ocrDir) && fs.readdirSync(ocrDir).some((name) => /_ocr_boxes\.json$/i.test(name));
       const args = [script, pdf, "-o", path.join(dir, "out"), "--json"];
       if (hasOcrBoxes) args.push("--ocr-dir", ocrDir);
-      hostSerial(() => new Promise((finish) => execFile(pyBin(), args,
+      const run = () => hostSerial(() => new Promise((finish) => execFile(pyBin(), args,
         { cwd: path.join(__dirname, ".."), maxBuffer: 256 * 1024 * 1024, timeout: 10 * 60 * 1000 },
         (err, stdout, stderr) => {
           fs.rm(dir, { recursive: true, force: true }, () => {});
           // 模型引擎偶爾在程式結束時才當掉（recursive_mutex），結果已完整輸出：能解析出 ok 的 JSON 就採用
           let data = null;
           try { data = JSON.parse(stdout.slice(stdout.indexOf("{"))); } catch (e) {}
-          if (data && data.ok) sendJson(res, 200, data);
-          else sendJson(res, 500, { ok: false, error: "自動截圖失敗：" + String(stderr || (err && err.message) || "結果無法解析").slice(-400) });
-          finish();
+          finish(data && data.ok ? data : { ok: false, error: "自動截圖失敗：" + String(stderr || (err && err.message) || "結果無法解析").slice(-400) });
         })));
-      return;
+      if (!runAsync) { const data = await run(); return sendJson(res, data.ok ? 200 : 500, data); }
+      const cropJob = require("crypto").randomBytes(12).toString("hex");
+      const cropDir = path.join(FIGCROP_OUTPUT, cropJob);
+      fs.mkdirSync(cropDir, { recursive: true });
+      cleanFigcropJobs(cropJob);
+      fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "running", queued: hostWaiting > 0 }));
+      run().then((data) => {
+        fs.writeFileSync(path.join(cropDir, "result.json"), JSON.stringify(data));
+        fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "done" }));
+      }).catch((error) => {
+        fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "error", error: "自動截圖失敗：" + (error && error.message || error) }));
+      });
+      return sendJson(res, 200, { ok: true, cropJob });
+    }
+    if (req.method === "GET" && url.pathname === "/api/py-ocr/figcrop-status") {
+      const cropJob = safeJobId(url.searchParams.get("id"));
+      if (!cropJob) return sendJson(res, 400, { ok: false, error: "無效的工作編號" });
+      const cropDir = path.join(FIGCROP_OUTPUT, cropJob);
+      let state = null; try { state = JSON.parse(fs.readFileSync(path.join(cropDir, "state.json"), "utf8")); } catch {}
+      if (!state) return sendJson(res, 404, { ok: false, done: true, error: "找不到這筆切圖工作（主機可能重開過），請再按一次自動裁切" });
+      if (state.status === "error") return sendJson(res, 200, { ok: false, done: true, error: state.error });
+      if (state.status !== "done") return sendJson(res, 200, { ok: true, done: false, queued: !!state.queued });
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      const body = fs.readFileSync(path.join(cropDir, "result.json"), "utf8");
+      return res.end(body.replace(/^\{/, '{"done":true,'));
     }
     if (req.method === "POST" && url.pathname === "/api/label/queue") return sendJson(res, 200, await runLabel(["queue"]));
     if (req.method === "POST" && url.pathname === "/api/label/upload") {
