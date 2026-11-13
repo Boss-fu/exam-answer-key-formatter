@@ -31,7 +31,7 @@ Get-Content -Encoding UTF8 (Join-Path $Root "ocr\requirements.txt") |
   ForEach-Object { ($_ -replace '#.*$', '').Trim() } |
   Where-Object { $_ -and $_ -notmatch "rapid-latex-ocr" } |
   Set-Content -Encoding ASCII $Requirements
-& $VenvPython -m pip install -r $Requirements python-docx rapidfuzz
+& $VenvPython -m pip install -r $Requirements python-docx rapidfuzz openpyxl
 if ($LASTEXITCODE -ne 0) { throw "安裝 OCR Python 套件失敗（結束碼：$LASTEXITCODE）" }
 
 $Models = Join-Path $Root "ocr\models"
@@ -50,6 +50,6 @@ if (Test-Path (Join-Path $Models "ppocrv5_dict.txt")) {
   Copy-Item (Join-Path $Models "ppocrv5_dict.txt") (Join-Path $ServerModels "ppocrv5_dict.txt") -ErrorAction SilentlyContinue
 }
 
-& $VenvPython -c "import rapidocr_onnxruntime, cv2, fitz, docx, rapidfuzz, opencc; print('Python 套件 OK')"
+& $VenvPython -c "import rapidocr_onnxruntime, cv2, fitz, docx, rapidfuzz, opencc, openpyxl; print('Python 套件 OK')"
 Write-Host "完成：$Venv"
 Write-Host "另請安裝 Poppler（需提供 pdftotext；OCR 轉圖也需要 pdftoppm），並將其 bin 加入 PATH。"

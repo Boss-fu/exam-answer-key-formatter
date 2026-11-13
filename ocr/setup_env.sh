@@ -13,9 +13,9 @@ if [ ! -x "$VENV/bin/python" ]; then
   PY311="$(command -v python3.11 || echo "$HOME/.pyenv/versions/3.11.9/bin/python")"
   "$PY311" -m venv "$VENV"
   grep -v rapid-latex-ocr ocr/requirements.txt > /tmp/ocr_req.txt
-  "$VENV/bin/pip" install -q -r /tmp/ocr_req.txt python-docx rapidfuzz
+  "$VENV/bin/pip" install -q -r /tmp/ocr_req.txt python-docx rapidfuzz openpyxl
 fi
-"$VENV/bin/python" -c "import rapidocr_onnxruntime, cv2, pymupdf, docx, rapidfuzz, opencc; print('Python 套件 OK')"
+"$VENV/bin/python" -c "import rapidocr_onnxruntime, cv2, pymupdf, docx, rapidfuzz, opencc, openpyxl; print('Python 套件 OK')"
 
 # ---- 2. 模型 ----
 mkdir -p ocr/models/server

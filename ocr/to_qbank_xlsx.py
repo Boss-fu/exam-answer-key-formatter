@@ -8,7 +8,17 @@
 """
 import argparse, os, re, sys, tempfile
 
-import openpyxl
+try:
+    import openpyxl
+except ModuleNotFoundError:
+    # 舊主機用 setup_env 建的環境沒有 openpyxl（題庫 Excel 會 500）：第一次用到時自動補裝。
+    # 主機只靠 git 自動更新、不會重跑 pip，所以在這裡補；裝完照常執行。
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "openpyxl>=3.1"],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=150)
+    import importlib
+    importlib.invalidate_caches()
+    import openpyxl
 from openpyxl.styles import Alignment, Font
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
