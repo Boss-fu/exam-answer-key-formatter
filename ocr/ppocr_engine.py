@@ -19,6 +19,8 @@ import os
 import numpy as np
 import threading
 
+from ocr_symbols import fix_symbols
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _FILES = ("det.onnx", "rec.onnx", "ppocrv5_dict.txt")
 # rapidocr 預設超過 2000px 的邊會被縮小；整欄影像（300dpi A4 約 3300px 高）縮小後小字會變糊。
@@ -81,7 +83,7 @@ def to_traditional(text):
     整句丟給 OpenCC 會把正確的繁體改錯：干擾→幹擾、游離→遊離、准→準。"""
     cc = _get_cc()
     if not cc:
-        return text
+        return fix_symbols(text)
     out = []
     for ch in text:
         if ord(ch) > 0x2E80:
@@ -95,7 +97,7 @@ def to_traditional(text):
                 except UnicodeEncodeError:
                     pass
         out.append(ch)
-    return "".join(out)
+    return fix_symbols("".join(out))
 
 
 # ---------------------------------------------------------------- Apple Vision（macOS 內建，用神經網路引擎，幾乎不吃 CPU）
@@ -143,7 +145,7 @@ def rec_only(img):
     img = np.ascontiguousarray(img)
     if ENGINE == "vision":
         r = _vision(img)
-        return ("".join(t for _, t, _ in r).strip(), max((c for _, _, c in r), default=0.0))
+        return (fix_symbols("".join(t for _, t, _ in r)).strip(), max((c for _, _, c in r), default=0.0))
     result, _ = _get_engine()(img, use_det=False, use_cls=False, use_rec=True)
     if not result:
         return "", 0.0
