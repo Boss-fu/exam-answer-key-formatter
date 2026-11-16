@@ -34,22 +34,15 @@ winget install --id Tailscale.Tailscale -e --source winget    # 已裝就略過�
 ```
 安裝後**關掉並重開 PowerShell**，再驗證 `git -v`、`node -v`、`py -3.11 --version`。
 
-### 2. 取得程式碼（用安裝包，不需要 GitHub 權限）
+### 2. 取得程式碼（直接下載安裝包，不需要 GitHub 權限、不需要密碼）
 - 位置：`C:\詳解應用`（**不要放在 Dropbox／OneDrive 裡**）。
-- 安裝包放在公開網站上，**已用管理員密碼加密**，要用密碼才打得開：
 ```powershell
-mkdir $env:TEMP\zizi-pkg -Force | Out-Null; cd $env:TEMP\zizi-pkg
-Invoke-WebRequest https://science-qbank.vercel.app/downloads/zizi-host-windows.zip.enc -OutFile pkg.enc
-Invoke-WebRequest https://science-qbank.vercel.app/downloads/decrypt-host-package.js -OutFile decrypt.js
-node decrypt.js pkg.enc pkg.zip        # 這裡會請擁有者「自己輸入」管理員密碼（輸入時不顯示）
-```
-- **密碼由擁有者自己輸入**。你不要向擁有者要密碼、不要把密碼寫進命令或檔案、不要讀取任何密碼檔。若不是互動式終端機無法隱藏輸入，請擁有者改用瀏覽器開 `https://science-qbank.vercel.app/host-download.html` 輸入密碼下載 `zizi-host-windows.zip`，再接下一步。
-- 解壓縮成 `C:\詳解應用`（壓縮檔內最上層資料夾叫「詳解應用」）：
-```powershell
-Expand-Archive -Path pkg.zip -DestinationPath C:\ -Force
+Invoke-WebRequest https://science-qbank.vercel.app/downloads/zizi-host-windows.zip -OutFile $env:TEMP\zizi-host-windows.zip
+Expand-Archive -Path $env:TEMP\zizi-host-windows.zip -DestinationPath C:\ -Force
 Test-Path C:\詳解應用\local-app\install-host-service.ps1
 Get-Content C:\詳解應用\先看這裡.txt
 ```
+- 壓縮檔內最上層資料夾叫「詳解應用」。也可以請擁有者用瀏覽器開 `https://science-qbank.vercel.app/host-download.html` 按「下載安裝包」。
 - 解壓縮後請閱讀 `先看這裡.txt`；它與本 skill 的步驟一致，兩者不同時以 `先看這裡.txt` 為準並告訴擁有者。
 - 這個安裝包**沒有自動更新**。之後有新版會請擁有者再下載一次，重跑本 skill 即可（重複安裝是安全的）。
 
