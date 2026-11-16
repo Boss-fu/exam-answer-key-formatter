@@ -2,6 +2,9 @@ name: build-desktop
 # 在 Windows 建置 ZiziOCR 桌面版（無視窗＋系統匣），建置後用 --selftest 實際跑一份 OCR／題庫 Excel／自動切圖驗證。
 # 手動觸發：Actions → build-desktop → Run workflow。tag 填版本（例如 2.0.0）時會發佈到公開 repo 的 release（需要 PUBLISH_TOKEN）。
 on:
+  push:
+    branches: [claude/zizi-host-app]
+    paths: ['desktop/**', '.github/workflows/build-desktop.yml']
   workflow_dispatch:
     inputs:
       tag:
@@ -87,7 +90,7 @@ jobs:
           path: ${{ runner.temp }}/ZiziOCR-windows.zip
           retention-days: 14
       - name: Publish release to public repo
-        if: ${{ inputs.tag != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
