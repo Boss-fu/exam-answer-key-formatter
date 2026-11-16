@@ -93,9 +93,13 @@ function gitPull() {
 async function main() {
   if (!takeLock()) { log("已有另一份在跑，結束"); return process.exit(0); }
   log(`=== 啟動（${os.hostname()}，pid ${process.pid}）===`);
+  // 同時處理幾份：local-app/host-config.json 例如 {"ocrConcurrency":2,"aiConcurrency":3}（沒有這個檔＝都是 1）
+  let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(path.join(HERE, "host-config.json"), "utf8")); } catch (e) {}
+  const num = (v) => String(Math.max(1, Math.min(8, parseInt(v, 10) || 1)));
+  log(`並行數：OCR/切圖 ${num(cfg.ocrConcurrency)}、AI 分類 ${num(cfg.aiConcurrency)}`);
   const kids = [
-    keep("ocr", path.join(HERE, "server.js"), {}),
-    keep("ai-bridge", path.join(HERE, "ai-bridge.cjs"), { BRIDGE_OPEN: process.env.BRIDGE_OPEN || "1", BRIDGE_PORT: String(BRIDGE_PORT) }),
+    keep("ocr", path.join(HERE, "server.js"), { HOST_CONCURRENCY: num(cfg.ocrConcurrency) }),
+    keep("ai-bridge", path.join(HERE, "ai-bridge.cjs"), { BRIDGE_OPEN: process.env.BRIDGE_OPEN || "1", BRIDGE_PORT: String(BRIDGE_PORT), BRIDGE_CONCURRENCY: num(cfg.aiConcurrency) }),
   ];
   const stopAll = () => { kids.forEach((k) => k.stop()); releaseLock(); process.exit(0); };
   process.on("SIGINT", stopAll); process.on("SIGTERM", stopAll); process.on("exit", releaseLock);

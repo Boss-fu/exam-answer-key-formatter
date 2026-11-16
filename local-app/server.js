@@ -1,3 +1,4 @@
+require("./hide-windows");   // Windows 背景執行：子程式不跳黑視窗
 const auth = require('./auth').createAuth();
 const feedback = require('./feedback').createFeedback();
 const answerQuota = require('./quota').createQuota();
@@ -132,17 +133,15 @@ function pyOcrResponse(job, result) {
     docxUrl: result.docxFile ? `/api/py-ocr/download?job=${job}&kind=docx` : null,
     qbankUrl: result.txtFile ? `/api/py-ocr/qbank-xlsx?job=${job}` : null };
 }
-// OCR 與切圖都吃滿記憶體：同一時間只跑一個，其餘排隊；.host_busy 讓背景驗收先讓路
+// OCR 與切圖都吃滿記憶體：預設同一時間只跑一個，其餘排隊；HOST_CONCURRENCY 可調高（主機夠強時）。
+// .host_busy 讓背景驗收先讓路
 const HOST_BUSY = path.join(__dirname, "output", ".host_busy");
-let hostTail = Promise.resolve(), hostWaiting = 0;
-function hostSerial(work) {
-  hostWaiting += 1;
-  try { fs.writeFileSync(HOST_BUSY, String(Date.now())); } catch {}
-  const run = hostTail.then(work);
-  const done = () => { hostWaiting -= 1; if (!hostWaiting) fs.rm(HOST_BUSY, { force: true }, () => {}); };
-  hostTail = run.then(done, done);
-  return run;
-}
+const { createHostQueue } = require("./host-queue");
+const hostQueue = createHostQueue(process.env.HOST_CONCURRENCY || 1, (waiting) => {
+  if (waiting > 0) { try { fs.writeFileSync(HOST_BUSY, String(Date.now())); } catch {} }
+  else fs.rm(HOST_BUSY, { force: true }, () => {});
+});
+const hostSerial = (work) => hostQueue.run(work);
 function pyOcrJobPaths(job) {
   const jobDir = path.join(PYOCR_OUTPUT, job);
   return { jobDir, resultDir: path.join(jobDir, "result") };
@@ -307,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       const cropDir = path.join(FIGCROP_OUTPUT, cropJob);
       fs.mkdirSync(cropDir, { recursive: true });
       cleanFigcropJobs(cropJob);
-      fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "running", queued: hostWaiting > 0 }));
+      fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "running", queued: hostQueue.isQueued() }));
       run().then((data) => {
         fs.writeFileSync(path.join(cropDir, "result.json"), JSON.stringify(data));
         fs.writeFileSync(path.join(cropDir, "state.json"), JSON.stringify({ status: "done" }));

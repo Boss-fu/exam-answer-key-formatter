@@ -2,6 +2,8 @@
 $here = $PSScriptRoot
 $t = Get-ScheduledTask -TaskName '茲茲主機背景服務' -ErrorAction SilentlyContinue
 Write-Host ("工作排程：" + $(if ($t) { $t.State } else { '未安裝' }))
+$tray = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'host-tray\.ps1' }
+Write-Host ("系統匣小工具：" + $(if ($tray) { '執行中（右下角圖示）' } else { '沒有在跑（開始功能表 → 茲茲主機 可重新叫出）' }))
 $lock = Join-Path $here 'output\host-supervisor.lock'
 $pidTxt = if (Test-Path $lock) { (Get-Content $lock).Trim() } else { '' }
 $run = $pidTxt -and (Get-Process -Id ([int]$pidTxt) -ErrorAction SilentlyContinue)
