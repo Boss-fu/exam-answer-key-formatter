@@ -1,6 +1,7 @@
 ﻿# 茲茲主機背景服務 安裝（Windows）：一次設定，之後開機登入自動在背景執行（沒有視窗，不會被誤關）
 # 包含：OCR 主機＋AI 橋接＋Tailscale HTTPS 入口。重複執行是安全的（會覆蓋舊設定）。
 # 若這台電腦原本用「詳解本機應用 自動更新」＋start.bat，會先停用舊的（記錄起來，可用解除安裝腳本還原）。
+param([string]$DisplayName = '')
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $repo = Split-Path $here -Parent
@@ -40,6 +41,20 @@ if ($c) {
   Start-Sleep -Seconds 2
   Say '已關閉舊的主機視窗／程式' Yellow
 }
+
+# 2.5) 這台主機在網站上的顯示名稱（會自動登錄到匯卷頁的「OCR 運算主機」下拉選單，所有老師都看得到）
+$cfgPath = Join-Path $here 'host-config.json'
+$cfg = @{}
+if (Test-Path $cfgPath) { try { (Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $cfg[$_.Name] = $_.Value } } catch {} }
+if (-not $DisplayName -and $cfg.ContainsKey('displayName')) { $DisplayName = [string]$cfg['displayName'] }
+if (-not $DisplayName -and -not [Console]::IsInputRedirected) {
+  $in = Read-Host '這台主機要在網站上顯示什麼名稱？（例如：劍潭。直接按 Enter 會使用電腦名稱）'
+  if ($in) { $DisplayName = $in.Trim() }
+}
+if (-not $DisplayName) { $DisplayName = $env:COMPUTERNAME }
+$cfg['displayName'] = $DisplayName
+($cfg | ConvertTo-Json) | Set-Content -LiteralPath $cfgPath -Encoding UTF8
+Say "網站上的顯示名稱：$DisplayName" Green
 
 # 3) 註冊工作排程（改用「隱藏啟動器＋系統匣小工具」：沒有任何黑視窗；右下角常駐圖示可叫出狀態）
 $vbs = Join-Path $here 'host-tray-launcher.vbs'
@@ -89,4 +104,5 @@ if ($dns) {
 Say ''
 Say '完成。右下角（可能在「^」隱藏圖示裡）會出現一個紅色「茲」小圖示：點它可看狀態、複製網址、重新啟動。' Green
 Say '之後不用再開任何視窗；登入後會自動在背景執行；要真的停止請在圖示右鍵選「結束」。' Green
+Say "這台主機會自動登錄到網站（名稱：$DisplayName），匯卷頁的「OCR 運算主機」下拉選單幾分鐘內就會出現，不用手動輸入網址。" Green
 Say '狀態檢查：雙擊「主機背景服務-狀態.bat」；不想用了：雙擊「解除安裝主機背景服務.bat」。'

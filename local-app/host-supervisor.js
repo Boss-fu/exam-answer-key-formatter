@@ -7,6 +7,7 @@
 const { spawn, execFile } = require("child_process");
 const fs = require("fs");
 const net = require("net");
+const registry = require("./host-registry");
 const os = require("os");
 const path = require("path");
 
@@ -83,6 +84,10 @@ async function ensureBridgeHttps() {
   } catch (e) { log(`[HTTPS] 尚未完成：${e.message}（Tailscale 要開著並登入，且後台要開啟 HTTPS 憑證）`); return ""; }
 }
 
+async function tsDns() {
+  try { const st = JSON.parse(await ts(["status", "--json"])); if (st.BackendState === "Running") return (st.Self?.DNSName || "").replace(/\.$/, ""); } catch (e) {}
+  return "";
+}
 function portOpen(port) { return new Promise((ok) => { const s = net.connect(port, "127.0.0.1"); s.once("connect", () => { s.destroy(); ok(true); }); s.once("error", () => ok(false)); s.setTimeout(1500, () => { s.destroy(); ok(false); }); }); }
 
 // ---- 自動更新（選用）：資料夾是 git clone 時，每 10 分鐘 fast-forward 一次，有新版就整個重開
@@ -101,7 +106,10 @@ async function main() {
     keep("ocr", path.join(HERE, "server.js"), { HOST_CONCURRENCY: num(cfg.ocrConcurrency) }),
     keep("ai-bridge", path.join(HERE, "ai-bridge.cjs"), { BRIDGE_OPEN: process.env.BRIDGE_OPEN || "1", BRIDGE_PORT: String(BRIDGE_PORT), BRIDGE_CONCURRENCY: num(cfg.aiConcurrency) }),
   ];
-  const stopAll = () => { kids.forEach((k) => k.stop()); releaseLock(); process.exit(0); };
+  // 自動報到：把這台主機（名稱＋網址）登錄到網站，下拉選單就會自動出現；顯示名稱用 host-config.json 的 displayName
+  let rev = ""; try { rev = require("child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(HERE, ".."), encoding: "utf8", timeout: 4000, windowsHide: true }).trim(); } catch (e) {}
+  const reg = registry.start({ here: HERE, getDns: tsDns, ready: () => portOpen(OCR_PORT), log, revision: rev });
+  const stopAll = async () => { kids.forEach((k) => k.stop()); try { await Promise.race([reg.stop(), new Promise((r) => setTimeout(r, 4000))]); } catch (e) {} releaseLock(); process.exit(0); };
   process.on("SIGINT", stopAll); process.on("SIGTERM", stopAll); process.on("exit", releaseLock);
   // 等橋接起來再設 HTTPS；Tailscale 還沒連上就每分鐘再試，連上後每 10 分鐘複查
   let dns = "";

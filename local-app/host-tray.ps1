@@ -146,6 +146,14 @@ function Update-Form {
   $t += ''
   $t += ("OCR 主機網址：" + $(if ($u.Ocr) { $u.Ocr } else { '（Tailscale 連線後顯示）' }))
   $t += ("AI 橋接網址：" + $(if ($u.Ai) { $u.Ai } else { '（Tailscale 連線後顯示）' }))
+  try {
+    $rf = Join-Path $out 'registry-state.json'
+    if (Test-Path $rf) {
+      $r = Get-Content $rf -Raw -Encoding UTF8 | ConvertFrom-Json
+      $mins = [int]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $r.at) / 60000
+      if ($r.ok) { $t += ("網站登錄：已登錄為「" + $r.name + "」（" + [int]$mins + " 分鐘前更新）") } else { $t += ("網站登錄：尚未完成（" + $r.error + "）") }
+    } else { $t += '網站登錄：等待第一次登錄（開機後約 15 秒）' }
+  } catch {}
   $script:form.Controls['lbl'].Text = ($t -join "`r`n")
   $script:form.Controls['tb'].Text = Tail-Log 40
   $script:form.Controls['tb'].SelectionStart = $script:form.Controls['tb'].Text.Length; $script:form.Controls['tb'].ScrollToCaret()
