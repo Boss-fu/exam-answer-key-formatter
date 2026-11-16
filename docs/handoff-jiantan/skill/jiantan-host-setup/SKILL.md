@@ -63,8 +63,9 @@ Get-Command claude, codex, agy -ErrorAction SilentlyContinue
 ### 5. 安裝背景服務
 ```powershell
 cd C:\詳解應用\local-app
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install-host-service.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-host-service.ps1 -DisplayName 劍潭
 ```
+`-DisplayName` 是這台主機在網站上顯示的名稱（這台請用「劍潭」）。安裝完成後主機會**自動登錄到網站**，匯卷頁「OCR 運算主機」下拉選單幾分鐘內就會出現「劍潭」，**不需要任何人手動輸入網址**。
 （擁有者也可以直接雙擊 `安裝主機背景服務.bat`。）它會：註冊工作排程（登入時啟動＋每 5 分鐘看門狗，經隱藏啟動器，**沒有任何黑視窗**）、建立開始功能表捷徑「茲茲主機」、啟動 OCR 主機（8787→HTTPS 8443）和 AI 橋接（8790→HTTPS 8790）。右下角（可能在「^」隱藏圖示內）會出現紅色「茲」小圖示：雙擊看狀態、右鍵可複製網址、重新啟動；要停止主機請在右鍵選「結束」（會先確認）。若偵測到舊排程「詳解本機應用 自動更新」，會停用並記錄（可還原）。
 
 ### 6. 驗證
@@ -98,7 +99,7 @@ curl.exe -s http://127.0.0.1:8790/engines -H "Origin: https://science-qbank.verc
 | 可用的 AI 工具 | agy／claude／codex |
 | 失敗或需人工確認的項目 | |
 
-管理者拿到「OCR 主機網址」後，在匯卷頁「OCR 運算主機」下拉選「劍潭」，第一次輸入這個網址即可。
+不需要把網址傳給任何人：主機會自動登錄到網站，匯卷頁的下拉選單會自動出現「劍潭」。（可在右下角圖示的狀態視窗看到「網站登錄」狀態。）
 
 ## 出問題時
 | 症狀 | 處理 |
