@@ -34,36 +34,31 @@ winget install --id Tailscale.Tailscale -e --source winget    # 已裝就略過�
 ```
 安裝後**關掉並重開 PowerShell**，再驗證 `git -v`、`node -v`、`py -3.11 --version`。
 
-### 2. 取得程式碼
+### 2. 取得程式碼（用安裝包，不需要 GitHub 權限）
 - 位置：`C:\詳解應用`（**不要放在 Dropbox／OneDrive 裡**）。
-- 這個專案是私有 repo：`https://github.com/Boss-fu/exam-answer-key-formatter`。
+- 安裝包放在公開網站上，**已用管理員密碼加密**，要用密碼才打得開：
 ```powershell
-git clone https://github.com/Boss-fu/exam-answer-key-formatter C:\詳解應用
-cd C:\詳解應用
-git pull --ff-only
-Test-Path .\local-app\install-host-service.ps1
+mkdir $env:TEMP\zizi-pkg -Force | Out-Null; cd $env:TEMP\zizi-pkg
+Invoke-WebRequest https://science-qbank.vercel.app/downloads/zizi-host-windows.zip.enc -OutFile pkg.enc
+Invoke-WebRequest https://science-qbank.vercel.app/downloads/decrypt-host-package.js -OutFile decrypt.js
+node decrypt.js pkg.enc pkg.zip        # 這裡會請擁有者「自己輸入」管理員密碼（輸入時不顯示）
 ```
-- 若 clone 被拒絕（沒有權限）：**停下來**，告訴擁有者「需要請 Boss-fu 把你的 GitHub 帳號加成這個 repo 的協作者，或請他提供整個資料夾的壓縮檔」，不要想辦法繞過。
-- 若 `Test-Path` 是 False（安裝腳本還沒合併進 main）：`git fetch origin claude/manager-host; git checkout claude/manager-host`。之後 main 合併了就切回 main：`git checkout main; git pull --ff-only`。
+- **密碼由擁有者自己輸入**。你不要向擁有者要密碼、不要把密碼寫進命令或檔案、不要讀取任何密碼檔。若不是互動式終端機無法隱藏輸入，請擁有者改用瀏覽器開 `https://science-qbank.vercel.app/host-download.html` 輸入密碼下載 `zizi-host-windows.zip`，再接下一步。
+- 解壓縮成 `C:\詳解應用`（壓縮檔內最上層資料夾叫「詳解應用」）：
+```powershell
+Expand-Archive -Path pkg.zip -DestinationPath C:\ -Force
+Test-Path C:\詳解應用\local-app\install-host-service.ps1
+Get-Content C:\詳解應用\先看這裡.txt
+```
+- 解壓縮後請閱讀 `先看這裡.txt`；它與本 skill 的步驟一致，兩者不同時以 `先看這裡.txt` 為準並告訴擁有者。
+- 這個安裝包**沒有自動更新**。之後有新版會請擁有者再下載一次，重跑本 skill 即可（重複安裝是安全的）。
 
-### 3. OCR 的 Python 環境與模型
+### 3. OCR 的 Python 環境與模型（一鍵腳本）
 ```powershell
-cd C:\詳解應用
-py -3.11 -m venv $env:USERPROFILE\.venvs\zizi-exam
-$py = "$env:USERPROFILE\.venvs\zizi-exam\Scripts\python.exe"
-(Get-Content ocr\requirements.txt) | Where-Object { $_ -notmatch 'rapid-latex-ocr' } | Set-Content $env:TEMP\ocr_req.txt
-& $py -m pip install --upgrade pip
-& $py -m pip install -r $env:TEMP\ocr_req.txt python-docx rapidfuzz openpyxl
-& $py -c "import rapidocr_onnxruntime, cv2, pymupdf, docx, rapidfuzz, opencc, openpyxl; print('Python 套件 OK')"
+cd C:\詳解應用\local-app
+powershell -NoProfile -ExecutionPolicy Bypass -File .\prepare-ocr-env.ps1
 ```
-PP-OCRv5 模型（`ocr\models\det.onnx`、`rec.onnx`；`ppocrv5_dict.txt` 已在 repo 內）：
-```powershell
-$B = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5'
-if (-not (Test-Path ocr\models\det.onnx)) { Invoke-WebRequest "$B/det/ch_PP-OCRv5_det_mobile.onnx" -OutFile ocr\models\det.onnx }
-if (-not (Test-Path ocr\models\rec.onnx)) { Invoke-WebRequest "$B/rec/ch_PP-OCRv5_rec_mobile.onnx" -OutFile ocr\models\rec.onnx }
-Get-ChildItem ocr\models
-```
-下載失敗就回報網址與錯誤，**不要換成別的來源**。
+（擁有者也可雙擊 `準備OCR環境.bat`。）它會建立 Python 3.11 虛擬環境（`%USERPROFILE%\.venvs\zizi-exam`）、安裝套件、下載 PP-OCRv5 模型到 `ocr\models`。需要連網、第一次約數分鐘。失敗就回報完整錯誤與網址，**不要換成別的來源或別的 Python 版本**。
 
 ### 4. AI 橋接要用的 AI 工具
 橋接會用這台電腦上**已登入**的命令列 AI（優先順序 agy → claude → codex）。檢查：
