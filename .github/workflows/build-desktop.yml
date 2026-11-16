@@ -1,0 +1,98 @@
+name: build-desktop
+# 在 Windows 建置 ZiziOCR 桌面版（無視窗＋系統匣），建置後用 --selftest 實際跑一份 OCR／題庫 Excel／自動切圖驗證。
+# 手動觸發：Actions → build-desktop → Run workflow。tag 填版本（例如 2.0.0）時會發佈到公開 repo 的 release（需要 PUBLISH_TOKEN）。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "發佈用版本號（例如 2.0.0；留空只建置並上傳 artifact）"
+        required: false
+        default: ""
+      publish_repo:
+        description: "發佈到哪個公開 repo"
+        required: false
+        default: "ljmath-glitch/science-qbank"
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install packages
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          (Get-Content ocr\requirements.txt) | Where-Object { $_ -notmatch 'rapid-latex-ocr' } | Set-Content $env:RUNNER_TEMP\req.txt
+          python -m pip install -r $env:RUNNER_TEMP\req.txt python-docx rapidfuzz openpyxl pystray pyinstaller
+      - name: Download OCR models
+        shell: pwsh
+        run: |
+          $B = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5'
+          foreach ($m in @(@('det/ch_PP-OCRv5_det_mobile.onnx','det.onnx'), @('rec/ch_PP-OCRv5_rec_mobile.onnx','rec.onnx'))) {
+            $dst = "ocr\models\$($m[1])"
+            for ($i = 1; $i -le 4; $i++) {
+              try { Invoke-WebRequest -Uri "$B/$($m[0])" -OutFile $dst -UseBasicParsing; if ((Get-Item $dst).Length -gt 1MB) { break } } catch { Write-Host "retry $i : $($_.Exception.Message)"; Start-Sleep 5 }
+            }
+            if (-not (Test-Path $dst) -or (Get-Item $dst).Length -lt 1MB) { throw "model download failed: $($m[1])" }
+          }
+          Get-ChildItem ocr\models
+      - name: Fetch layout model (runs crop once)
+        shell: pwsh
+        run: |
+          python -c "import pymupdf; d=pymupdf.open(); p=d.new_page(); p.insert_text((60,90),'Figure 1'); p.draw_rect(pymupdf.Rect(60,120,300,300)); d.save('sample.pdf')"
+          python ocr\figcrop\crop.py sample.pdf -o crop_out --json
+          $m = python -c "import rapid_layout,os;print(os.path.join(os.path.dirname(rapid_layout.__file__),'models'))"
+          Get-ChildItem $m
+      - name: Build exe
+        shell: pwsh
+        run: |
+          ./desktop/build.ps1 -Repo $PWD -Work $env:RUNNER_TEMP\zbuild
+      - name: Selftest (real OCR on the built exe)
+        shell: pwsh
+        run: |
+          $env:ZIZI_OCR_PORT = '28787'; $env:ZIZI_BRIDGE_PORT = '28790'
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\zlocal"; New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+          $env:ZIZI_SELFTEST_OUT = "$env:RUNNER_TEMP\selftest.json"
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP\zbuild\dist\ZiziOCR\ZiziOCR.exe" -ArgumentList '--selftest' -PassThru -Wait
+          Write-Host "exit code: $($p.ExitCode)"
+          if (Test-Path $env:ZIZI_SELFTEST_OUT) { Get-Content $env:ZIZI_SELFTEST_OUT -Raw } else { Write-Host 'no selftest output' }
+          $log = "$env:LOCALAPPDATA\ZiziOCR\ziziocr.log"; if (Test-Path $log) { Write-Host '--- log'; Get-Content $log -Tail 40 }
+          if ($p.ExitCode -ne 0) { throw 'selftest failed' }
+      - name: Tray smoke test (starts the real app, checks ports, then stops)
+        shell: pwsh
+        run: |
+          $env:ZIZI_OCR_PORT = '28887'; $env:ZIZI_BRIDGE_PORT = '28890'
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\zlocal2"; New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\ZiziOCR" | Out-Null
+          '{"displayName":"ci","askedName":true,"autostart":false,"share":false,"register":false}' | Set-Content "$env:LOCALAPPDATA\ZiziOCR\config.json"
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP\zbuild\dist\ZiziOCR\ZiziOCR.exe" -ArgumentList '--background' -PassThru
+          Start-Sleep 20
+          $alive = -not $p.HasExited
+          $ocr = [bool](Get-NetTCPConnection -LocalPort 28887 -State Listen -ErrorAction SilentlyContinue)
+          $ai = [bool](Get-NetTCPConnection -LocalPort 28890 -State Listen -ErrorAction SilentlyContinue)
+          Write-Host "alive=$alive ocr=$ocr ai=$ai"
+          $log = "$env:LOCALAPPDATA\ZiziOCR\ziziocr.log"; if (Test-Path $log) { Get-Content $log -Tail 20 }
+          Get-Process ZiziOCR -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not ($alive -and $ocr -and $ai)) { throw 'tray app did not stay up' }
+      - name: Zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Force -Path "$env:RUNNER_TEMP\zbuild\dist\ZiziOCR" -DestinationPath "$env:RUNNER_TEMP\ZiziOCR-windows.zip"
+          Get-Item "$env:RUNNER_TEMP\ZiziOCR-windows.zip" | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB)}}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZiziOCR-windows
+          path: ${{ runner.temp }}/ZiziOCR-windows.zip
+          retention-days: 14
+      - name: Publish release to public repo
+        if: ${{ inputs.tag != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw 'PUBLISH_TOKEN secret is missing' }
+          $repo = '${{ inputs.publish_repo }}'; $tag = 'ocr-desktop-v${{ inputs.tag }}'
+          gh release view $tag --repo $repo 2>$null; if ($LASTEXITCODE -ne 0) { gh release create $tag --repo $repo --title "ZiziOCR ${{ inputs.tag }}" --notes "ZiziOCR desktop ${{ inputs.tag }}" }
+          gh release upload $tag "$env:RUNNER_TEMP\ZiziOCR-windows.zip" --repo $repo --clobber
