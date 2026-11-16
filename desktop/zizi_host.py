@@ -386,9 +386,9 @@ def share_loop(stop, https_ocr=8443, https_ai=8790):
                 if cfg.get("share"):
                     hostlib.ensure_https(dns, https_ocr, PORT)
                     hostlib.ensure_https(dns, https_ai, BRIDGE_PORT)
-                name = hostlib.display_name(cfg)
+                name, name_at = hostlib.sync_name(dns, cfg) if cfg.get("register") else (hostlib.display_name(cfg), 0)
                 if cfg.get("register"):
-                    hostlib.upsert(hostlib.build_row(dns, name, https_ocr, https_ai, VERSION))
+                    hostlib.upsert(hostlib.build_row(dns, name, https_ocr, https_ai, VERSION, name_at=name_at))
                     if last != (name, dns):
                         log(f"[登錄] 已登錄到網站：{name}（https://{dns}:{https_ocr}）")
                     last = (name, dns)
@@ -406,7 +406,8 @@ def deregister():
         cfg = hostlib.load_config()
         dns = hostlib.tailscale_dns()
         if dns and cfg.get("register"):
-            row = hostlib.build_row(dns, hostlib.display_name(cfg), 8443, 8790, VERSION, online=False)
+            name, name_at = hostlib.sync_name(dns, cfg)
+            row = hostlib.build_row(dns, name, 8443, 8790, VERSION, online=False, name_at=name_at)
             hostlib.upsert(row)
     except Exception:
         pass

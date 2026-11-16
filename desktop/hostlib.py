@@ -154,10 +154,36 @@ def host_id(dns):
     return ID_BASE + (h % 1_000_000_000)
 
 
-def build_row(dns, name, ocr_port, ai_port, version, online=True):
-    obj = {"kind": "ocr-host", "v": 1, "name": name, "url": f"https://{dns}:{ocr_port}", "aiUrl": f"https://{dns}:{ai_port}",
+def build_row(dns, name, ocr_port, ai_port, version, online=True, name_at=0):
+    obj = {"kind": "ocr-host", "v": 1, "name": name, "nameAt": int(name_at or 0), "url": f"https://{dns}:{ocr_port}", "aiUrl": f"https://{dns}:{ai_port}",
            "platform": sys.platform, "revision": version, "seen": int(time.time() * 1000), "online": online}
     return {"id": host_id(dns), "content": json.dumps(obj, ensure_ascii=False)}
+
+
+def fetch_row(dns, opener=None):
+    """讀回網站上這台的登錄資料（網頁改名會寫在這裡）；失敗回 None。"""
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/syllabus_doc?select=content&id=eq.{host_id(dns)}",
+                                     headers={"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY})
+        with (opener or urllib.request.urlopen)(req, timeout=15) as r:
+            rows = json.loads(r.read().decode("utf-8"))
+        return json.loads(rows[0]["content"]) if rows else None
+    except Exception:
+        return None
+
+
+def sync_name(dns, cfg, opener=None):
+    """名稱以「最後修改者」為準：網頁（nameAt 較新）→ 採用網頁名稱並存回本機設定；否則以本機為準。"""
+    remote = fetch_row(dns, opener)
+    try:
+        rat = int((remote or {}).get("nameAt") or 0)
+    except (TypeError, ValueError):
+        rat = 0
+    rname = str((remote or {}).get("name") or "").strip()[:20]
+    if remote and rname and rat > int(cfg.get("nameAt") or 0):
+        cfg["displayName"], cfg["nameAt"] = rname, rat
+        save_config(cfg)
+    return display_name(cfg), int(cfg.get("nameAt") or 0)
 
 
 def upsert(row, opener=None):

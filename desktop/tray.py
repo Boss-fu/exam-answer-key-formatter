@@ -145,6 +145,7 @@ def run(app, stop):
             n = input_box("這台主機要在網站上顯示什麼名稱？（例如：劍潭；留空就用電腦名稱）", TITLE, hostlib.display_name(c))
             if n is not None:
                 c["displayName"] = n.strip()
+                c["nameAt"] = int(time.time() * 1000)
                 hostlib.save_config(c)
                 log(f"顯示名稱改為：{hostlib.display_name(c)}")
         threading.Thread(target=go, daemon=True).start()
@@ -213,6 +214,7 @@ def run(app, stop):
             c["askedName"] = True
             if n:
                 c["displayName"] = n.strip()
+                c["nameAt"] = int(time.time() * 1000)
             hostlib.save_config(c)
 
     def setup(icon):
