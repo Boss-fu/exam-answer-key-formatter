@@ -3,6 +3,7 @@
  * 支援 agy（Antigravity／Google AI Pro）、claude（Claude Code CLI）、codex（Codex CLI）；請求可指定 engine，auto 依序挑第一個有安裝的。
  * 只聽 127.0.0.1，再用 `tailscale serve` 以 HTTPS 開放給你的 tailnet；每個請求都要帶 token。
  * 用法見 docs/integrations/agy-bridge.md。 */
+require('./hide-windows');   // Windows 背景執行：子程式不跳黑視窗
 const http=require('http'),fs=require('fs'),os=require('os'),path=require('path'),crypto=require('crypto');
 const {spawn}=require('child_process');
 const PORT=+process.env.BRIDGE_PORT||+process.env.PORT||8790;
@@ -15,7 +16,7 @@ const WORKDIR=fs.mkdtempSync(path.join(os.tmpdir(),'agy-bridge-'));   // 空目�
 let token='';
 try{token=fs.readFileSync(TOKEN_FILE,'utf8').trim();}catch(e){}
 if(!token){token=crypto.randomBytes(18).toString('hex');fs.writeFileSync(TOKEN_FILE,token,{mode:0o600});}
-let chain=Promise.resolve();   // 一次只跑一題，避免同時開一堆 agy
+const AIQ=require('./host-queue').createHostQueue(process.env.BRIDGE_CONCURRENCY||1);   // 預設一次只跑一題；BRIDGE_CONCURRENCY 可調高（多人同時用 AI 分類）
 const isWin=process.platform==='win32';
 const which=(cmd)=>new Promise(r=>require('child_process').execFile(isWin?'where':'which',[cmd],(e,out)=>r(e?'':String(out).split(/\r?\n/)[0].trim())));
 const ENGINES={
@@ -88,7 +89,7 @@ http.createServer((req,res)=>{
     let j;try{j=JSON.parse(body);}catch(e){return send(400,{error:'JSON 格式錯誤'});}
     const prompt=String(j.prompt||'').slice(0,60000);if(!prompt)return send(400,{error:'缺 prompt'});
     const imgs=Array.isArray(j.imgs)?j.imgs.filter(x=>typeof x==='string'):[];
-    chain=chain.then(async()=>{
+    AIQ.run(async()=>{
       const {dir,files}=await saveImgs(imgs);
       try{
         const full=prompt+(files.length?'\n\n題目附圖檔案（請用讀檔方式實際查看這些圖片再判斷）：\n'+files.join('\n'):'')

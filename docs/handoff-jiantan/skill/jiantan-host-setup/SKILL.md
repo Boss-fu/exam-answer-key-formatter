@@ -72,7 +72,7 @@ Get-Command claude, codex, agy -ErrorAction SilentlyContinue
 cd C:\詳解應用\local-app
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install-host-service.ps1
 ```
-（擁有者也可以直接雙擊 `安裝主機背景服務.bat`。）它會：註冊工作排程「茲茲主機背景服務」（登入時＋每 5 分鐘看門狗，隱藏視窗）、啟動 OCR 主機（8787→HTTPS 8443）和 AI 橋接（8790→HTTPS 8790）。若偵測到舊排程「詳解本機應用 自動更新」，會停用並記錄（可還原）。
+（擁有者也可以直接雙擊 `安裝主機背景服務.bat`。）它會：註冊工作排程（登入時啟動＋每 5 分鐘看門狗，經隱藏啟動器，**沒有任何黑視窗**）、建立開始功能表捷徑「茲茲主機」、啟動 OCR 主機（8787→HTTPS 8443）和 AI 橋接（8790→HTTPS 8790）。右下角（可能在「^」隱藏圖示內）會出現紅色「茲」小圖示：雙擊看狀態、右鍵可複製網址、重新啟動；要停止主機請在右鍵選「結束」（會先確認）。若偵測到舊排程「詳解本機應用 自動更新」，會停用並記錄（可還原）。
 
 ### 6. 驗證
 ```powershell
@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\host-service-status.ps1
 curl.exe -s http://127.0.0.1:8787/api/health
 curl.exe -s http://127.0.0.1:8790/engines -H "Origin: https://science-qbank.vercel.app"
 ```
-預期：排程 Ready／Running、8787 與 8790 都「執行中」、health 回 `"service":"tzutzu-ocr"`、engines 列出可用的 AI 工具。再**關掉所有視窗**，確認服務還在；若能，請擁有者登出再登入（或重開機）一次，確認會自己起來。
+預期：排程 Ready／Running、8787 與 8790 都「執行中」、health 回 `"service":"tzutzu-ocr"`、engines 列出可用的 AI 工具。確認**畫面上沒有任何黑色視窗**、右下角有「茲」圖示；再確認服務還在；若能，請擁有者登出再登入（或重開機）一次，確認會自己起來。
 
 ### 7. Tailscale 後台（需要擁有者本人在瀏覽器操作，你只能引導）
 請擁有者開 `https://login.tailscale.com/admin/dns`：

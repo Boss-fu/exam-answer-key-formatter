@@ -41,14 +41,28 @@ if ($c) {
   Say '已關閉舊的主機視窗／程式' Yellow
 }
 
-# 3) 註冊工作排程：登入時啟動＋每 5 分鐘看門狗（程式內有鎖檔，不會重複開）
-$arg = "--headless `"$node`" `"$sup`""
-$act = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $arg -WorkingDirectory $here
-$t1  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$t2  = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-$set = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName $taskName -Action $act -Trigger $t1, $t2 -Settings $set -Force | Out-Null
-Say "已註冊工作排程「$taskName」" Green
+# 3) 註冊工作排程（改用「隱藏啟動器＋系統匣小工具」：沒有任何黑視窗；右下角常駐圖示可叫出狀態）
+$vbs = Join-Path $here 'host-tray-launcher.vbs'
+if (-not (Test-Path $vbs)) { Say '缺少 host-tray-launcher.vbs，請確認資料夾完整。' Red; exit 1 }
+$set = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
+$act1 = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$vbs`"" -WorkingDirectory $here
+$act2 = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$vbs`" -Watchdog" -WorkingDirectory $here
+$t1 = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$t2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName $taskName -Action $act1 -Trigger $t1 -Settings $set -Force | Out-Null
+Register-ScheduledTask -TaskName "$taskName-看門狗" -Action $act2 -Trigger $t2 -Settings $set -Force | Out-Null
+Say "已註冊工作排程「$taskName」（登入時啟動）與「$taskName-看門狗」（每 5 分鐘確認小工具還在）" Green
+# 開始功能表捷徑：小工具被關掉時，可從這裡再叫出來
+try {
+  $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) '茲茲主機.lnk'
+  $w = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+  $w.TargetPath = 'wscript.exe'; $w.Arguments = "//B //Nologo `"$vbs`""; $w.WorkingDirectory = $here; $w.Description = '茲茲主機（OCR 主機＋AI 橋接）'; $w.Save()
+  Say '已建立開始功能表捷徑「茲茲主機」' Green
+} catch { Say "（捷徑建立失敗，不影響使用：$($_.Exception.Message)）" Yellow }
+# 先關掉舊版（conhost 版）的背景程式再啟動新的
+$lockFile = Join-Path $out 'host-supervisor.lock'
+if (Test-Path $lockFile) { $id = [int](Get-Content $lockFile -ErrorAction SilentlyContinue); if ($id -and (Get-Process -Id $id -ErrorAction SilentlyContinue)) { & taskkill /PID $id /T /F | Out-Null; Start-Sleep -Seconds 1 } }
+Remove-Item (Join-Path $out 'stopped.flag') -Force -ErrorAction SilentlyContinue
 Start-ScheduledTask -TaskName $taskName
 
 # 4) 等服務起來
@@ -73,5 +87,6 @@ if ($dns) {
   Say '請在 Tailscale 後台（login.tailscale.com/admin/dns）確認已開啟 MagicDNS 與 HTTPS 憑證。' Yellow
 } else { Say '還沒取得 Tailscale 名稱：請開啟 Tailscale 並登入後，這個服務會自動完成設定。' Yellow }
 Say ''
-Say '完成。之後不用再開任何視窗；重開機、登入後會自動在背景執行。' Green
+Say '完成。右下角（可能在「^」隱藏圖示裡）會出現一個紅色「茲」小圖示：點它可看狀態、複製網址、重新啟動。' Green
+Say '之後不用再開任何視窗；登入後會自動在背景執行；要真的停止請在圖示右鍵選「結束」。' Green
 Say '狀態檢查：雙擊「主機背景服務-狀態.bat」；不想用了：雙擊「解除安裝主機背景服務.bat」。'
