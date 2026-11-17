@@ -19,6 +19,29 @@ function displayName(here) {
   try { const c = JSON.parse(fs.readFileSync(path.join(here, "host-config.json"), "utf8")); if (c.displayName && String(c.displayName).trim()) return String(c.displayName).trim().slice(0, 20); } catch (e) {}
   return os.hostname().slice(0, 20);
 }
+function readCfg(here) { try { return JSON.parse(fs.readFileSync(path.join(here, "host-config.json"), "utf8")); } catch (e) { return {}; } }
+function writeCfg(here, cfg) { fs.writeFileSync(path.join(here, "host-config.json"), JSON.stringify(cfg, null, 1)); }
+async function fetchRow(dns, fetchImpl) {
+  try {
+    const f = fetchImpl || fetch;
+    const r = await f(`${SUPABASE_URL}/rest/v1/syllabus_doc?select=content&id=eq.${hostId(dns)}`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return rows && rows[0] ? JSON.parse(rows[0].content) : null;
+  } catch (e) { return null; }
+}
+// 名稱以「最後修改的人」為準：網站改名會寫 nameAt（時間戳）；本機改名（托盤或改 host-config.json）時，本機名稱與上次登錄的不同，就蓋上現在時間。
+// lastPublished：上次成功登錄的名稱（沒有就當作沒改）。回傳 { name, nameAt }。
+async function syncName({ here, dns, lastPublished, fetchImpl }) {
+  const cfg = readCfg(here);
+  let name = displayName(here), at = Number(cfg.nameAt) || 0;
+  if (lastPublished && name !== lastPublished) { at = Date.now(); }          // 本機剛改過名
+  const remote = await fetchRow(dns, fetchImpl);
+  const rat = Number(remote && remote.nameAt) || 0, rname = String((remote && remote.name) || "").trim().slice(0, 20);
+  if (remote && rname && rname !== name && rat > at) { name = rname; at = rat; }   // 網站比較新 → 採用網站名稱
+  if (cfg.displayName !== name || (Number(cfg.nameAt) || 0) !== at) { try { writeCfg(here, Object.assign({}, cfg, { displayName: name, nameAt: at })); } catch (e) {} }
+  return { name, nameAt: at };
+}
 function buildRow(dns, name, extra) {
   const url = `https://${dns}:8443`;
   const obj = Object.assign({ kind: "ocr-host", v: 1, name, url, aiUrl: `https://${dns}:8790`, platform: process.platform, seen: Date.now(), online: true }, extra || {});
@@ -45,8 +68,8 @@ function start({ here, getDns, ready, log, revision, intervalMs, fetchImpl }) {
       const dns = await getDns();
       if (!dns) { writeState({ ok: false, at: Date.now(), error: "Tailscale 尚未連線" }); return; }
       if (online && !(await ready())) { writeState({ ok: false, at: Date.now(), error: "OCR 服務尚未啟動" }); return; }
-      const name = displayName(here);
-      const row = buildRow(dns, name, { revision: revision || "", online });
+      const { name, nameAt } = await syncName({ here, dns, lastPublished: last && last.name, fetchImpl });
+      const row = buildRow(dns, name, { revision: revision || "", online, nameAt });
       await upsert(row, fetchImpl);
       if (!last || last.name !== name || last.dns !== dns) log(`[登錄] 已登錄到網站：${name}（https://${dns}:8443）`);
       last = { name, dns };
@@ -60,4 +83,4 @@ function start({ here, getDns, ready, log, revision, intervalMs, fetchImpl }) {
     tick,
   };
 }
-module.exports = { start, hostId, buildRow, upsert, displayName, ID_BASE };
+module.exports = { start, hostId, buildRow, upsert, displayName, syncName, ID_BASE };
