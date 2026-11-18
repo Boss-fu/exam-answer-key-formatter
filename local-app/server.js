@@ -738,6 +738,8 @@ const server = http.createServer(async (req, res) => {
         usage.seconds=Math.round((Date.now()-start)/1000);
         return sendJson(res, 200, {...result,usage});
       } catch (error) {
+        // 使用者只看到通用訊息；真正原因寫進 output/ocr.log，管理員才查得到。
+        if (![400, 413, 429].includes(error.statusCode)) console.error(`[${new Date().toISOString()}] 產生詳解失敗（${input?.filename || "未知檔案"}）：${error.stack || error.message}`);
         const message = [400, 413, 429].includes(error.statusCode) ? error.message
           : error instanceof SyntaxError ? "上傳資料格式不正確，請重新選擇檔案。"
           : /^(PDF 轉圖片失敗|讀取考卷失敗)/.test(error.message) ? error.message
