@@ -95,9 +95,22 @@ function gitPull() {
   return new Promise((ok) => execFile("git", ["pull", "--ff-only"], { cwd: path.join(HERE, ".."), timeout: 60000, windowsHide: true }, (e, out) => ok(e ? "" : String(out))));
 }
 
+// ---- Windows：Node 無法直接啟動 npm 裝的 "claude"（只有 .cmd 包裝），比照 start.bat 指到實際的 claude.exe
+function findClaudeBin(env = process.env, exists = fs.existsSync) {
+  if (env.CLAUDE_BIN || process.platform !== "win32") return env.CLAUDE_BIN || "";
+  const candidates = [
+    env.APPDATA && path.join(env.APPDATA, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe"),
+    env.USERPROFILE && path.join(env.USERPROFILE, ".local", "bin", "claude.exe"),
+  ].filter(Boolean);
+  return candidates.find((p) => exists(p)) || "";
+}
+
 async function main() {
   if (!takeLock()) { log("已有另一份在跑，結束"); return process.exit(0); }
   log(`=== 啟動（${os.hostname()}，pid ${process.pid}）===`);
+  const claudeBin = findClaudeBin();
+  if (claudeBin) { process.env.CLAUDE_BIN = claudeBin; log(`Claude Code：${claudeBin}`); }
+  else if (process.platform === "win32") log("找不到 claude.exe：產生詳解會失敗。請安裝並登入 Claude Code，或在環境變數設定 CLAUDE_BIN。");
   // 同時處理幾份：local-app/host-config.json 例如 {"ocrConcurrency":2,"aiConcurrency":3}（沒有這個檔＝都是 1）
   let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(path.join(HERE, "host-config.json"), "utf8")); } catch (e) {}
   const num = (v) => String(Math.max(1, Math.min(8, parseInt(v, 10) || 1)));
@@ -120,4 +133,4 @@ async function main() {
   }
 }
 if (require.main === module) main();
-module.exports = { takeLock, releaseLock, keep };
+module.exports = { takeLock, releaseLock, keep, findClaudeBin };
