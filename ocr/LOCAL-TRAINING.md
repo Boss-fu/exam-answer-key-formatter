@@ -46,3 +46,11 @@ DOCX 本身也可能有錯字、漏題或特殊字型導致的顯示問題。
 
 原始 Google Drive 資料夾唯讀。私人考卷、頁圖、標註與模型輸出放在 repo 根目錄的 `output/`，已被 `.gitignore` 排除；
 未經使用者明確要求，不上傳雲端 AI 或 GitHub。
+
+## 已收錄的人工校對樣本（私人資料，不進 git）
+
+- `huaxing-g9-113-s1-exam2-earthsci`（華興國中 九年級 113 上 第二次段考 地科，50 題）：
+  `ocr/testset/` 內有原稿 PDF、清稿 PDF 與依 `schema.md` 整理的 `.gt.json`（題目與答案已人工核對；第 41 題標 `needsReview`）。
+  誤認紀錄在 `output/ocr-lab/corrections-*.jsonl`。窄規則已寫進 `ocr_symbols.fix_known_confusions`（板瑰→板塊、甲乙丙「于」→丁、地殼「一」玄武→地殼—玄武），並有單元測試。
+- 這份樣本屬於 train 候選；驗收仍須用未參與調整的 holdout。目前環境（雲端容器）沒有 PP-OCR 模型與 `~/.venvs/zizi-exam`，
+  實際評測與微調要在有環境的本機（劍潭／福大）執行：`python3 ocr/eval_gt.py huaxing --fresh --diff`。

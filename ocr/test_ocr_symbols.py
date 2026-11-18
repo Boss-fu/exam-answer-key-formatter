@@ -23,6 +23,16 @@ class OcrSymbols(unittest.TestCase):
         self.assertEqual(fix_symbols(""), "")
         self.assertIsNone(fix_symbols(None))
 
+    def test_known_confusions(self):
+        # 華興國中 113 上第二次段考（地科）人工校對抓到的真實誤認
+        self.assertEqual(fix_symbols("位在非洲板瑰的乙"), "位在非洲板塊的乙")
+        self.assertEqual(fix_symbols("測站距離甲>乙>丙>于"), "測站距離甲>乙>丙>丁")
+        self.assertEqual(fix_symbols("(A)大陸地殼一玄武岩質"), "(A)大陸地殼—玄武岩質")
+
+    def test_known_confusions_do_not_touch_normal_text(self):
+        for s in ["位在非洲板塊的乙", "于是我們出發", "甲>乙>丙>丁", "地殼一般由玄武岩構成", "地函一定比地殼厚"]:
+            self.assertEqual(fix_symbols(s), s)
+
     def test_idempotent(self):
         once = fix_symbols("㈲㆗㆙")
         self.assertEqual(fix_symbols(once), once)

@@ -26,8 +26,27 @@ def _one(ch):
     return n
 
 
-def fix_symbols(text):
-    """把特殊字元換成一般字；沒有特殊字元時原樣回傳（很快）。"""
-    if not text or not _RE.search(text):
+# 已知的「長得像」誤認：人工校對真實考卷時抓到的，規則寫得很窄（要有前後文才換），避免誤傷正常文字。
+_CONFUSIONS = [
+    (re.compile("板瑰"), "板塊"),                                   # 塊 ↔ 瑰（板塊、地塊）
+    (re.compile(r"(丙\s*[>＞、，,]\s*)于"), r"\1丁"),                # 甲、乙、丙、于 → 丁（甲乙丙丁序列）
+    (re.compile(r"(地殼|地函|地核)一(?=[玄橄花鐵])"), r"\1—"),         # 地殼一玄武岩質 → 地殼—玄武岩質（破折號被讀成「一」）
+]
+
+
+def fix_known_confusions(text):
+    """套用上面的窄規則；沒有命中時原樣回傳。"""
+    if not text:
         return text
-    return _RE.sub(lambda m: _one(m.group(0)), text)
+    for rx, rep in _CONFUSIONS:
+        text = rx.sub(rep, text)
+    return text
+
+
+def fix_symbols(text):
+    """把特殊字元換成一般字，並修正已知的字形誤認；都沒有時原樣回傳（很快）。"""
+    if not text:
+        return text
+    if _RE.search(text):
+        text = _RE.sub(lambda m: _one(m.group(0)), text)
+    return fix_known_confusions(text)
