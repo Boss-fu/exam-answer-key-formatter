@@ -1,6 +1,8 @@
 ﻿# 準備 OCR 環境（Windows，只需做一次）：Python 3.11 虛擬環境＋套件＋PP-OCRv5 模型
 # 位置固定在 %USERPROFILE%\.venvs\zizi-exam（主機程式會自動找這個位置）。重複執行是安全的。
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 的下載進度條會讓 Invoke-WebRequest 慢數十倍
+$ProgressPreference = 'SilentlyContinue'
 $repo = Split-Path $PSScriptRoot -Parent
 function Say($m, $c = 'White') { Write-Host $m -ForegroundColor $c }
 

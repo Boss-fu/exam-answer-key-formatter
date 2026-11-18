@@ -2,6 +2,8 @@
 # powershell -ExecutionPolicy Bypass -File ocr\setup_env.ps1
 # 建立 %USERPROFILE%\.venvs\zizi-exam，下載 PP-OCRv5 ONNX 模型到 ocr\models。
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 的下載進度條會讓 Invoke-WebRequest 慢數十倍
+$ProgressPreference = 'SilentlyContinue'
 $Root = Split-Path -Parent $PSScriptRoot
 $Venv = if ($env:OCR_VENV) { $env:OCR_VENV } else { Join-Path $env:USERPROFILE ".venvs\zizi-exam" }
 $Python = if ($env:OCR_SETUP_PYTHON) { $env:OCR_SETUP_PYTHON } else { "py" }
